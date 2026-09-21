@@ -378,6 +378,9 @@ async function refreshWorkspaceRecovery(
   state.recovery = recovery;
   statusProvider.update(state.health, state.gatewayKeyConfigured, recovery);
   chatProvider.setRecovery(recovery);
+  chatProvider.setReview(
+    await loadLatestReviewReport(folder.uri.fsPath, config).catch(() => undefined),
+  );
 
   if (output) {
     output.appendLine("");
@@ -923,7 +926,7 @@ async function runGatewayReview(
   state: ExtensionState,
   output: vscode.OutputChannel,
   fixLoop: boolean,
-): Promise<void> {
+): Promise<CodeReviewReport | undefined> {
   const folder = firstWorkspaceFolder();
   if (!folder) {
     throw new Error("Open a repository workspace before running review.");
@@ -934,11 +937,11 @@ async function runGatewayReview(
   }
 
   const apiKey = await gatewayApiKeyOrPrompt(context);
-  if (!apiKey) return;
+  if (!apiKey) return undefined;
 
   const model =
     configuration().get<string>("agentModel", "kilo-auto/free").trim() || "kilo-auto/free";
-  if (!(await confirmAutoFreeDataHandling(context, model))) return;
+  if (!(await confirmAutoFreeDataHandling(context, model))) return undefined;
 
   const root = folder.uri.fsPath;
   const config = await loadAgentConfig(root, {
@@ -1012,7 +1015,7 @@ async function runGatewayReview(
         result.review.blockingCount +
         " blocking finding(s).",
     );
-    return;
+    return result.review;
   }
 
   const report = await vscode.window.withProgress(
@@ -1042,6 +1045,7 @@ async function runGatewayReview(
       report.nonBlockingCount +
       " non-blocking finding(s).",
   );
+  return report;
 }
 
 async function runAgentChatTurn(
@@ -2694,7 +2698,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     }),
     vscode.commands.registerCommand("llmatic.review", async () => {
       try {
-        await runGatewayReview(context, state, output, false);
+        const review = await runGatewayReview(context, state, output, false);
+        if (review) chatProvider.setReview(review);
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
         await vscode.window.showErrorMessage("LLMatic review: " + message);
@@ -2702,7 +2707,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     }),
     vscode.commands.registerCommand("llmatic.reviewFixLoop", async () => {
       try {
-        await runGatewayReview(context, state, output, true);
+        const review = await runGatewayReview(context, state, output, true);
+        if (review) chatProvider.setReview(review);
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
         await vscode.window.showErrorMessage("LLMatic review/fix loop: " + message);
