@@ -25,7 +25,8 @@
     "@llmatic/kilo-connector": "workspace:*",
     "@llmatic/workspace-manager": "workspace:*",
     "@llmatic/agent-orchestrator": "workspace:*",
-    "@llmatic/gateway-client": "workspace:*"
+    "@llmatic/gateway-client": "workspace:*",
+    "@llmatic/review-engine": "workspace:*"
   },
   "devDependencies": {
     "@types/vscode": "1.105.0",
@@ -67,6 +68,16 @@
       {
         "command": "llmatic.runAgent",
         "title": "Run Gateway Agent",
+        "category": "LLMatic"
+      },
+      {
+        "command": "llmatic.review",
+        "title": "Run Code Review",
+        "category": "LLMatic"
+      },
+      {
+        "command": "llmatic.reviewFixLoop",
+        "title": "Run Review / Fix Loop",
         "category": "LLMatic"
       },
       {

@@ -7,6 +7,12 @@ import { runCodingAgent, type CodingAgentEvent } from "@llmatic/agent-orchestrat
 import { loadAgentConfig, WorkflowStateStore } from "@llmatic/core";
 import { KiloGatewayClient } from "@llmatic/gateway-client";
 import {
+  runCodeReview,
+  runReviewFixLoop,
+  type CodeReviewReport,
+  type ReviewLoopEvent,
+} from "@llmatic/review-engine";
+import {
   ensureGlobalKiloMcpServer,
   isGlobalKiloLlmaticServerHealthy,
   readGlobalKiloLlmaticServer,
@@ -299,6 +305,152 @@ async function confirmAutoFreeDataHandling(
   return true;
 }
 
+function printReviewReport(output: vscode.OutputChannel, report: CodeReviewReport): void {
+  output.appendLine("Review summary: " + report.summary);
+  output.appendLine(
+    "Findings: " +
+      report.findings.length +
+      " (" +
+      report.blockingCount +
+      " blocking, " +
+      report.nonBlockingCount +
+      " non-blocking)",
+  );
+  output.appendLine("");
+
+  for (const finding of report.findings) {
+    const location = finding.line ? finding.path + ":" + finding.line : finding.path;
+    output.appendLine(
+      "[" +
+        (finding.severity === "blocking" ? "BLOCKING" : "NON-BLOCKING") +
+        "] " +
+        finding.title +
+        " — " +
+        location,
+    );
+    output.appendLine("  " + finding.evidence);
+    output.appendLine("  Fix: " + finding.recommendation);
+  }
+}
+
+function formatReviewLoopEvent(event: ReviewLoopEvent): string {
+  if (event.type === "review-start") return "[REVIEW] round " + event.round;
+  if (event.type === "review-complete") {
+    return "[REVIEW] " + event.blockingCount + " blocking finding(s)";
+  }
+  if (event.type === "fix-start") return "[FIX] round " + event.round;
+  if (event.type === "validation") {
+    return "[VALIDATION] " + (event.success ? "PASS" : "FAIL");
+  }
+  return "[INFO] " + event.message;
+}
+
+async function runGatewayReview(
+  context: vscode.ExtensionContext,
+  state: ExtensionState,
+  output: vscode.OutputChannel,
+  fixLoop: boolean,
+): Promise<void> {
+  const folder = firstWorkspaceFolder();
+  if (!folder) {
+    throw new Error("Open a repository workspace before running review.");
+  }
+
+  if (!state.activeWorkspace) {
+    state.activeWorkspace = await attachWorkspace(context, folder);
+  }
+
+  const apiKey = await context.secrets.get(KILO_GATEWAY_SECRET);
+  if (!apiKey) {
+    throw new Error(
+      "Kilo Gateway API key is not configured. Run 'LLMatic: Set Kilo Gateway API Key' first.",
+    );
+  }
+
+  const model =
+    configuration().get<string>("agentModel", "kilo-auto/free").trim() || "kilo-auto/free";
+  if (!(await confirmAutoFreeDataHandling(context, model))) return;
+
+  const root = folder.uri.fsPath;
+  const config = await loadAgentConfig(root, {
+    LLMATIC_HOME: context.globalStorageUri.fsPath,
+  });
+  const store = new WorkflowStateStore(root, config);
+  const gateway = new KiloGatewayClient({ apiKey });
+
+  output.clear();
+  output.appendLine(fixLoop ? "LLMatic Review / Fix Loop" : "LLMatic Code Review");
+  output.appendLine("Model: " + model);
+  output.appendLine("Workspace: " + root);
+  output.appendLine("");
+
+  if (fixLoop) {
+    const result = await vscode.window.withProgress(
+      {
+        location: vscode.ProgressLocation.Notification,
+        title: "LLMatic review/fix loop is running",
+        cancellable: false,
+      },
+      async (progress) =>
+        runReviewFixLoop({
+          root,
+          config,
+          store,
+          gateway,
+          model,
+          maxSteps: configuration().get<number>("agentMaxSteps", 20),
+          maxReviewRounds: config.workflow.maxFixAttempts,
+          onEvent: (event) => {
+            const line = formatReviewLoopEvent(event);
+            output.appendLine(line);
+            progress.report({ message: line });
+          },
+        }),
+    );
+
+    output.appendLine("");
+    printReviewReport(output, result.review);
+    output.appendLine("");
+    output.appendLine("Review rounds: " + result.reviewRounds);
+    output.appendLine("Fix rounds: " + result.fixRounds);
+    output.show(true);
+
+    await vscode.window.showInformationMessage(
+      "LLMatic review/fix loop completed with " +
+        result.review.blockingCount +
+        " blocking finding(s).",
+    );
+    return;
+  }
+
+  const report = await vscode.window.withProgress(
+    {
+      location: vscode.ProgressLocation.Notification,
+      title: "LLMatic code review is running",
+      cancellable: false,
+    },
+    () =>
+      runCodeReview({
+        root,
+        config,
+        store,
+        gateway,
+        model,
+      }),
+  );
+
+  printReviewReport(output, report);
+  output.show(true);
+
+  await vscode.window.showInformationMessage(
+    "LLMatic review: " +
+      report.blockingCount +
+      " blocking / " +
+      report.nonBlockingCount +
+      " non-blocking finding(s).",
+  );
+}
+
 async function runGatewayAgent(
   context: vscode.ExtensionContext,
   state: ExtensionState,
@@ -510,6 +662,22 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
         await vscode.window.showErrorMessage("LLMatic agent: " + message);
+      }
+    }),
+    vscode.commands.registerCommand("llmatic.review", async () => {
+      try {
+        await runGatewayReview(context, state, output, false);
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        await vscode.window.showErrorMessage("LLMatic review: " + message);
+      }
+    }),
+    vscode.commands.registerCommand("llmatic.reviewFixLoop", async () => {
+      try {
+        await runGatewayReview(context, state, output, true);
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        await vscode.window.showErrorMessage("LLMatic review/fix loop: " + message);
       }
     }),
     vscode.commands.registerCommand("llmatic.openWorkspaceData", async () => {
