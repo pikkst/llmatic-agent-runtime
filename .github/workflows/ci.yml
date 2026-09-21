@@ -28,9 +28,6 @@ jobs:
       - name: Install dependencies
         run: pnpm install --no-frozen-lockfile
 
-      - name: Show canonical M13 formatting
-        run: pnpm exec prettier apps/vscode-extension/src/extension.ts apps/vscode-extension/tsconfig.json packages/agent-orchestrator/src/orchestrator.ts packages/agent-orchestrator/test/orchestrator.test.ts packages/gateway-client/src/client.ts packages/workspace-files/src/files.ts packages/workspace-files/test/files.test.ts
-
       - name: Validate
         run: pnpm run ci
 

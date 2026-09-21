@@ -65,7 +65,8 @@ const TOOLS: GatewayTool[] = [
     type: "function",
     function: {
       name: "repo_search",
-      description: "Search the repository AST/file/import index. Use this before broad manual exploration.",
+      description:
+        "Search the repository AST/file/import index. Use this before broad manual exploration.",
       parameters: {
         type: "object",
         properties: {
@@ -116,7 +117,8 @@ const TOOLS: GatewayTool[] = [
     type: "function",
     function: {
       name: "create_file",
-      description: "Create a new repository-contained text file. Existing files cannot be overwritten.",
+      description:
+        "Create a new repository-contained text file. Existing files cannot be overwritten.",
       parameters: {
         type: "object",
         properties: {
@@ -215,11 +217,7 @@ function toolContent(value: unknown): string {
   });
 }
 
-async function repositorySearch(
-  context: ToolExecutionContext,
-  query: string,
-  limit: number,
-) {
+async function repositorySearch(context: ToolExecutionContext, query: string, limit: number) {
   let index;
 
   try {
@@ -231,10 +229,7 @@ async function repositorySearch(
   return searchRepositoryIndex(index, query, limit);
 }
 
-async function executeTool(
-  context: ToolExecutionContext,
-  call: GatewayToolCall,
-): Promise<unknown> {
+async function executeTool(context: ToolExecutionContext, call: GatewayToolCall): Promise<unknown> {
   const args = parseArguments(call);
 
   switch (call.function.name) {

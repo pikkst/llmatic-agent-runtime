@@ -3,11 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { createDefaultConfig, type RepositoryDetection } from "@llmatic/core";
-import {
-  createWorkspaceFile,
-  readWorkspaceFile,
-  replaceWorkspaceText,
-} from "../src/files.js";
+import { createWorkspaceFile, readWorkspaceFile, replaceWorkspaceText } from "../src/files.js";
 
 const temporaryDirectories: string[] = [];
 
@@ -72,9 +68,7 @@ describe("workspace file tools", () => {
     const root = await fixture();
     const config = configFor(root);
 
-    await expect(readWorkspaceFile(root, config, ".env")).rejects.toThrow(
-      "secret/path policy",
-    );
+    await expect(readWorkspaceFile(root, config, ".env")).rejects.toThrow("secret/path policy");
     await expect(readWorkspaceFile(root, config, "../outside.txt")).rejects.toThrow();
   });
 
@@ -83,8 +77,8 @@ describe("workspace file tools", () => {
     const config = configFor(root);
     config.permissions.repositoryWrite = "ask";
 
-    await expect(
-      replaceWorkspaceText(root, config, "src/value.ts", "1", "2"),
-    ).rejects.toThrow("explicit human approval");
+    await expect(replaceWorkspaceText(root, config, "src/value.ts", "1", "2")).rejects.toThrow(
+      "explicit human approval",
+    );
   });
 });

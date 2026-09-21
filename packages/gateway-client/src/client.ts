@@ -1,8 +1,4 @@
-import type {
-  GatewayChatRequest,
-  GatewayChatResponse,
-  GatewayFetch,
-} from "./types.js";
+import type { GatewayChatRequest, GatewayChatResponse, GatewayFetch } from "./types.js";
 
 const DEFAULT_BASE_URL = "https://api.kilo.ai/api/gateway";
 
@@ -30,9 +26,7 @@ export class KiloGatewayClient implements GatewayChatClient {
     this.request = options.fetch ?? fetch;
   }
 
-  public async createChatCompletion(
-    request: GatewayChatRequest,
-  ): Promise<GatewayChatResponse> {
+  public async createChatCompletion(request: GatewayChatRequest): Promise<GatewayChatResponse> {
     const headers: Record<string, string> = {
       "Content-Type": "application/json",
       Accept: "application/json",

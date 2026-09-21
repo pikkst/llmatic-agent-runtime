@@ -1,26 +1,12 @@
 import { randomUUID } from "node:crypto";
-import {
-  access,
-  mkdir,
-  readFile,
-  realpath,
-  rename,
-  stat,
-  writeFile,
-} from "node:fs/promises";
+import { access, mkdir, readFile, realpath, rename, stat, writeFile } from "node:fs/promises";
 import { basename, dirname, extname, isAbsolute, relative, resolve } from "node:path";
 import type { AgentConfig } from "@llmatic/core";
 
 const MAX_READ_BYTES = 256 * 1024;
 const MAX_WRITE_BYTES = 512 * 1024;
 const BLOCKED_DIRECTORIES = new Set([".git", ".llmatic", "node_modules"]);
-const BLOCKED_FILENAMES = new Set([
-  ".env",
-  ".npmrc",
-  ".pypirc",
-  "id_rsa",
-  "id_ed25519",
-]);
+const BLOCKED_FILENAMES = new Set([".env", ".npmrc", ".pypirc", "id_rsa", "id_ed25519"]);
 const BLOCKED_EXTENSIONS = new Set([".pem", ".key", ".p12", ".pfx"]);
 
 export interface WorkspaceReadResult {
@@ -37,10 +23,7 @@ export interface WorkspaceFileMutationResult {
   bytes: number;
 }
 
-function assertPermission(
-  permission: "auto" | "ask" | "deny",
-  name: string,
-): void {
+function assertPermission(permission: "auto" | "ask" | "deny", name: string): void {
   if (permission === "deny") {
     throw new Error(name + " is denied by llmatic.agent.yaml.");
   }
@@ -72,7 +55,10 @@ function containedRelative(root: string, absolutePath: string): string {
   return rel.replaceAll("\\", "/");
 }
 
-async function containedExistingPath(root: string, input: string): Promise<{
+async function containedExistingPath(
+  root: string,
+  input: string,
+): Promise<{
   absolutePath: string;
   relativePath: string;
 }> {
@@ -111,7 +97,10 @@ async function nearestExistingDirectory(path: string): Promise<string> {
   }
 }
 
-async function containedNewPath(root: string, input: string): Promise<{
+async function containedNewPath(
+  root: string,
+  input: string,
+): Promise<{
   absolutePath: string;
   relativePath: string;
 }> {
@@ -198,7 +187,9 @@ export async function replaceWorkspaceText(
 
   if (first < 0) throw new Error("replace_in_file old_text was not found.");
   if (content.indexOf(oldText, first + oldText.length) >= 0) {
-    throw new Error("replace_in_file old_text matched more than once; provide a more specific match.");
+    throw new Error(
+      "replace_in_file old_text matched more than once; provide a more specific match.",
+    );
   }
 
   const updated = content.slice(0, first) + newText + content.slice(first + oldText.length);

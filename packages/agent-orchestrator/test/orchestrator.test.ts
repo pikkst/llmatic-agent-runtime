@@ -2,11 +2,7 @@ import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import {
-  WorkflowStateStore,
-  createDefaultConfig,
-  type RepositoryDetection,
-} from "@llmatic/core";
+import { WorkflowStateStore, createDefaultConfig, type RepositoryDetection } from "@llmatic/core";
 import type {
   GatewayChatClient,
   GatewayChatRequest,
@@ -90,9 +86,7 @@ describe("gateway coding agent", () => {
     const config = configFor(root);
     const store = new WorkflowStateStore(root, config);
     const gateway = new ScriptedGateway([
-      response(null, [
-        { id: "call-1", name: "read_file", arguments: { path: "src/value.ts" } },
-      ]),
+      response(null, [{ id: "call-1", name: "read_file", arguments: { path: "src/value.ts" } }]),
       response(null, [
         {
           id: "call-2",

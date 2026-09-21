@@ -320,7 +320,8 @@ async function runGatewayAgent(
     );
   }
 
-  const model = configuration().get<string>("agentModel", "kilo-auto/free").trim() || "kilo-auto/free";
+  const model =
+    configuration().get<string>("agentModel", "kilo-auto/free").trim() || "kilo-auto/free";
   if (!(await confirmAutoFreeDataHandling(context, model))) return;
 
   const instruction = await vscode.window.showInputBox({
