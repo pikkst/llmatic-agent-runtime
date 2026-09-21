@@ -28,6 +28,9 @@ jobs:
       - name: Install dependencies
         run: pnpm install --no-frozen-lockfile
 
+      - name: Show canonical M17 formatting
+        run: pnpm exec prettier apps/vscode-extension/tsconfig.json packages/release-metadata/src/release.ts packages/release-metadata/test/release.test.ts README.md scripts/create-release-manifest.mjs
+
       - name: Validate
         run: pnpm run ci
 
