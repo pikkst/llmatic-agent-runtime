@@ -2,8 +2,16 @@ import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { createDefaultConfig, type RepositoryDetection } from "@llmatic/core";
-import { detectTaskSources, resolveTaskProvider } from "../src/index.js";
+import {
+  WorkflowStateStore,
+  createDefaultConfig,
+  type RepositoryDetection,
+} from "@llmatic/core";
+import {
+  detectTaskSources,
+  resolveTaskProvider,
+  startTaskWorkflow,
+} from "../src/index.js";
 
 const roots: string[] = [];
 
@@ -64,6 +72,48 @@ describe("task router", () => {
     });
 
     expect(detection.selected).toBe("jira");
+  });
+
+  it("starts and validates the provider-ranked next task as a local workflow", async () => {
+    const root = await mkdtemp(join(tmpdir(), "llmatic-router-"));
+    roots.push(root);
+    await writeFile(
+      join(root, "TASKS.md"),
+      [
+        "## TASK-001 — First",
+        "",
+        "Status: Done",
+        "",
+        "## TASK-002 — Second",
+        "",
+        "Status: Todo",
+        "",
+        "### Dependencies",
+        "- TASK-001",
+        "",
+      ].join("\n"),
+      "utf8",
+    );
+
+    const runtimeConfig = config(root);
+    const store = new WorkflowStateStore(root, runtimeConfig);
+    const result = await startTaskWorkflow(root, runtimeConfig, store, {
+      provider: "markdown",
+      environment: {},
+    });
+
+    expect(result.task.key).toBe("TASK-002");
+    expect(result.workflow.state).toBe("TASK_VALIDATED");
+    expect(
+      result.workflow.checkpoints.find(
+        (checkpoint) =>
+          checkpoint.kind === "ACTION" &&
+          checkpoint.action === "task.select",
+      ),
+    ).toMatchObject({
+      provider: "markdown",
+      success: true,
+    });
   });
 
   it("falls back to manual when no source is configured", async () => {
