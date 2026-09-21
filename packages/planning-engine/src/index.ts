@@ -64,7 +64,18 @@ interface PlanContext {
   deployment: string;
   testing: string;
   security: string;
-  labels: Record<string, string>;
+  labels: {
+    product_type: string;
+    maturity: string;
+    primary_users: string;
+    application_shape: string;
+    authentication: string;
+    tenancy: string;
+    data_store: string;
+    deployment: string;
+    testing: string;
+    security: string;
+  };
 }
 
 interface ArchitectureRecommendation {
@@ -121,7 +132,18 @@ function contextFor(session: DiscoverySession): PlanContext {
     deployment: values.deployment.value,
     testing: values.testing.value,
     security: values.security.value,
-    labels: Object.fromEntries(Object.entries(values).map(([key, value]) => [key, value.label])),
+    labels: {
+      product_type: values.product_type.label,
+      maturity: values.maturity.label,
+      primary_users: values.primary_users.label,
+      application_shape: values.application_shape.label,
+      authentication: values.authentication.label,
+      tenancy: values.tenancy.label,
+      data_store: values.data_store.label,
+      deployment: values.deployment.label,
+      testing: values.testing.label,
+      security: values.security.label,
+    },
   };
 }
 
