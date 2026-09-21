@@ -337,7 +337,7 @@ export async function runCodingAgent(
     const response = await options.gateway.createChatCompletion({
       model,
       mode: "code",
-      messages,
+      messages: [...messages],
       tools: TOOLS,
       max_tokens: options.maxTokens ?? 4000,
       temperature: 0.1,
