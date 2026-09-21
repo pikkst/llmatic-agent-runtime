@@ -22,6 +22,12 @@ import {
   isGlobalKiloLlmaticServerHealthy,
   readGlobalKiloLlmaticServer,
 } from "@llmatic/kilo-connector";
+import {
+  installRuntimeBundle,
+  inspectInstalledRuntime,
+  readRuntimeManifest,
+  type RuntimeInstallResult,
+} from "@llmatic/runtime-installer";
 import { ensureManagedWorkspace, type ManagedWorkspace } from "@llmatic/workspace-manager";
 
 const KILO_EXTENSION_ID = "kilocode.kilo-code";
@@ -30,6 +36,7 @@ const AUTO_FREE_WARNING_ACCEPTED = "llmatic.autoFreeDataWarningAccepted";
 
 interface ExtensionState {
   activeWorkspace?: ManagedWorkspace;
+  runtime?: RuntimeInstallResult;
   kiloConnected: boolean;
   kiloReloadRecommended: boolean;
   lastError?: string;
@@ -63,9 +70,57 @@ function firstWorkspaceFolder(): vscode.WorkspaceFolder | undefined {
   return vscode.workspace.workspaceFolders?.[0];
 }
 
-function bundledMcpServerPath(context: vscode.ExtensionContext): string {
+function runtimeOverridePath(): string | undefined {
   const override = configuration().get<string>("runtimeMcpPath", "").trim();
-  return override || context.asAbsolutePath("dist/runtime/mcp-server.mjs");
+  return override || undefined;
+}
+
+function bundledMcpServerPath(context: vscode.ExtensionContext): string {
+  return context.asAbsolutePath("dist/runtime/mcp-server.mjs");
+}
+
+function bundledRuntimeManifestPath(context: vscode.ExtensionContext): string {
+  return context.asAbsolutePath("dist/runtime/manifest.json");
+}
+
+async function ensureExtensionRuntime(
+  context: vscode.ExtensionContext,
+): Promise<RuntimeInstallResult> {
+  const override = runtimeOverridePath();
+
+  if (override) {
+    const serverPath = resolve(override);
+    if (!(await exists(serverPath))) {
+      throw new Error("Configured llmatic.runtimeMcpPath does not exist: " + serverPath);
+    }
+
+    return {
+      runtimeVersion: "override",
+      sha256: "override",
+      serverPath,
+      manifestPath: "",
+      installDirectory: resolve(serverPath, ".."),
+      changed: false,
+      healthy: true,
+      source: "override",
+    };
+  }
+
+  return installRuntimeBundle({
+    bundlePath: bundledMcpServerPath(context),
+    manifestPath: bundledRuntimeManifestPath(context),
+    runtimeHome: context.globalStorageUri.fsPath,
+  });
+}
+
+async function inspectExtensionRuntime(
+  context: vscode.ExtensionContext,
+): Promise<RuntimeInstallResult> {
+  const override = runtimeOverridePath();
+  if (override) return ensureExtensionRuntime(context);
+
+  const manifest = await readRuntimeManifest(bundledRuntimeManifestPath(context));
+  return inspectInstalledRuntime(context.globalStorageUri.fsPath, manifest);
 }
 
 async function attachWorkspace(
@@ -83,18 +138,12 @@ async function connectKilo(context: vscode.ExtensionContext): Promise<KiloConnec
   const kilo = vscode.extensions.getExtension(KILO_EXTENSION_ID);
   if (!kilo) return { connected: false, changed: false };
 
-  const serverPath = bundledMcpServerPath(context);
-  if (!(await exists(serverPath))) {
-    throw new Error(
-      "Bundled LLMatic MCP server is missing. Build the extension runtime or configure llmatic.runtimeMcpPath.",
-    );
-  }
-
+  const runtime = await ensureExtensionRuntime(context);
   const nodeCommand = configuration().get<string>("nodeCommand", "node").trim() || "node";
 
   const registration = await ensureGlobalKiloMcpServer({
     homeDirectory: homedir(),
-    serverPath,
+    serverPath: runtime.serverPath,
     llmaticHome: context.globalStorageUri.fsPath,
     nodeCommand,
   });
@@ -143,6 +192,8 @@ async function refresh(
       state.activeWorkspace = undefined;
     }
 
+    state.runtime = await ensureExtensionRuntime(context);
+
     const autoConnect = configuration().get<boolean>("autoConnectKilo", true);
     if (autoConnect) {
       const kilo = await connectKilo(context);
@@ -175,7 +226,8 @@ async function runDoctor(
 ): Promise<DoctorCheck[]> {
   const checks: DoctorCheck[] = [];
   const folder = firstWorkspaceFolder();
-  const serverPath = bundledMcpServerPath(context);
+  const runtime = await inspectExtensionRuntime(context);
+  const serverPath = runtime.serverPath;
   const nodeCommand = configuration().get<string>("nodeCommand", "node").trim() || "node";
   const version = nodeVersion(nodeCommand);
 
@@ -196,9 +248,16 @@ async function runDoctor(
   });
 
   checks.push({
-    name: "Bundled MCP runtime",
-    status: (await exists(serverPath)) ? "PASS" : "FAIL",
-    detail: serverPath,
+    name: "Runtime integrity",
+    status: runtime.healthy ? "PASS" : "FAIL",
+    detail:
+      runtime.source === "override"
+        ? "Custom runtime override: " + runtime.serverPath
+        : runtime.runtimeVersion +
+          " / " +
+          runtime.sha256.slice(0, 12) +
+          " / " +
+          runtime.serverPath,
   });
 
   let nodeStatus: DoctorCheck["status"] = "FAIL";
@@ -246,6 +305,66 @@ async function runDoctor(
   });
 
   return checks;
+}
+
+async function repairRuntime(
+  context: vscode.ExtensionContext,
+  state: ExtensionState,
+  statusBar: vscode.StatusBarItem,
+  output: vscode.OutputChannel,
+): Promise<void> {
+  const override = runtimeOverridePath();
+  if (override) {
+    throw new Error(
+      "Runtime repair is disabled while llmatic.runtimeMcpPath override is configured.",
+    );
+  }
+
+  const runtime = await installRuntimeBundle({
+    bundlePath: bundledMcpServerPath(context),
+    manifestPath: bundledRuntimeManifestPath(context),
+    runtimeHome: context.globalStorageUri.fsPath,
+    force: true,
+  });
+
+  state.runtime = runtime;
+
+  const kiloInstalled = Boolean(vscode.extensions.getExtension(KILO_EXTENSION_ID));
+  let kiloChanged = false;
+
+  if (kiloInstalled) {
+    const kilo = await connectKilo(context);
+    state.kiloConnected = kilo.connected;
+    state.kiloReloadRecommended = kilo.changed;
+    kiloChanged = kilo.changed;
+  }
+
+  state.lastError = undefined;
+  updateStatusBar(statusBar, state);
+
+  output.clear();
+  output.appendLine("LLMatic Runtime Repair");
+  output.appendLine("");
+  output.appendLine("[PASS] Runtime: " + runtime.runtimeVersion);
+  output.appendLine("[PASS] SHA-256: " + runtime.sha256);
+  output.appendLine("[PASS] Installed: " + runtime.serverPath);
+  output.appendLine(
+    kiloInstalled
+      ? "[PASS] Kilo MCP: " + (kiloChanged ? "registration repaired" : "already healthy")
+      : "[WARN] Kilo Code: not installed",
+  );
+  output.show(true);
+
+  const action = kiloChanged
+    ? await vscode.window.showInformationMessage(
+        "LLMatic runtime repaired and Kilo MCP updated.",
+        "Reload Window",
+      )
+    : await vscode.window.showInformationMessage("LLMatic runtime is healthy.");
+
+  if (action === "Reload Window") {
+    await vscode.commands.executeCommand("workbench.action.reloadWindow");
+  }
 }
 
 async function showDoctor(
@@ -657,6 +776,12 @@ async function showStatus(context: vscode.ExtensionContext, state: ExtensionStat
   const lines = [
     state.activeWorkspace ? "Workspace: " + state.activeWorkspace.root : "Workspace: not attached",
     state.activeWorkspace ? "Workspace data: " + state.activeWorkspace.directory : undefined,
+    state.runtime
+      ? "Runtime: " +
+        (state.runtime.healthy
+          ? state.runtime.runtimeVersion + " verified"
+          : "needs repair")
+      : "Runtime: unknown",
     "Kilo Code: " + (kiloInstalled ? "installed" : "not installed"),
     "Kilo MCP: " + (kiloServer ? "configured" : "not configured"),
     "Kilo Gateway key: " + (hasGatewayKey ? "stored securely" : "not stored"),
@@ -760,6 +885,15 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     }),
     vscode.commands.registerCommand("llmatic.doctor", async () => {
       await showDoctor(context, state, output);
+    }),
+    vscode.commands.registerCommand("llmatic.repairRuntime", async () => {
+      try {
+        await repairRuntime(context, state, statusBar, output);
+      } catch (error) {
+        state.lastError = error instanceof Error ? error.message : String(error);
+        updateStatusBar(statusBar, state);
+        await vscode.window.showErrorMessage("LLMatic runtime repair: " + state.lastError);
+      }
     }),
     vscode.commands.registerCommand("llmatic.setKiloGatewayApiKey", async () => {
       const value = await vscode.window.showInputBox({

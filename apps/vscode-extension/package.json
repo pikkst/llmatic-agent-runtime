@@ -27,7 +27,8 @@
     "@llmatic/agent-orchestrator": "workspace:*",
     "@llmatic/gateway-client": "workspace:*",
     "@llmatic/review-engine": "workspace:*",
-    "@llmatic/bootstrap-manager": "workspace:*"
+    "@llmatic/bootstrap-manager": "workspace:*",
+    "@llmatic/runtime-installer": "workspace:*"
   },
   "devDependencies": {
     "@types/vscode": "1.105.0",
@@ -59,6 +60,11 @@
       {
         "command": "llmatic.doctor",
         "title": "Doctor",
+        "category": "LLMatic"
+      },
+      {
+        "command": "llmatic.repairRuntime",
+        "title": "Repair Runtime",
         "category": "LLMatic"
       },
       {

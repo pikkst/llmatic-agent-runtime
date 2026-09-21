@@ -41,6 +41,9 @@
       "path": "./packages/bootstrap-manager"
     },
     {
+      "path": "./packages/runtime-installer"
+    },
+    {
       "path": "./packages/workspace-manager"
     },
     {
