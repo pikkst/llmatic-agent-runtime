@@ -37,7 +37,6 @@ See docs/bootstrap-remediation.md.
 
 ## VS Code commands
 
-
     LLMatic: Bootstrap Workspace
     LLMatic: Run Gateway Agent
     LLMatic: Run Code Review
