@@ -2,7 +2,7 @@
   "name": "llmatic-agent-runtime",
   "displayName": "LLMatic Agent Runtime",
   "description": "Deterministic local software-engineering runtime for AI coding agents, with Kilo Code integration, project discovery, planning, review and safe workflow automation.",
-  "version": "0.1.2",
+  "version": "0.2.0",
   "publisher": "eventnexus",
   "type": "module",
   "engines": {
@@ -33,7 +33,8 @@
     "@llmatic/update-installer": "workspace:*",
     "@llmatic/discovery-engine": "workspace:*",
     "@llmatic/planning-engine": "workspace:*",
-    "@llmatic/project-initializer": "workspace:*"
+    "@llmatic/project-initializer": "workspace:*",
+    "@llmatic/workspace-recovery": "workspace:*"
   },
   "devDependencies": {
     "@types/vscode": "1.105.0",
@@ -156,6 +157,16 @@
         "command": "llmatic.openWorkspaceData",
         "title": "Reveal Workspace Runtime Data",
         "category": "LLMatic"
+      },
+      {
+        "command": "llmatic.refreshWorkspaceRecovery",
+        "title": "Refresh Repository Context",
+        "category": "LLMatic"
+      },
+      {
+        "command": "llmatic.openAgentChat",
+        "title": "Open Agent Chat",
+        "category": "LLMatic"
       }
     ],
     "configuration": {
@@ -211,6 +222,11 @@
     },
     "views": {
       "llmatic": [
+        {
+          "id": "llmatic.agentChat",
+          "name": "Agent Chat",
+          "type": "webview"
+        },
         {
           "id": "llmatic.status",
           "name": "Runtime Status"
