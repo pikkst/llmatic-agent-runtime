@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.1.1
+
+- Applied requested plan changes to regenerated private drafts.
+- Added product-specific planning for requirements, user journeys, data model, API contracts, task wording, ownership rules, and dependency graph.
+- Added Task-domain regression coverage for create/view/edit/complete/delete planning flows.
+- Made quality/regression work depend on the completed end-to-end journey for full-stack projects.
+- Resumed Get Ready automatically when Kilo Code is installed during onboarding.
+- Added Marketplace-ready metadata, installation documentation, support guidance, and trusted-publishing preparation.
+
 ## 0.1.0
 
 - Initial VS Code extension.

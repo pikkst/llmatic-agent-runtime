@@ -14,7 +14,7 @@ import {
 import { verifyVsixBytes } from "../packages/update-installer/dist/index.js";
 
 const root = process.cwd();
-const tag = process.argv[2] || process.env.GITHUB_REF_NAME || "v0.1.0";
+const tag = process.argv[2] || process.env.GITHUB_REF_NAME || "v0.1.1";
 const commit =
   process.argv[3] ||
   process.env.GITHUB_SHA ||
@@ -134,11 +134,13 @@ try {
   const packagedExtensionPath = resolve(packagedRoot, "dist", "extension.cjs");
   const packagedRuntimeManifestPath = resolve(packagedRoot, "dist", "runtime", "manifest.json");
   const packagedRuntimePath = resolve(packagedRoot, "dist", "runtime", "mcp-server.mjs");
+  const packagedMarketplaceIconPath = resolve(packagedRoot, "media", "llmatic.png");
 
   requireFile(packagedPackagePath, "packaged extension package");
   requireFile(packagedExtensionPath, "packaged extension activation bundle");
   requireFile(packagedRuntimeManifestPath, "packaged runtime manifest");
   requireFile(packagedRuntimePath, "packaged MCP runtime");
+  requireFile(packagedMarketplaceIconPath, "packaged Marketplace icon");
 
   const packagedPackage = JSON.parse(await readFile(packagedPackagePath, "utf8"));
   if (String(packagedPackage.version) !== version) {
@@ -149,6 +151,15 @@ try {
         version +
         ".",
     );
+  }
+  if (String(packagedPackage.publisher) !== "eventnexus") {
+    fail("packaged extension publisher is not eventnexus.");
+  }
+  if (String(packagedPackage.icon) !== "media/llmatic.png") {
+    fail("packaged extension Marketplace icon path is not media/llmatic.png.");
+  }
+  if (String(packagedPackage.pricing) !== "Free") {
+    fail("packaged extension Marketplace pricing is not Free.");
   }
   if (String(packagedPackage.main) !== "./dist/extension.cjs") {
     fail("packaged extension main entry is not ./dist/extension.cjs.");

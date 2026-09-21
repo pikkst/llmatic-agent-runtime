@@ -1,327 +1,280 @@
 # LLMatic Agent Runtime
 
-Universal local software-engineering runtime for coding agents.
+LLMatic is a local software-engineering runtime for AI coding agents. It connects an opened repository to a deterministic workflow for environment setup, project discovery, planning, implementation, validation, review, and task progression while keeping LLMatic runtime state outside the repository.
 
-## Current milestone
+The default agent integration is Kilo Code, and the default direct-agent model is `kilo-auto/free`.
 
-M26 — First Real Release & Clean-Install Acceptance
+## Install
 
-LLMatic now supports:
+### VS Code Marketplace
 
-    implementation
-      -> local validation
-      -> structured review
-      -> blocking findings?
-           yes -> FIXING -> validation -> re-review
-           no  -> READY_TO_PUSH
+After the Marketplace publisher is enabled, install LLMatic directly from VS Code:
 
-Review results are schema-validated before workflow state changes.
+1. Open **Extensions** with `Ctrl+Shift+X`.
+2. Search for **LLMatic Agent Runtime**.
+3. Select **Install**.
+4. Open the repository or empty project folder you want to work with.
+5. Run **LLMatic: Get Ready** from the Command Palette.
 
-## Default model
+CLI equivalent:
 
-Direct implementation and review both default to:
+```powershell
+code --install-extension eventnexus.llmatic-agent-runtime
+```
 
-    kilo-auto/free
+### VSIX fallback
 
-The model is configurable through llmatic.agentModel.
+Every tagged GitHub release also publishes a verified VSIX and release manifest.
 
-## Workspace bootstrap
+Download the VSIX from the matching GitHub Release, then either use **Extensions → … → Install from VSIX…** or:
 
-The carried-forward bootstrap flow from PR #13 is available as:
+```powershell
+code --install-extension .\llmatic-agent-runtime-0.1.1.vsix
+```
 
-    LLMatic: Get Ready
-    LLMatic: Bootstrap Workspace
-    LLMatic: Repair Runtime
+## Requirements
 
-It derives tool requirements from repository signals, offers only registry-backed controlled installers, reconciles Kilo MCP, and leaves tracked repository files untouched.
+- VS Code 1.105.0 or newer.
+- Node.js available as `node`.
+- Git for repository workflows.
+- Kilo Code for the default coding-agent integration.
 
-See docs/bootstrap-remediation.md.
+Repository-specific tools are detected during bootstrap. LLMatic does not silently install arbitrary software.
 
-## Runtime lifecycle
+## Quick start
 
-The bundled MCP server is SHA-256 verified and installed into versioned VS Code global storage. Kilo MCP points to that stable runtime path.
+Open a project folder in VS Code and run:
 
-Repair command:
+```text
+LLMatic: Get Ready
+```
 
-    LLMatic: Repair Runtime
+Get Ready:
 
-See docs/runtime-lifecycle.md.
+```text
+attach workspace outside repository
+  -> verify/install bundled LLMatic runtime
+  -> inspect required project tooling
+  -> detect/connect Kilo Code
+  -> verify Kilo MCP registration
+  -> READY
+```
 
-## Guided onboarding
+Runtime/configuration state is stored in VS Code global extension storage rather than in the opened repository.
 
-The extension exposes one canonical runtime state:
+The same health state is visible in the LLMatic Activity Bar view:
 
-    READY
-    NEEDS_SETUP
-    NEEDS_REPAIR
+```text
+READY
+NEEDS_SETUP
+NEEDS_REPAIR
+```
 
-Use:
+## Starting a new project
 
-    LLMatic: Get Ready
+For an empty folder:
 
-The guided flow attaches the workspace externally, verifies/repairs the runtime, checks required repository tools, and reconciles Kilo MCP when configured.
+```text
+LLMatic: Start Project Discovery
+```
 
-The same state is visible in the status bar and the LLMatic Activity Bar view.
+Discovery first asks what you want to build, then walks through product type, maturity, users, application shape, authentication, ownership, persistence, deployment, testing, and security.
 
-## Releases and updates
+Discovery remains private. It does not scaffold code or write tracked planning files.
 
-Semantic version tags (`vX.Y.Z`) run the full validation/VSIX pipeline and publish a GitHub Release containing a versioned VSIX and `release-manifest.json` with SHA-256 metadata.
+When discovery is complete:
 
-Update commands:
+```text
+LLMatic: Generate Project Plan
+LLMatic: Review & Approve Project Plan
+```
 
-    LLMatic: Check for Updates
-    LLMatic: Install Latest Update
+The private plan includes product requirements, user journeys, architecture, ADRs, data model, API contracts, security, testing, operations, roadmap, TASKS.md, and a dependency graph.
 
-See docs/release-update.md.
+You can review artifacts, edit discovery decisions, request plan changes, and regenerate. Requested changes are inputs to the next versioned draft.
 
-## VS Code commands
+Only **Approve & Initialize** may materialize the exact approved plan into the repository.
 
-    LLMatic: Bootstrap Workspace
-    LLMatic: Check for Updates
-    LLMatic: Run Gateway Agent
-    LLMatic: Run Code Review
-    LLMatic: Run Review / Fix Loop
+Approval is bound to the plan ID, SHA-256 digest of the plan bundle, and SHA-256 digest of the discovery decisions.
 
-## Verified self-update
+## Existing repositories
 
-An update is installed only after validating release identity, downloading the exact declared VSIX, checking its byte size and SHA-256, and receiving explicit user confirmation.
+For an existing repository, start with:
 
-The verified VSIX is staged under VS Code global storage, never inside the opened repository.
+```text
+LLMatic: Get Ready
+LLMatic: Doctor
+```
 
-A regression test also verifies that the VS Code `activate()` entrypoint and critical command registrations remain present.
+LLMatic can then use repository signals, source structure, Git state, local quality commands, configured task sources, and supported tool packs without adding its own runtime state to the repository.
 
-## Release acceptance
+## Task sources
 
-Before a tagged GitHub Release can publish, M19 now opens the candidate VSIX and verifies the packaged extension activation surface, release manifest, runtime hash/size and zero-repository-footprint boundary.
+LLMatic task workflows do not require Jira.
 
-Local command:
+Detection order:
 
-    pnpm release:acceptance v0.1.0 <commit-sha>
-
-See docs/release-acceptance.md.
-
-## Safety
-
-The reviewer is read-only and receives changed-files-first context. Sensitive paths are filtered.
-
-The fix agent remains constrained:
-
-- repository-contained text changes only
-- no arbitrary shell
-- no package install
-- no Git push
-- no PR/merge
-- no database mutation
-- no deploy
-- no self-approval of ask permissions
-
-Gateway credentials remain in VS Code SecretStorage.
-
-## Existing platform
-
-- zero-repo VS Code workspace state
-- VSIX packaging and Doctor
-- global Kilo MCP registration
-- persistent workflow state
-- local CI
-- Git/GitHub/Jira adapters
-- repository AST intelligence
-- Docker/Supabase/Python/Ollama tool packs
-- direct Kilo Gateway coding agent
-
-See docs/review-fix-loop.md.
-
-## Roadmap
-
-The canonical milestone roadmap is maintained in `docs/ROADMAP.md`.
-
-## Universal task sources
-
-LLMatic task workflows no longer require Jira.
+```text
+TASKS.md / Tasks.md / TODO.md
+  -> Jira when configured
+  -> GitHub Issues when GitHub CLI is authenticated
+  -> manual workflow references
+```
 
 Canonical CLI:
 
-    llmatic task detect
-    llmatic task list
-    llmatic task next
-    llmatic task get <reference>
-    llmatic task start <reference>
-    llmatic task validate
-    llmatic task comment <reference> --text "..."
-    llmatic task transition <reference> --to <transition>
-    llmatic task complete --evidence "..."
+```text
+llmatic task detect
+llmatic task list
+llmatic task next
+llmatic task get <reference>
+llmatic task start <reference>
+llmatic task validate
+llmatic task comment <reference> --text "..."
+llmatic task transition <reference> --to <transition>
+llmatic task complete --evidence "..."
+```
 
-Auto-detection order:
+Markdown task sources work fully offline and preserve unrelated document content.
 
-    TASKS.md / Tasks.md / TODO.md
-      -> Jira when configured
-      -> GitHub Issues when GitHub CLI is authenticated
-      -> manual workflow references
+## Review and fix loop
 
-Markdown tasks are fully offline and preserve unrelated document content while updating task-local status/notes.
+LLMatic supports a deterministic engineering loop:
 
-## Greenfield discovery
+```text
+task
+  -> implementation
+  -> local validation
+  -> structured review
+  -> blocking findings?
+       yes -> FIXING -> validate -> re-review
+       no  -> READY_TO_PUSH
+```
 
-New or empty projects can start with:
+Useful commands:
 
-    LLMatic: Start Project Discovery
+```text
+LLMatic: Run Gateway Agent
+LLMatic: Run Code Review
+LLMatic: Run Review / Fix Loop
+```
 
-Discovery is adaptive and supports:
+Review uses changed-files-first context. Review results are schema-validated before workflow state changes.
 
-- recommended best-practice option
-- normal alternatives
-- Custom…
-- Not sure — explain recommendation
-- Let LLMatic decide
+## Living architecture
 
-Every delegated/recommended choice stores its rationale. Discovery state is persisted only under the managed LLMatic workspace:
+Projects initialized from an approved LLMatic plan include a living-architecture gate.
 
-    <globalStorage>/workspaces/<workspace-id>/planning/discovery.json
+Changes to architecture-sensitive areas must keep the corresponding planning contracts synchronized. Current impact areas include architecture, API contracts, database/schema, security, testing, and task graph/roadmap.
 
-Cancelling the wizard pauses discovery without losing answered decisions.
+For example:
 
-M21 never scaffolds source code, installs packages, creates migrations, or writes planning files into the tracked repository.
+```text
+API route change
+  -> API_CONTRACTS.md or canonical contract update
+  -> automated test update
 
-## Private project planning
+schema/migration change
+  -> DATA_MODEL.md update
 
-After discovery reaches `ready_for_planning`, use:
+authorization change
+  -> SECURITY.md update
+```
 
-    LLMatic: Generate Project Plan
-    LLMatic: Review Project Plan
+A model review cannot override unresolved deterministic architecture drift.
 
-M22 generates a versioned private draft containing:
+## Kilo Code integration
 
-- product brief
-- requirements
-- user journeys
-- architecture
-- proposed ADRs
-- data model
-- API contracts
-- security model
-- testing strategy
-- observability/operations plan
-- roadmap/phases
-- TASKS.md
-- dependency graph
-- plan manifest
+LLMatic installs and verifies its bundled MCP runtime in versioned VS Code global storage and registers that stable runtime path in Kilo Code's global MCP configuration.
 
-Storage:
+If Kilo Code is installed during onboarding, LLMatic resumes Get Ready automatically and reconciles the MCP registration.
 
-    <globalStorage>/workspaces/<workspace-id>/planning/plans/<plan-id>/
+The default model is:
 
-The active draft is referenced by:
+```text
+kilo-auto/free
+```
 
-    <globalStorage>/workspaces/<workspace-id>/planning/current-plan.json
+Change it with the VS Code setting:
 
-Regeneration creates a new plan version and preserves the previous draft.
+```text
+llmatic.agentModel
+```
 
-M22 still cannot scaffold, install, migrate, push, create a PR, or deploy. M23 adds explicit human approval before any approved plan can become repository state.
+Before first Auto Free use, LLMatic displays a data-handling warning. Do not send confidential source code to a model/provider whose data-handling terms are unsuitable for the repository.
 
-## Approval and initialization
+## Safety boundaries
 
-M23 keeps repository mutation blocked until the user explicitly approves the exact current plan.
+LLMatic intentionally separates analysis/automation from consequential actions.
 
-Use:
+The built-in fix agent is constrained to repository-contained text changes and does not receive arbitrary shell, package-install, Git push, PR merge, deployment, or remote-database mutation capabilities.
 
-    LLMatic: Review & Approve Project Plan
+Project initialization does not automatically push Git, create or merge a PR, mutate a remote database, or deploy.
 
-PLAN_REVIEW actions:
+Gateway credentials are stored in VS Code SecretStorage.
 
-- Review plan artifacts
-- Edit decisions
-- Regenerate plan
-- Request changes
-- Approve & Initialize
+## Releases and updates
 
-Approval is bound to:
+Semantic tags such as `v0.1.1` run the release pipeline, package the VSIX, verify release metadata and hashes, execute clean-install acceptance, and publish a GitHub Release.
 
-- exact plan ID
-- SHA-256 digest of the complete plan bundle
-- SHA-256 digest of the discovery decision record
+Update commands:
 
-Changing a discovery decision, regenerating the plan, changing approved plan bytes, or requesting changes invalidates approval.
+```text
+LLMatic: Check for Updates
+LLMatic: Install Latest Update
+```
 
-Approve & Initialize materializes the approved planning documents, TASKS.md and the minimal approved project shape, validates materialized bytes and required foundation tools, then selects the first dependency-unblocked task.
+Marketplace publishing is gated separately and uses trusted GitHub OIDC publishing rather than a stored Marketplace PAT.
 
-It does **not** automatically push Git, create or merge a PR, mutate a remote database, or deploy.
+## Troubleshooting
 
-Agents can inspect approval state using:
+Run:
 
-    llmatic_plan_approval_status
+```text
+LLMatic: Doctor
+```
 
-MCP cannot create human approval or initialize the repository.
+If the bundled runtime is stale or damaged:
 
-## Living architecture gate
+```text
+LLMatic: Repair Runtime
+```
 
-M24 extends code review beyond implementation correctness.
+If Kilo integration needs reconciliation:
 
-For projects initialized from an approved LLMatic plan, every changed-file set is deterministically checked for architecture synchronization impact.
+```text
+LLMatic: Connect Kilo Code Globally
+```
 
-Current impact areas:
+If setup is incomplete:
 
-- architecture
-- API contracts
-- database/schema
-- security
-- testing
-- task graph / roadmap
+```text
+LLMatic: Get Ready
+```
 
-Examples:
+For bugs, include the LLMatic output-channel diagnostics, VS Code version, LLMatic version, operating system, and reproducible steps.
 
-    API route change
-      -> API_CONTRACTS.md or canonical contract change
-      -> automated test change
+## Development
 
-    migration/schema change
-      -> DATA_MODEL.md synchronization
+Install dependencies and run the canonical local CI:
 
-    auth / authorization / RLS / policy change
-      -> SECURITY.md synchronization
+```bash
+pnpm install
+pnpm run ci:local
+```
 
-    architecture / ADR change
-      -> TASKS.md or ROADMAP.md synchronization
+Important acceptance commands:
 
-The gate is enabled only when the repository contains the initialized LLMatic baseline:
+```bash
+pnpm product:acceptance
+pnpm vscode:acceptance
+pnpm release:acceptance v0.1.1 <commit-sha>
+```
 
-    docs/planning/APPROVED_PLAN.md
-    TASKS.md
+The milestone roadmap is maintained in [docs/ROADMAP.md](docs/ROADMAP.md).
 
-A clear model review is not sufficient when deterministic living-architecture impact remains unresolved. The workflow returns to FIXING until the required synchronization evidence is present.
+Marketplace publisher setup and trusted-publishing instructions are in [docs/marketplace-publishing.md](docs/marketplace-publishing.md).
 
-## Product lifecycle acceptance
+## License
 
-The assembled greenfield workflow is executable as one acceptance gate:
-
-    pnpm product:acceptance
-
-It creates an isolated temporary Git repository and proves:
-
-- discovery reaches ready_for_planning
-- a versioned private project plan is generated
-- exact human approval is verified
-- initialization reaches READY_FOR_IMPLEMENTATION
-- PLAN-001 is selected as the first unblocked task
-- unsynchronized API drift is blocked by Living Architecture
-- contract + test evidence clears the gate
-- completing PLAN-001 reveals PLAN-002
-
-The acceptance fixture is deleted after each run and does not mutate the LLMatic repository.
-
-## VS Code clean-install acceptance
-
-The packaged VSIX is tested as a real installed extension from an isolated VS Code extensions directory, not as a source-development extension:
-
-    pnpm vscode:acceptance
-
-The acceptance test:
-
-- downloads the minimum supported VS Code 1.105.0
-- creates an isolated VS Code user-data/extensions profile
-- installs `artifacts/llmatic-agent-runtime.vsix` through the VS Code CLI
-- requires the active extension path to be inside the isolated `--extensions-dir`, not the source-development path
-- activates the installed extension
-- verifies critical LLMatic commands
-- verifies the opened repository remains free of `.llmatic` and `llmatic.agent.yaml`
-
-This gate runs in hosted CI and in the tag-driven release workflow before GitHub Release publication.
+MIT.
