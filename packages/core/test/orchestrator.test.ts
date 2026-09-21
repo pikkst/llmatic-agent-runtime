@@ -5,11 +5,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { createDefaultConfig } from "../src/config.js";
 import { detectRepository } from "../src/detect.js";
 import { runLocalValidation } from "../src/orchestrator.js";
-import {
-  WorkflowStateStore,
-  startWorkflow,
-  transitionWorkflow,
-} from "../src/workflow.js";
+import { WorkflowStateStore, startWorkflow, transitionWorkflow } from "../src/workflow.js";
 
 const temporaryDirectories: string[] = [];
 
@@ -60,10 +56,7 @@ describe("runLocalValidation", () => {
 
     expect(report.success).toBe(true);
     expect(report.finishedState).toBe("CODE_REVIEW");
-    expect(report.results.map((result) => result.capability)).toEqual([
-      "typecheck",
-      "test",
-    ]);
+    expect(report.results.map((result) => result.capability)).toEqual(["typecheck", "test"]);
 
     const current = await store.loadCurrent();
     expect(current?.state).toBe("CODE_REVIEW");

@@ -1,12 +1,6 @@
 import type { AgentConfig } from "./config.js";
-import {
-  executeCapability,
-  type CapabilityProcessRunner,
-} from "./executor.js";
-import type {
-  CapabilityExecutionResult,
-  CapabilityName,
-} from "./types.js";
+import { executeCapability, type CapabilityProcessRunner } from "./executor.js";
+import type { CapabilityExecutionResult, CapabilityName } from "./types.js";
 import {
   WorkflowStateStore,
   recordCapabilityCheckpoint,
