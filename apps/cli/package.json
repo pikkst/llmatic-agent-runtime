@@ -14,6 +14,7 @@
     "@llmatic/repo-intelligence": "workspace:*",
     "@llmatic/github-adapter": "workspace:*",
     "@llmatic/task-provider": "workspace:*",
-    "@llmatic/jira-adapter": "workspace:*"
+    "@llmatic/jira-adapter": "workspace:*",
+    "@llmatic/runtime-tools": "workspace:*"
   }
 }

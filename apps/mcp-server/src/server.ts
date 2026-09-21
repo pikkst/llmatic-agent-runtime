@@ -8,6 +8,11 @@ import {
 } from "@llmatic/jira-adapter";
 import * as z from "zod/v4";
 import {
+  inspectRuntimeTools,
+  parseRuntimeToolOperation,
+  runRuntimeToolOperation,
+} from "@llmatic/runtime-tools";
+import {
   WorkflowStateStore,
   detectRepository,
   executeCapability,
@@ -501,6 +506,45 @@ export function createLlmaticMcpServer(): McpServer {
         return mergeWorkflowPullRequest(context.root, context.config, context.store, ref, {
           method,
         });
+      }),
+  );
+
+  server.registerTool(
+    "llmatic_runtime_inspect",
+    {
+      description: "Inspect Docker, Supabase, Python, and Ollama tool-pack availability.",
+      inputSchema: z.object({
+        root: z.string().optional(),
+      }),
+    },
+    async ({ root }) => toolResult(() => inspectRuntimeTools(runtimeRoot(root))),
+  );
+
+  server.registerTool(
+    "llmatic_runtime_run",
+    {
+      description:
+        "Run a whitelisted runtime operation. MCP never self-approves docker, databaseMigration, or localProcess ask permissions.",
+      inputSchema: z.object({
+        root: z.string().optional(),
+        pack: z.enum(["docker", "supabase", "python", "ollama"]),
+        operation: z.string().min(1),
+        script: z.string().min(1).optional(),
+        model: z.string().min(1).optional(),
+        prompt: z.string().optional(),
+        args: z.array(z.string()).optional(),
+      }),
+    },
+    async ({ root, pack, operation, script, model, prompt, args }) =>
+      toolResult(async () => {
+        const context = await runtimeContext(root);
+        const request = parseRuntimeToolOperation(pack, operation, {
+          script,
+          model,
+          prompt,
+          args: args ?? [],
+        });
+        return runRuntimeToolOperation(context.root, context.config, context.store, request);
       }),
   );
 

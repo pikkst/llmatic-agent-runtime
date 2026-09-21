@@ -2,50 +2,54 @@
 
 Universal local software-engineering runtime for coding agents.
 
-LLMatic Agent Runtime gives coding agents deterministic, repository-aware engineering capabilities while keeping workflow state, permissions, validation, repository intelligence, Git, GitHub, task providers, and tool execution outside the model prompt.
+LLMatic Agent Runtime gives coding agents deterministic, repository-aware engineering capabilities while keeping workflow state, permissions, validation, repository intelligence, Git, GitHub, task providers, and local tool execution outside the model prompt.
 
 ## Current milestone
 
-M9 — Task Provider + Jira
+M10 — Runtime Tool Packs
 
 Implemented:
 
 - persistent workflow state and audit checkpoints
-- capability discovery and local validation
-- controlled tool registry
-- protected Git adapter
+- repository/capability detection and local CI
+- protected Git and GitHub adapters
 - repository AST/import intelligence
-- protected GitHub PR/CI/merge adapter
 - MCP v2 stdio server
-- provider-neutral task contract
-- Jira Cloud REST v3 task adapter
-- Jira-backed workflow task selection/validation
-- Jira comment/transition synchronization
+- provider-neutral task layer and Jira adapter
+- Docker local lifecycle pack
+- Supabase local-development pack
+- Python/uv execution pack
+- Ollama local-model pack
+- whitelist-only runtime execution with permission gates
 
-## Jira-first workflow
+## Runtime tools
 
-    Jira issue
-      -> TASK_SELECTED       # llmatic workflow select-jira KT-123
-      -> TASK_VALIDATED      # llmatic workflow validate-jira
-      -> REPO_ANALYZED       # llmatic workflow analyze
-      -> BRANCH_CREATED
-      -> IMPLEMENTING
-      -> LOCAL_VALIDATION
-      -> CODE_REVIEW
-      -> READY_TO_PUSH
-      -> PUSHED
-      -> PR_OPEN
-      -> REMOTE_CI
-      -> FINAL_REVIEW
-      -> READY_TO_MERGE
-      -> COMPLETED
-      -> Jira sync           # comment / transition
+Inspect:
 
-The same primitives are exposed through MCP. MCP never self-approves permissions configured as `ask`.
+    llmatic runtime inspect
 
-## Jira credentials
+Examples:
 
-Use environment variables only. See `docs/jira-adapter.md`.
+    llmatic runtime run docker status
+    llmatic runtime run docker up --approve
+
+    llmatic runtime run supabase status
+    llmatic runtime run supabase db-reset-local --approve
+
+    llmatic runtime run python run-script --script scripts/check.py --approve
+
+    llmatic runtime run ollama list
+    llmatic runtime run ollama run --model qwen3:8b --prompt "Review this change" --approve
+
+See `docs/runtime-tool-packs.md` for the safety boundary.
+
+## Safety model
+
+There is no arbitrary shell execution API.
+
+Runtime packs construct fixed executable/argument arrays from whitelisted operations. Dangerous remote database/deployment operations are not part of M10.
+
+MCP never self-approves an `ask` permission.
 
 ## Development
 
@@ -58,10 +62,10 @@ Use environment variables only. See `docs/jira-adapter.md`.
 
 Next milestones add:
 
-1. Docker / Supabase / Python / local-LLM tool packs
-2. automated code-review orchestration
-3. richer task-provider mapping and Jira field policy
-4. deployment adapters and release policy gates
+1. automated code-review orchestration
+2. richer installer/bootstrap plans for runtime dependencies
+3. richer Jira field/status policies
+4. controlled deployment/release adapters
 5. optional Streamable HTTP MCP serving
 
 See the documents under `docs/`.

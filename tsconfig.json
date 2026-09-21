@@ -23,6 +23,9 @@
       "path": "./packages/jira-adapter"
     },
     {
+      "path": "./packages/runtime-tools"
+    },
+    {
       "path": "./apps/mcp-server"
     },
     {

@@ -11,6 +11,13 @@ import {
 } from "@llmatic/jira-adapter";
 import type { TaskRecord, TaskTransition } from "@llmatic/task-provider";
 import {
+  inspectRuntimeTools,
+  parseRuntimeToolOperation,
+  runRuntimeToolOperation,
+  type RuntimeToolInspection,
+  type RuntimeToolOperationResult,
+} from "@llmatic/runtime-tools";
+import {
   createPullRequest,
   createWorkflowPullRequest,
   getPullRequestStatus,
@@ -79,6 +86,20 @@ function printDetection(detection: RepositoryDetection): void {
     const command = capability.command ? " -> " + capability.command : "";
     console.log("  " + marker + " " + capability.name + command);
   }
+}
+
+function printRuntimeInspection(item: RuntimeToolInspection): void {
+  const marker = item.available ? "✓" : "·";
+  const version = item.version ? " " + item.version : "";
+  const executable = item.executable ? " [" + item.executable + "]" : "";
+  console.log(marker + " " + item.pack + version + executable);
+}
+
+function printRuntimeResult(result: RuntimeToolOperationResult): void {
+  console.log((result.success ? "PASS" : "FAIL") + ": " + result.pack + " " + result.operation);
+  console.log("Command: " + result.command);
+  if (result.stdout) console.log(result.stdout);
+  if (result.stderr) console.error(result.stderr);
 }
 
 function printTask(task: TaskRecord): void {
@@ -594,6 +615,75 @@ gitCommand
       });
 
       console.log("Pushed " + result.branch + " to " + result.remote + ".");
+    },
+  );
+
+const runtimeCommand = program
+  .command("runtime")
+  .description("Inspect and run whitelisted local runtime tool-pack operations.");
+
+runtimeCommand
+  .command("inspect")
+  .description("Inspect Docker, Supabase, Python, and Ollama runtime availability.")
+  .option("-r, --root <path>", "Repository root", process.cwd())
+  .option("--json", "Print machine-readable JSON")
+  .action(async (options: { root: string; json?: boolean }) => {
+    const result = await inspectRuntimeTools(resolve(options.root));
+
+    if (options.json) {
+      console.log(JSON.stringify(result, null, 2));
+      return;
+    }
+
+    for (const item of result) printRuntimeInspection(item);
+  });
+
+runtimeCommand
+  .command("run")
+  .description("Run a whitelisted runtime tool-pack operation.")
+  .argument("<pack>", "Pack: docker, supabase, python, ollama")
+  .argument("<operation>", "Pack operation")
+  .option("-r, --root <path>", "Repository root", process.cwd())
+  .option("--script <path>", "Repository-relative Python script")
+  .option("--model <name>", "Ollama model name")
+  .option("--prompt <text>", "Ollama prompt")
+  .option("--arg <value...>", "Arguments passed to a Python script")
+  .option("--approve", "Approve an ask-gated local operation")
+  .option("--json", "Print machine-readable JSON")
+  .action(
+    async (
+      pack: string,
+      operation: string,
+      options: {
+        root: string;
+        script?: string;
+        model?: string;
+        prompt?: string;
+        arg?: string[];
+        approve?: boolean;
+        json?: boolean;
+      },
+    ) => {
+      const root = resolve(options.root);
+      const config = await loadAgentConfig(root);
+      const store = new WorkflowStateStore(root, config);
+      const request = parseRuntimeToolOperation(pack, operation, {
+        script: options.script,
+        model: options.model,
+        prompt: options.prompt,
+        args: options.arg ?? [],
+      });
+      const result = await runRuntimeToolOperation(root, config, store, request, {
+        approved: options.approve ?? false,
+      });
+
+      if (options.json) {
+        console.log(JSON.stringify(result, null, 2));
+      } else {
+        printRuntimeResult(result);
+      }
+
+      if (!result.success) process.exitCode = result.exitCode || 1;
     },
   );
 
