@@ -98,7 +98,6 @@ with required/unresolved counts and unresolved area names.
 
 This keeps the synchronization gate auditable in persistent workflow state.
 
-
 ## MCP inspection
 
 Agents can inspect the deterministic gate before review with:

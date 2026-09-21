@@ -2,13 +2,7 @@ import { access } from "node:fs/promises";
 import { resolve } from "node:path";
 
 export type ArchitectureImpactArea =
-  | "architecture"
-  | "api_contract"
-  | "schema"
-  | "security"
-  | "testing"
-  | "operations"
-  | "task_graph";
+  "architecture" | "api_contract" | "schema" | "security" | "testing" | "operations" | "task_graph";
 
 export interface ArchitectureImpactItem {
   area: ArchitectureImpactArea;

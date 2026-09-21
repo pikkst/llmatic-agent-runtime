@@ -1,10 +1,7 @@
 import { spawnSync } from "node:child_process";
 import { resolve } from "node:path";
 import { McpServer } from "@modelcontextprotocol/server";
-import {
-  analyzeArchitectureImpact,
-  architectureImpactSummary,
-} from "@llmatic/architecture-impact";
+import { analyzeArchitectureImpact, architectureImpactSummary } from "@llmatic/architecture-impact";
 import {
   createJiraTaskProviderFromEnvironment,
   selectJiraWorkflowTask,
@@ -81,22 +78,17 @@ function planningWorkspaceDirectory(root: string): string {
 }
 
 function architectureChangedFiles(root: string): string[] {
-  const result = spawnSync(
-    "git",
-    ["status", "--porcelain=v1", "-z", "--untracked-files=all"],
-    {
-      cwd: root,
-      env: process.env,
-      encoding: "utf8",
-      shell: false,
-    },
-  );
+  const result = spawnSync("git", ["status", "--porcelain=v1", "-z", "--untracked-files=all"], {
+    cwd: root,
+    env: process.env,
+    encoding: "utf8",
+    shell: false,
+  });
 
   if (result.error) throw result.error;
   if (result.status !== 0) {
     throw new Error(
-      "Git architecture-impact status failed: " +
-        (result.stderr || result.stdout).trim(),
+      "Git architecture-impact status failed: " + (result.stderr || result.stdout).trim(),
     );
   }
 
@@ -175,10 +167,7 @@ export function createLlmaticMcpServer(): McpServer {
       toolResult(async () => {
         const projectRoot = runtimeRoot(root);
         const changedFiles = architectureChangedFiles(projectRoot);
-        const report = await analyzeArchitectureImpact(
-          projectRoot,
-          changedFiles,
-        );
+        const report = await analyzeArchitectureImpact(projectRoot, changedFiles);
 
         return {
           ...report,
