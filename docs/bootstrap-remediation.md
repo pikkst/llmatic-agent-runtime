@@ -19,11 +19,13 @@ The command:
 ## Requirement levels
 
 Required:
+
 - Node.js
 - Git
 - pnpm when the repository declares pnpm
 
 Recommended:
+
 - GitHub CLI
 - Docker when Docker/Compose files are detected
 - Supabase CLI when supabase/config.toml is detected
@@ -31,6 +33,7 @@ Recommended:
 - Python when Python project/source files are detected
 
 Optional:
+
 - uv for Python workflows
 - Ollama for local model execution
 
