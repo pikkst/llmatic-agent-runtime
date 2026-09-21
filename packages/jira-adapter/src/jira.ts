@@ -295,6 +295,7 @@ export class JiraTaskProvider implements TaskProvider {
     private readonly runtimeConfig: AgentConfig,
     private readonly connection: JiraConnectionConfig,
     private readonly transport: JiraHttpTransport = defaultTransport,
+    private readonly environment: NodeJS.ProcessEnv = process.env,
   ) {}
 
   public async getTask(
@@ -320,12 +321,12 @@ export class JiraTaskProvider implements TaskProvider {
   ): Promise<TaskRecord[]> {
     permission(this.runtimeConfig.permissions.taskRead, "Task read", options.approved ?? false);
 
-    const projectKey = process.env.LLMATIC_JIRA_PROJECT_KEY?.trim();
+    const projectKey = this.environment.LLMATIC_JIRA_PROJECT_KEY?.trim();
     if (projectKey && !/^[A-Z][A-Z0-9_]*$/i.test(projectKey)) {
       throw new Error("LLMATIC_JIRA_PROJECT_KEY contains an invalid Jira project key.");
     }
 
-    const configuredJql = process.env.LLMATIC_JIRA_RECOVERY_JQL?.trim();
+    const configuredJql = this.environment.LLMATIC_JIRA_RECOVERY_JQL?.trim();
     const scope = projectKey
       ? 'project = "' + projectKey.toUpperCase() + '" AND '
       : "";
@@ -475,7 +476,12 @@ export function createJiraTaskProviderFromEnvironment(
   runtimeConfig: AgentConfig,
   environment: NodeJS.ProcessEnv = process.env,
 ): JiraTaskProvider {
-  return new JiraTaskProvider(runtimeConfig, jiraConnectionFromEnvironment(environment));
+  return new JiraTaskProvider(
+    runtimeConfig,
+    jiraConnectionFromEnvironment(environment),
+    defaultTransport,
+    environment,
+  );
 }
 
 function taskMetadata(task: TaskRecord): Record<string, string> {
