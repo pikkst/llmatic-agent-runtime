@@ -6,20 +6,24 @@ LLMatic Agent Runtime gives coding agents a deterministic, repository-aware capa
 
 ## Current milestone
 
-M1 — Local Runtime Foundation
+M3 — Local Validation Orchestration
 
-Implemented in the bootstrap:
+Implemented:
 
-- repository detection
+- repository and toolchain detection
 - package-manager detection
 - technology detection
-- standard capability discovery
-- llmatic init
-- llmatic detect
-- llmatic doctor
-- permission-aware runtime configuration
-- initial architecture and security model
-- CI validation
+- structured capability discovery
+- `llmatic init`
+- `llmatic detect`
+- `llmatic doctor`
+- persistent workflow state and checkpoints
+- validated workflow transitions
+- permission-aware capability execution
+- `llmatic run <capability>`
+- `llmatic workflow start/status/transition`
+- automatic required-gate orchestration through `llmatic validate`
+- canonical local/hosted CI pipeline
 
 ## Architecture
 
@@ -28,6 +32,8 @@ Coding agents are clients of the runtime.
 Kilo Code, Codex, Claude Code, Cline, local LLMs, or other clients should eventually access the same capabilities through CLI and MCP interfaces.
 
 A logical capability such as test, lint, typecheck, build, or CI is resolved by the runtime to repository-specific tooling.
+
+The runtime owns workflow state and quality-gate decisions so agents do not need to reconstruct engineering process rules from prompts.
 
 ## Development
 
@@ -43,7 +49,7 @@ Install dependencies:
 
 Validate:
 
-    pnpm run ci
+    pnpm ci:local
 
 Build:
 
@@ -54,20 +60,21 @@ Run the CLI from the workspace:
     node apps/cli/dist/index.js detect
     node apps/cli/dist/index.js doctor
     node apps/cli/dist/index.js init
+    node apps/cli/dist/index.js status
+    node apps/cli/dist/index.js validate
 
 ## Roadmap
 
 Next milestones add:
 
-1. persistent workflow state and checkpoints
-2. capability execution
-3. tool registry and controlled installers
-4. Git adapter
-5. repository intelligence and AST indexing
-6. GitHub adapter
-7. MCP server
-8. task-provider adapters such as Jira
-9. Docker, Supabase, Python, and local-LLM packs
-10. review and remote-CI orchestration
+1. tool registry and controlled installers
+2. Git adapter
+3. repository intelligence and AST indexing
+4. GitHub adapter
+5. MCP server
+6. task-provider adapters such as Jira
+7. Docker, Supabase, Python, and local-LLM packs
+8. automated code-review and remote-CI orchestration
+9. controlled PR/merge/deploy actions
 
-See docs/architecture.md and docs/security-model.md.
+See docs/architecture.md, docs/security-model.md, docs/workflow-state.md, and docs/orchestration.md.

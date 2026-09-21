@@ -13,6 +13,7 @@ import {
   normalizeWorkflowState,
   recordCapabilityCheckpoint,
   runDoctor,
+  runLocalValidation,
   serializeConfig,
   startWorkflow,
   transitionWorkflow,
@@ -50,6 +51,35 @@ function printWorkflow(run: WorkflowRun): void {
 async function workflowStore(root: string): Promise<WorkflowStateStore> {
   const config = await loadAgentConfig(root);
   return new WorkflowStateStore(root, config);
+}
+
+async function runValidation(rootInput: string, approved: boolean): Promise<void> {
+  const root = resolve(rootInput);
+  const config = await loadAgentConfig(root);
+  const store = new WorkflowStateStore(root, config);
+  const report = await runLocalValidation(root, config, store, { approved });
+
+  console.log("");
+  console.log("Validation: " + (report.success ? "PASS" : "FAIL"));
+  console.log("State: " + report.finishedState);
+  console.log("Gates:");
+
+  for (const result of report.results) {
+    console.log(
+      "  " +
+        (result.success ? "✓" : "✗") +
+        " " +
+        result.capability +
+        " (" +
+        result.durationMs +
+        "ms)",
+    );
+  }
+
+  if (!report.success) {
+    const failed = report.results.find((result) => !result.success);
+    process.exitCode = failed?.exitCode || 1;
+  }
 }
 
 program
@@ -212,6 +242,15 @@ workflow
   });
 
 workflow
+  .command("validate")
+  .description("Run required local gates and advance workflow state automatically.")
+  .option("-r, --root <path>", "Repository root", process.cwd())
+  .option("--approve", "Approve capabilities configured with permission 'ask'")
+  .action(async (options: { root: string; approve?: boolean }) => {
+    await runValidation(options.root, options.approve ?? false);
+  });
+
+workflow
   .command("transition")
   .description("Move the active workflow to a valid next state.")
   .argument("<state>", "Target state: " + WORKFLOW_STATES.join(", "))
@@ -222,6 +261,15 @@ workflow
     const state = normalizeWorkflowState(stateInput);
     const run = await transitionWorkflow(store, state);
     printWorkflow(run);
+  });
+
+program
+  .command("validate")
+  .description("Alias for workflow validate.")
+  .option("-r, --root <path>", "Repository root", process.cwd())
+  .option("--approve", "Approve capabilities configured with permission 'ask'")
+  .action(async (options: { root: string; approve?: boolean }) => {
+    await runValidation(options.root, options.approve ?? false);
   });
 
 program
