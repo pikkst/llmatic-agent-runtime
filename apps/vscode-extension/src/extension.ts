@@ -351,9 +351,19 @@ async function refreshWorkspaceRecovery(
     LLMATIC_HOME: context.globalStorageUri.fsPath,
   });
   const store = new WorkflowStateStore(folder.uri.fsPath, config);
+  const taskSource = configuration().get<string>("taskSource", "auto").trim() || "auto";
+  const jiraProjectKey = configuration().get<string>("jiraProjectKey", "").trim();
+  const jiraRecoveryJql = configuration().get<string>("jiraRecoveryJql", "").trim();
+  const recoveryEnvironment: NodeJS.ProcessEnv = {
+    ...process.env,
+    LLMATIC_TASK_PROVIDER: taskSource,
+    ...(jiraProjectKey ? { LLMATIC_JIRA_PROJECT_KEY: jiraProjectKey } : {}),
+    ...(jiraRecoveryJql ? { LLMATIC_JIRA_RECOVERY_JQL: jiraRecoveryJql } : {}),
+  };
+
   const recovery = await recoverWorkspace(folder.uri.fsPath, config, store, {
     rebuildIndex,
-    environment: process.env,
+    environment: recoveryEnvironment,
   });
 
   state.recovery = recovery;
@@ -905,6 +915,12 @@ async function runGatewayReview(
   let store = new WorkflowStateStore(root, config);
   const gateway = new KiloGatewayClient({ apiKey });
 
+  output.clear();
+  output.appendLine(fixLoop ? "LLMatic Review / Fix Loop" : "LLMatic Code Review");
+  output.appendLine("Model: " + model);
+  output.appendLine("Workspace: " + root);
+  output.appendLine("");
+
   if (fixLoop) {
     const current = await store.loadCurrent();
     if (!current || current.state !== "CODE_REVIEW") {
@@ -925,12 +941,6 @@ async function runGatewayReview(
       );
     }
   }
-
-  output.clear();
-  output.appendLine(fixLoop ? "LLMatic Review / Fix Loop" : "LLMatic Code Review");
-  output.appendLine("Model: " + model);
-  output.appendLine("Workspace: " + root);
-  output.appendLine("");
 
   if (fixLoop) {
     const result = await vscode.window.withProgress(
