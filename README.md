@@ -4,7 +4,7 @@ Universal local software-engineering runtime for coding agents.
 
 ## Current milestone
 
-M23 — Approval & Initialization
+M24 — Living Architecture
 
 LLMatic now supports:
 
@@ -251,3 +251,41 @@ Agents can inspect approval state using:
     llmatic_plan_approval_status
 
 MCP cannot create human approval or initialize the repository.
+
+
+## Living architecture gate
+
+M24 extends code review beyond implementation correctness.
+
+For projects initialized from an approved LLMatic plan, every changed-file set is deterministically checked for architecture synchronization impact.
+
+Current impact areas:
+
+- architecture
+- API contracts
+- database/schema
+- security
+- testing
+- task graph / roadmap
+
+Examples:
+
+    API route change
+      -> API_CONTRACTS.md or canonical contract change
+      -> automated test change
+
+    migration/schema change
+      -> DATA_MODEL.md synchronization
+
+    auth / authorization / RLS / policy change
+      -> SECURITY.md synchronization
+
+    architecture / ADR change
+      -> TASKS.md or ROADMAP.md synchronization
+
+The gate is enabled only when the repository contains the initialized LLMatic baseline:
+
+    docs/planning/APPROVED_PLAN.md
+    TASKS.md
+
+A clear model review is not sufficient when deterministic living-architecture impact remains unresolved. The workflow returns to FIXING until the required synchronization evidence is present.

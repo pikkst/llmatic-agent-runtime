@@ -104,3 +104,12 @@
 - Materialization verifies approved planning bytes before selecting the first dependency-unblocked task.
 - Failed initialization rolls back files created by that attempt.
 - Added read-only MCP approval/lifecycle status; MCP cannot self-approve or initialize.
+
+## M24 — Living architecture
+
+- Added deterministic changed-file architecture impact classification.
+- Living-architecture enforcement activates only for initialized approved-plan repositories.
+- Code review now blocks on unresolved architecture/API/schema/security/testing/task-graph synchronization.
+- Review/fix loop receives concrete synchronization instructions for unresolved impact areas.
+- VS Code review output shows code findings and living-architecture synchronization evidence separately.
+

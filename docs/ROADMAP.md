@@ -98,7 +98,7 @@ Planning artifacts stay in private LLMatic workspace storage until explicit proj
 
 ## M23 — Approval & Initialization
 
-Status: in progress.
+Status: completed.
 
 Goal: require a human decision before the generated plan becomes repository state.
 
@@ -135,6 +135,8 @@ Before APPROVED:
 After approval, LLMatic materializes the approved documentation/scaffold, bootstraps tools, runs local validation and selects the first unblocked task.
 
 ## M24 — Living Architecture
+
+Status: in progress.
 
 Goal: keep code, architecture, contracts and task graph synchronized throughout implementation.
 
