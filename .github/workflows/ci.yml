@@ -28,8 +28,5 @@ jobs:
       - name: Install dependencies
         run: pnpm install --no-frozen-lockfile
 
-      - name: Show canonical M10 formatting
-        run: pnpm exec prettier apps/cli/tsconfig.json apps/mcp-server/tsconfig.json packages/runtime-tools/src/runtime.ts packages/runtime-tools/test/runtime.test.ts
-
       - name: Validate
         run: pnpm run ci

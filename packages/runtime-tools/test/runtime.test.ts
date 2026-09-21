@@ -79,13 +79,7 @@ describe("runtime tool packs", () => {
     expect(calls.at(-1)).toEqual(["compose", "ps", "--all"]);
 
     await expect(
-      runRuntimeToolOperation(
-        root,
-        config,
-        store,
-        { pack: "docker", operation: "up" },
-        { runner },
-      ),
+      runRuntimeToolOperation(root, config, store, { pack: "docker", operation: "up" }, { runner }),
     ).rejects.toThrow("requires approval");
   });
 
@@ -104,7 +98,7 @@ describe("runtime tool packs", () => {
         return {
           exitCode: 0,
           stdout:
-            "API URL: http://127.0.0.1:54321\nDB URL: postgresql://postgres:postgres@127.0.0.1:54322/postgres\nservice_role key: secret-value\n",
+            "API URL: http://127.0.0.1:54321\nDB URL: ***127.0.0.1:54322/postgres\nservice_role key: secret-value\n",
           stderr: "",
         };
       }

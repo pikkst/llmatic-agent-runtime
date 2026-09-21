@@ -27,11 +27,7 @@ interface ExecutableResolution {
   version: string;
 }
 
-function defaultRunner(
-  executable: string,
-  args: string[],
-  cwd: string,
-): RuntimeToolProcessResult {
+function defaultRunner(executable: string, args: string[], cwd: string): RuntimeToolProcessResult {
   const result = spawnSync(executable, args, {
     cwd,
     env: process.env,
@@ -55,11 +51,13 @@ function defaultRunner(
 }
 
 function firstLine(result: RuntimeToolProcessResult): string {
-  return [result.stdout, result.stderr]
-    .join("\n")
-    .split(/\r?\n/)
-    .map((line) => line.trim())
-    .find(Boolean) ?? "";
+  return (
+    [result.stdout, result.stderr]
+      .join("\n")
+      .split(/\r?\n/)
+      .map((line) => line.trim())
+      .find(Boolean) ?? ""
+  );
 }
 
 function detectFirst(
@@ -306,9 +304,7 @@ async function commandFor(
     }
 
     const args =
-      request.operation === "db-reset-local"
-        ? ["db", "reset", "--local"]
-        : [request.operation];
+      request.operation === "db-reset-local" ? ["db", "reset", "--local"] : [request.operation];
 
     return { executable: resolution.executable, args };
   }
@@ -348,13 +344,7 @@ export async function runRuntimeToolOperation(
   const runner = options.runner ?? defaultRunner;
 
   try {
-    const command = await commandFor(
-      root,
-      config,
-      request,
-      options.approved ?? false,
-      runner,
-    );
+    const command = await commandFor(root, config, request, options.approved ?? false, runner);
     const raw = runner(command.executable, command.args, root);
     const result = sanitized(request.pack, raw);
 
@@ -373,9 +363,7 @@ export async function runRuntimeToolOperation(
       action: request.pack + "." + request.operation,
       command: operationResult.command,
       success: operationResult.success,
-      detail: operationResult.success
-        ? "exit 0"
-        : "exit " + String(operationResult.exitCode),
+      detail: operationResult.success ? "exit 0" : "exit " + String(operationResult.exitCode),
       metadata: {
         pack: request.pack,
         operation: request.operation,
