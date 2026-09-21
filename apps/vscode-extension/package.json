@@ -1,0 +1,107 @@
+{
+  "name": "@llmatic/vscode-extension",
+  "displayName": "LLMatic Agent Runtime",
+  "description": "Attach the LLMatic agent engineering runtime to local repositories without adding runtime files to the repository.",
+  "version": "0.1.0",
+  "private": true,
+  "publisher": "llmatic",
+  "license": "MIT",
+  "engines": {
+    "vscode": "^1.95.0"
+  },
+  "categories": ["Other", "Machine Learning"],
+  "extensionKind": ["workspace"],
+  "main": "./dist/extension.cjs",
+  "activationEvents": [
+    "onStartupFinished",
+    "onCommand:llmatic.initializeWorkspace",
+    "onCommand:llmatic.connectKilo",
+    "onView:llmatic.workspace"
+  ],
+  "contributes": {
+    "commands": [
+      {
+        "command": "llmatic.initializeWorkspace",
+        "title": "LLMatic: Initialize Private Workspace"
+      },
+      {
+        "command": "llmatic.connectKilo",
+        "title": "LLMatic: Connect Kilo Code Globally"
+      },
+      {
+        "command": "llmatic.setKiloGatewayApiKey",
+        "title": "LLMatic: Store Kilo Gateway API Key"
+      },
+      {
+        "command": "llmatic.clearKiloGatewayApiKey",
+        "title": "LLMatic: Clear Kilo Gateway API Key"
+      },
+      {
+        "command": "llmatic.refreshStatus",
+        "title": "LLMatic: Refresh Workspace Status"
+      },
+      {
+        "command": "llmatic.openPrivateConfig",
+        "title": "LLMatic: Open Private Workspace Config"
+      }
+    ],
+    "configuration": {
+      "title": "LLMatic Agent Runtime",
+      "properties": {
+        "llmatic.workspace.autoInitialize": {
+          "type": "boolean",
+          "default": true,
+          "description": "Automatically create private LLMatic workspace state outside the repository for Git workspaces."
+        },
+        "llmatic.workspace.localGitExclude": {
+          "type": "boolean",
+          "default": true,
+          "description": "Keep local LLMatic fallback paths ignored through .git/info/exclude without modifying .gitignore."
+        },
+        "llmatic.kilo.offerGlobalMcp": {
+          "type": "boolean",
+          "default": true,
+          "description": "Offer to register the bundled LLMatic MCP server in Kilo's global configuration."
+        },
+        "llmatic.runtime.nodeCommand": {
+          "type": "string",
+          "default": "node",
+          "description": "Node executable used by Kilo to launch the bundled LLMatic MCP server."
+        },
+        "llmatic.runtime.mcpServerPath": {
+          "type": "string",
+          "default": "",
+          "description": "Optional override for the LLMatic MCP server entry file. Empty uses the extension-bundled runtime."
+        }
+      }
+    },
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "llmatic",
+          "title": "LLMatic",
+          "icon": "resources/llmatic.svg"
+        }
+      ]
+    },
+    "views": {
+      "llmatic": [
+        {
+          "id": "llmatic.workspace",
+          "name": "Workspace"
+        }
+      ]
+    }
+  },
+  "scripts": {
+    "bundle": "esbuild src/extension.ts --bundle --platform=node --format=cjs --external:vscode --outfile=dist/extension.cjs && esbuild ../mcp-server/src/index.ts --bundle --platform=node --format=esm --outfile=dist/runtime/llmatic-mcp.mjs"
+  },
+  "dependencies": {
+    "@llmatic/core": "workspace:*",
+    "@llmatic/workspace-manager": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/vscode": "^1.95.0",
+    "esbuild": "^0.25.10"
+  }
+}

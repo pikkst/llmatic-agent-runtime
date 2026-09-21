@@ -2,54 +2,43 @@
 
 Universal local software-engineering runtime for coding agents.
 
-LLMatic Agent Runtime gives coding agents deterministic, repository-aware engineering capabilities while keeping workflow state, permissions, validation, repository intelligence, Git, GitHub, task providers, and local tool execution outside the model prompt.
+LLMatic now supports a zero-repo-footprint VS Code integration: install the extension once, open a Git repository, and keep workflow state, cache, runtime configuration, and secrets outside the repository.
 
 ## Current milestone
 
-M10 — Runtime Tool Packs
+M11 — VS Code Extension Core
 
 Implemented:
 
-- persistent workflow state and audit checkpoints
-- repository/capability detection and local CI
-- protected Git and GitHub adapters
-- repository AST/import intelligence
+- persistent workflow/runtime engine
+- protected Git/GitHub/Jira/runtime-tool adapters
+- repository AST intelligence
 - MCP v2 stdio server
-- provider-neutral task layer and Jira adapter
-- Docker local lifecycle pack
-- Supabase local-development pack
-- Python/uv execution pack
-- Ollama local-model pack
-- whitelist-only runtime execution with permission gates
+- VS Code desktop extension
+- private per-workspace storage in VS Code global storage
+- zero tracked LLMatic files required in managed repositories
+- local `.git/info/exclude` fallback protection
+- extension-bundled MCP runtime
+- global Kilo MCP registration
+- VS Code SecretStorage foundation for Kilo Gateway credentials
+- Activity Bar + status bar integration
 
-## Runtime tools
+## Zero-repo workflow
 
-Inspect:
+Open any Git repository in VS Code.
 
-    llmatic runtime inspect
+The extension creates private state outside the repo:
 
-Examples:
+    <VS Code globalStorage>/workspaces/<workspace-hash>/
+      llmatic.agent.yaml
+      state/
+      cache/
 
-    llmatic runtime run docker status
-    llmatic runtime run docker up --approve
+Kilo can use one global MCP registration for all repositories:
 
-    llmatic runtime run supabase status
-    llmatic runtime run supabase db-reset-local --approve
+    ~/.config/kilo/kilo.jsonc
 
-    llmatic runtime run python run-script --script scripts/check.py --approve
-
-    llmatic runtime run ollama list
-    llmatic runtime run ollama run --model qwen3:8b --prompt "Review this change" --approve
-
-See `docs/runtime-tool-packs.md` for the safety boundary.
-
-## Safety model
-
-There is no arbitrary shell execution API.
-
-Runtime packs construct fixed executable/argument arrays from whitelisted operations. Dangerous remote database/deployment operations are not part of M10.
-
-MCP never self-approves an `ask` permission.
+No project-level Kilo or LLMatic tool files are required.
 
 ## Development
 
@@ -58,14 +47,19 @@ MCP never self-approves an `ask` permission.
     pnpm ci:local
     pnpm build
 
+Build only the extension bundles:
+
+    pnpm build:extension
+
+See `docs/vscode-extension.md`.
+
 ## Roadmap
 
-Next milestones add:
+Next milestones:
 
-1. automated code-review orchestration
-2. richer installer/bootstrap plans for runtime dependencies
-3. richer Jira field/status policies
-4. controlled deployment/release adapters
-5. optional Streamable HTTP MCP serving
-
-See the documents under `docs/`.
+1. extension runtime installer/updater and version pinning
+2. richer extension onboarding/health UI
+3. Kilo Gateway-backed autonomous orchestrator
+4. automated code-review/fix loop
+5. extension packaging/VSIX + Marketplace release pipeline
+6. controlled deployment/release adapters

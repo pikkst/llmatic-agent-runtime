@@ -1,0 +1,4 @@
+src/
+build-types/
+tsconfig.json
+**/*.map

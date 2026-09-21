@@ -8,20 +8,22 @@
     "node": ">=20"
   },
   "scripts": {
-    "build": "tsc -b",
+    "build": "tsc -b && pnpm --filter @llmatic/vscode-extension bundle",
     "typecheck": "tsc -b --pretty false",
     "test": "vitest run",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "ci": "node scripts/ci-local.mjs --ci",
     "ci:local": "node scripts/ci-local.mjs",
-    "mcp": "node apps/mcp-server/dist/index.js"
+    "mcp": "node apps/mcp-server/dist/index.js",
+    "build:extension": "pnpm --filter @llmatic/vscode-extension bundle"
   },
   "devDependencies": {
     "@types/node": "^22.10.0",
     "prettier": "^3.4.2",
     "typescript": "^5.7.2",
-    "vitest": "^2.1.8"
+    "vitest": "^2.1.8",
+    "esbuild": "^0.25.10"
   },
   "pnpm": {
     "onlyBuiltDependencies": [

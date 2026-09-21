@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import { basename, resolve } from "node:path";
 import { parse, stringify } from "yaml";
@@ -88,8 +89,43 @@ export function parseConfig(raw: string): AgentConfig {
   return agentConfigSchema.parse(parse(raw));
 }
 
-export async function loadAgentConfig(root: string): Promise<AgentConfig> {
-  const configPath = resolve(root, "llmatic.agent.yaml");
+function normalizedWorkspaceRoot(root: string): string {
+  const resolved = resolve(root);
+  return process.platform === "win32" ? resolved.toLowerCase() : resolved;
+}
+
+export function workspaceId(root: string): string {
+  return createHash("sha256").update(normalizedWorkspaceRoot(root), "utf8").digest("hex").slice(0, 24);
+}
+
+export function workspaceConfigPath(root: string, workspaceHome: string): string {
+  return resolve(workspaceHome, "workspaces", workspaceId(root), "llmatic.agent.yaml");
+}
+
+export function resolveAgentConfigPath(
+  root: string,
+  environment: NodeJS.ProcessEnv = process.env,
+): string {
+  const explicitPath = environment.LLMATIC_CONFIG_PATH?.trim();
+
+  if (explicitPath) {
+    return resolve(explicitPath);
+  }
+
+  const workspaceHome = environment.LLMATIC_WORKSPACE_HOME?.trim();
+
+  if (workspaceHome) {
+    return workspaceConfigPath(root, workspaceHome);
+  }
+
+  return resolve(root, "llmatic.agent.yaml");
+}
+
+export async function loadAgentConfig(
+  root: string,
+  environment: NodeJS.ProcessEnv = process.env,
+): Promise<AgentConfig> {
+  const configPath = resolveAgentConfigPath(root, environment);
 
   try {
     const raw = await readFile(configPath, "utf8");
@@ -98,7 +134,11 @@ export async function loadAgentConfig(root: string): Promise<AgentConfig> {
     const code = error instanceof Error && "code" in error ? String(error.code) : undefined;
 
     if (code === "ENOENT") {
-      throw new Error("llmatic.agent.yaml was not found. Run llmatic init first.");
+      throw new Error(
+        "LLMatic runtime configuration was not found at " +
+          configPath +
+          ". Initialize the workspace or run llmatic init.",
+      );
     }
 
     throw error;

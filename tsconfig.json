@@ -26,6 +26,12 @@
       "path": "./packages/runtime-tools"
     },
     {
+      "path": "./packages/workspace-manager"
+    },
+    {
+      "path": "./apps/vscode-extension"
+    },
+    {
       "path": "./apps/mcp-server"
     },
     {
