@@ -37,6 +37,9 @@
     },
     {
       "path": "../../packages/setup-health"
+    },
+    {
+      "path": "../../packages/release-metadata"
     }
   ]
 }

@@ -4,7 +4,7 @@ Universal local software-engineering runtime for coding agents.
 
 ## Current milestone
 
-M16 — Guided Onboarding & Health
+M17 — Release & Update Pipeline
 
 LLMatic now supports:
 
@@ -63,9 +63,20 @@ The guided flow attaches the workspace externally, verifies/repairs the runtime,
 
 The same state is visible in the status bar and the LLMatic Activity Bar view.
 
+## Releases and updates
+
+Semantic version tags (`vX.Y.Z`) run the full validation/VSIX pipeline and publish a GitHub Release containing a versioned VSIX and `release-manifest.json` with SHA-256 metadata.
+
+Update command:
+
+    LLMatic: Check for Updates
+
+See docs/release-update.md.
+
 ## VS Code commands
 
     LLMatic: Bootstrap Workspace
+    LLMatic: Check for Updates
     LLMatic: Run Gateway Agent
     LLMatic: Run Code Review
     LLMatic: Run Review / Fix Loop

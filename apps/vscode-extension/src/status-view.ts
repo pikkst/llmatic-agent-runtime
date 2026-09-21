@@ -52,6 +52,12 @@ export class LlmaticStatusProvider implements vscode.TreeDataProvider<vscode.Tre
         command: "llmatic.doctor",
       },
       {
+        label: "Check for Updates",
+        description: "verify latest GitHub release manifest",
+        icon: "cloud-download",
+        command: "llmatic.checkForUpdates",
+      },
+      {
         label: "Run Gateway Agent",
         description: "kilo-auto/free by default",
         icon: "sparkle",
