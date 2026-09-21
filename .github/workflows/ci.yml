@@ -7,7 +7,7 @@ on:
       - main
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   validate:
@@ -16,6 +16,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          ref: ${{ github.head_ref || github.ref_name }}
 
       - name: Set up Node.js
         uses: actions/setup-node@v4
@@ -71,6 +73,53 @@ jobs:
             README.md
           if-no-files-found: error
           retention-days: 1
+
+      - name: Commit canonical M20 formatting
+        shell: bash
+        run: |
+          if git diff --quiet -- \
+            apps/cli/src/index.ts \
+            apps/cli/tsconfig.json \
+            apps/mcp-server/src/server.ts \
+            apps/mcp-server/tsconfig.json \
+            packages/github-task-source/src/index.ts \
+            packages/github-task-source/tsconfig.json \
+            packages/markdown-task-source/src/index.ts \
+            packages/markdown-task-source/test/markdown.test.ts \
+            packages/markdown-task-source/tsconfig.json \
+            packages/task-provider/src/index.ts \
+            packages/task-provider/test/workflow.test.ts \
+            packages/task-provider/tsconfig.json \
+            packages/task-router/src/index.ts \
+            packages/task-router/test/router.test.ts \
+            packages/task-router/tsconfig.json \
+            README.md
+          then
+            echo "No canonical formatting changes to commit."
+            exit 0
+          fi
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add \
+            apps/cli/src/index.ts \
+            apps/cli/tsconfig.json \
+            apps/mcp-server/src/server.ts \
+            apps/mcp-server/tsconfig.json \
+            packages/github-task-source/src/index.ts \
+            packages/github-task-source/tsconfig.json \
+            packages/markdown-task-source/src/index.ts \
+            packages/markdown-task-source/test/markdown.test.ts \
+            packages/markdown-task-source/tsconfig.json \
+            packages/task-provider/src/index.ts \
+            packages/task-provider/test/workflow.test.ts \
+            packages/task-provider/tsconfig.json \
+            packages/task-router/src/index.ts \
+            packages/task-router/test/router.test.ts \
+            packages/task-router/tsconfig.json \
+            README.md
+          git commit -m "style: apply canonical M20 formatting"
+          git push origin HEAD:"${{ github.head_ref || github.ref_name }}"
 
       - name: Validate
         run: pnpm run ci
