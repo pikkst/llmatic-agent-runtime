@@ -200,3 +200,42 @@ The acceptance gate runs locally and in hosted CI through:
     pnpm product:acceptance
 
 A release candidate is not product-ready if this lifecycle gate fails.
+
+## M26 — First Real Release & Clean-Install Acceptance
+
+Status: in progress.
+
+Goal: prove the packaged VSIX as a real installed extension from an isolated VS Code profile before the first public semantic release.
+
+Acceptance path:
+
+    accepted VSIX
+      -> isolated VS Code profile
+      -> install VSIX through VS Code CLI
+      -> discover installed extension
+      -> loaded from isolated VSIX extensions directory
+      -> activate installed extension
+      -> verify critical command registrations
+      -> verify zero-repository footprint
+
+The acceptance environment uses the minimum supported VS Code version:
+
+    1.105.0
+
+Canonical command:
+
+    pnpm vscode:acceptance
+
+Hosted CI runs this as a separate job after the ordinary CI/release acceptance artifact is produced.
+
+The tag-driven Release workflow must also pass this gate before GitHub Release publication.
+
+First release target:
+
+    v0.1.0
+
+The repository connector cannot create Git tags. Once main is green, the only manual release trigger is:
+
+    git pull --ff-only origin main
+    git tag -a v0.1.0 -m "LLMatic Agent Runtime v0.1.0"
+    git push origin v0.1.0

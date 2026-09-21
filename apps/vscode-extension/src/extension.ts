@@ -2191,7 +2191,14 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   await refresh(context, statusBar, state);
   statusProvider.update(state.health);
   await vscode.commands.executeCommand("setContext", "llmatic.health", state.health?.status);
-  await offerOnboarding(context, state);
+
+  // Onboarding must never block extension activation. In headless Extension Host
+  // acceptance there is no user available to answer the notification, and in
+  // normal VS Code startup activation should complete independently of UI input.
+  void offerOnboarding(context, state).catch((error) => {
+    const message = error instanceof Error ? error.message : String(error);
+    output.appendLine("[WARN] LLMatic onboarding prompt failed: " + message);
+  });
 }
 
 export function deactivate(): void {
