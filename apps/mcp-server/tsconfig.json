@@ -4,12 +4,22 @@
     "composite": true,
     "rootDir": "src",
     "outDir": "dist",
-    "types": ["node"]
+    "types": [
+      "node"
+    ]
   },
-  "include": ["src/**/*.ts"],
+  "include": [
+    "src/**/*.ts"
+  ],
   "references": [
     {
       "path": "../../packages/core"
+    },
+    {
+      "path": "../../packages/discovery-engine"
+    },
+    {
+      "path": "../../packages/planning-engine"
     },
     {
       "path": "../../packages/tool-registry"
