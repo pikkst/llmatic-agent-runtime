@@ -130,6 +130,94 @@ describe("jira adapter", () => {
     expect(requests[0]?.headers.Authorization).toMatch(/^Basic /);
   });
 
+  it("lists assigned Jira recovery candidates in Jira rank order", async () => {
+    const requests: JiraHttpRequest[] = [];
+    const first = issueJson("KT-201");
+    first.fields.status = {
+      id: "1",
+      name: "To Do",
+      statusCategory: { name: "To Do" },
+    };
+    const second = issueJson("KT-202");
+    second.fields.status = {
+      id: "1",
+      name: "To Do",
+      statusCategory: { name: "To Do" },
+    };
+
+    const transport: JiraHttpTransport = async (request) => {
+      requests.push(request);
+      return {
+        status: 200,
+        statusText: "OK",
+        body: JSON.stringify({ issues: [first, second] }),
+      };
+    };
+    const provider = new JiraTaskProvider(configFor("/repo"), connection, transport, {
+      LLMATIC_JIRA_PROJECT_KEY: "KT",
+    });
+
+    const tasks = await provider.listTasks();
+
+    expect(tasks.map((task) => task.key)).toEqual(["KT-201", "KT-202"]);
+    expect(requests[0]?.method).toBe("POST");
+    expect(requests[0]?.url).toEndWith("/rest/api/3/search/jql");
+    expect(JSON.parse(requests[0]?.body ?? "{}")).toMatchObject({
+      maxResults: 50,
+      jql: expect.stringContaining('project = "KT"'),
+    });
+  });
+
+  it("selects the first Jira-ranked todo whose linked dependencies are done", async () => {
+    const blocked = issueJson("KT-201");
+    blocked.fields.status = {
+      id: "1",
+      name: "To Do",
+      statusCategory: { name: "To Do" },
+    };
+    blocked.fields.issuelinks = [
+      {
+        type: { inward: "is blocked by", outward: "blocks" },
+        inwardIssue: { key: "KT-200" },
+      },
+    ];
+
+    const ready = issueJson("KT-202");
+    ready.fields.status = {
+      id: "1",
+      name: "To Do",
+      statusCategory: { name: "To Do" },
+    };
+
+    const dependency = issueJson("KT-200");
+    dependency.fields.status = {
+      id: "3",
+      name: "In Progress",
+      statusCategory: { name: "In Progress" },
+    };
+
+    const transport: JiraHttpTransport = async (request) => {
+      if (request.url.endsWith("/rest/api/3/search/jql")) {
+        return {
+          status: 200,
+          statusText: "OK",
+          body: JSON.stringify({ issues: [blocked, ready] }),
+        };
+      }
+
+      return {
+        status: 200,
+        statusText: "OK",
+        body: JSON.stringify(dependency),
+      };
+    };
+    const provider = new JiraTaskProvider(configFor("/repo"), connection, transport, {});
+
+    const next = await provider.getNextTask();
+
+    expect(next?.key).toBe("KT-202");
+  });
+
   it("requires taskWrite approval before mutating Jira", async () => {
     const transport: JiraHttpTransport = async () => ({
       status: 200,
