@@ -33,30 +33,31 @@ jobs:
       - name: Canonical format M26 files
         run: |
           pnpm exec prettier --write \
-            .github/workflows/ci.yml \
             apps/vscode-extension/CHANGELOG.md \
             docs/ROADMAP.md \
             README.md \
             scripts/vscode-clean-install-acceptance.mjs
+          echo "__BEGIN_CANONICAL_CI__"
+          pnpm exec prettier .github/workflows/ci.yml
+          echo "__END_CANONICAL_CI__"
+          pnpm exec prettier --write .github/workflows/ci.yml
 
       - name: Commit canonical M26 formatting
         shell: bash
         run: |
           if git diff --quiet -- \
-            .github/workflows/ci.yml \
             apps/vscode-extension/CHANGELOG.md \
             docs/ROADMAP.md \
             README.md \
             scripts/vscode-clean-install-acceptance.mjs
           then
-            echo "No canonical formatting changes to commit."
+            echo "No canonical non-workflow formatting changes to commit."
             exit 0
           fi
 
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add \
-            .github/workflows/ci.yml \
             apps/vscode-extension/CHANGELOG.md \
             docs/ROADMAP.md \
             README.md \
