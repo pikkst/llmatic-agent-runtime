@@ -175,7 +175,8 @@ async function runDoctor(
 
   checks.push({
     name: "Managed config",
-    status: state.activeWorkspace && (await exists(state.activeWorkspace.configPath)) ? "PASS" : "FAIL",
+    status:
+      state.activeWorkspace && (await exists(state.activeWorkspace.configPath)) ? "PASS" : "FAIL",
     detail: state.activeWorkspace?.configPath ?? "Managed workspace config is unavailable.",
   });
 
