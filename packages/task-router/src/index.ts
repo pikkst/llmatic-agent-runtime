@@ -1,4 +1,4 @@
-import type { AgentConfig } from "@llmatic/core";
+import type { AgentConfig, WorkflowRun, WorkflowStateStore } from "@llmatic/core";
 import type {
   TaskProvider,
   TaskRecord,
@@ -142,4 +142,42 @@ export async function resolveTaskProvider(
   }
 
   throw new Error("Unsupported task provider: " + providerId + ".");
+}
+
+
+function workflowProviderId(run: WorkflowRun | undefined): Exclude<TaskProviderId, "auto"> | undefined {
+  if (!run) return undefined;
+
+  for (let index = run.checkpoints.length - 1; index >= 0; index -= 1) {
+    const checkpoint = run.checkpoints[index];
+
+    if (
+      checkpoint?.kind === "ACTION" &&
+      checkpoint.action === "task.select" &&
+      (checkpoint.provider === "markdown" ||
+        checkpoint.provider === "jira" ||
+        checkpoint.provider === "manual")
+    ) {
+      return checkpoint.provider;
+    }
+  }
+
+  return undefined;
+}
+
+export async function resolveWorkflowTaskProvider(
+  root: string,
+  config: AgentConfig,
+  store: WorkflowStateStore,
+  providerInput: TaskProviderId = "auto",
+  environment: NodeJS.ProcessEnv = process.env,
+): Promise<TaskProvider> {
+  if (providerInput !== "auto") {
+    return resolveTaskProvider(root, config, providerInput, environment);
+  }
+
+  const current = await store.loadCurrent();
+  const selected = workflowProviderId(current);
+
+  return resolveTaskProvider(root, config, selected ?? "auto", environment);
 }
