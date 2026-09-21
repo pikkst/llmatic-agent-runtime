@@ -3,17 +3,12 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { createDefaultConfig, type RepositoryDetection } from "@llmatic/core";
-import {
-  createMarkdownTaskProvider,
-  detectMarkdownTaskFile,
-} from "../src/index.js";
+import { createMarkdownTaskProvider, detectMarkdownTaskFile } from "../src/index.js";
 
 const roots: string[] = [];
 
 afterEach(async () => {
-  await Promise.all(
-    roots.splice(0).map((root) => rm(root, { recursive: true, force: true })),
-  );
+  await Promise.all(roots.splice(0).map((root) => rm(root, { recursive: true, force: true })));
 });
 
 function config(root: string) {
@@ -124,8 +119,6 @@ describe("MarkdownTaskProvider", () => {
     const root = await fixture();
     const provider = await createMarkdownTaskProvider(root, config(root));
 
-    await expect(provider.transitionTask("TASK-002", "start")).rejects.toThrow(
-      "requires approval",
-    );
+    await expect(provider.transitionTask("TASK-002", "start")).rejects.toThrow("requires approval");
   });
 });

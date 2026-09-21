@@ -1,13 +1,6 @@
 import type { AgentConfig, WorkflowRun, WorkflowStateStore } from "@llmatic/core";
-import type {
-  TaskProvider,
-  TaskRecord,
-  TaskTransition,
-} from "@llmatic/task-provider";
-import {
-  createMarkdownTaskProvider,
-  detectMarkdownTaskFile,
-} from "@llmatic/markdown-task-source";
+import type { TaskProvider, TaskRecord, TaskTransition } from "@llmatic/task-provider";
+import { createMarkdownTaskProvider, detectMarkdownTaskFile } from "@llmatic/markdown-task-source";
 import { createJiraTaskProviderFromEnvironment } from "@llmatic/jira-adapter";
 import {
   createGitHubIssueTaskProvider,
@@ -75,8 +68,7 @@ function jiraConfigured(environment: NodeJS.ProcessEnv): boolean {
   const base = environment.LLMATIC_JIRA_BASE_URL?.trim();
   const bearer = environment.LLMATIC_JIRA_BEARER_TOKEN?.trim();
   const basic =
-    environment.LLMATIC_JIRA_EMAIL?.trim() &&
-    environment.LLMATIC_JIRA_API_TOKEN?.trim();
+    environment.LLMATIC_JIRA_EMAIL?.trim() && environment.LLMATIC_JIRA_API_TOKEN?.trim();
 
   return Boolean(base && (bearer || basic));
 }
@@ -161,8 +153,9 @@ export async function resolveTaskProvider(
   throw new Error("Unsupported task provider: " + providerId + ".");
 }
 
-
-function workflowProviderId(run: WorkflowRun | undefined): Exclude<TaskProviderId, "auto"> | undefined {
+function workflowProviderId(
+  run: WorkflowRun | undefined,
+): Exclude<TaskProviderId, "auto"> | undefined {
   if (!run) return undefined;
 
   for (let index = run.checkpoints.length - 1; index >= 0; index -= 1) {

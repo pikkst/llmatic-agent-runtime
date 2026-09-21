@@ -95,20 +95,11 @@ export function assertTaskPermission(
   }
 }
 
-export function normalizeTaskLifecycleStatus(
-  name: string,
-  category?: string,
-): TaskLifecycleStatus {
-  const value = (category ?? name)
-    .trim()
-    .toLowerCase()
-    .replaceAll("-", " ")
-    .replaceAll("_", " ");
+export function normalizeTaskLifecycleStatus(name: string, category?: string): TaskLifecycleStatus {
+  const value = (category ?? name).trim().toLowerCase().replaceAll("-", " ").replaceAll("_", " ");
 
   if (
-    ["done", "complete", "completed", "closed", "resolved"].some((item) =>
-      value.includes(item),
-    )
+    ["done", "complete", "completed", "closed", "resolved"].some((item) => value.includes(item))
   ) {
     return "done";
   }
@@ -116,9 +107,7 @@ export function normalizeTaskLifecycleStatus(
   if (value.includes("block")) return "blocked";
 
   if (
-    ["in progress", "doing", "active", "started", "working"].some((item) =>
-      value.includes(item),
-    )
+    ["in progress", "doing", "active", "started", "working"].some((item) => value.includes(item))
   ) {
     return "in_progress";
   }

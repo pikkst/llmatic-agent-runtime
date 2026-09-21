@@ -2,11 +2,7 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import {
-  WorkflowStateStore,
-  createDefaultConfig,
-  type RepositoryDetection,
-} from "@llmatic/core";
+import { WorkflowStateStore, createDefaultConfig, type RepositoryDetection } from "@llmatic/core";
 import {
   selectWorkflowTask,
   syncWorkflowTask,
@@ -19,9 +15,7 @@ import {
 const roots: string[] = [];
 
 afterEach(async () => {
-  await Promise.all(
-    roots.splice(0).map((root) => rm(root, { recursive: true, force: true })),
-  );
+  await Promise.all(roots.splice(0).map((root) => rm(root, { recursive: true, force: true })));
 });
 
 function config(root: string) {
@@ -71,10 +65,7 @@ class FakeProvider implements TaskProvider {
     this.comments.push(text);
   }
 
-  public async transitionTask(
-    _reference: string,
-    transition: string,
-  ): Promise<TaskTransition> {
+  public async transitionTask(_reference: string, transition: string): Promise<TaskTransition> {
     this.transitions.push(transition);
     return {
       id: transition,

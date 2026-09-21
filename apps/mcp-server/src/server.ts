@@ -6,11 +6,7 @@ import {
   syncJiraWorkflowTask,
   validateJiraWorkflowTask,
 } from "@llmatic/jira-adapter";
-import {
-  selectWorkflowTask,
-  syncWorkflowTask,
-  validateWorkflowTask,
-} from "@llmatic/task-provider";
+import { selectWorkflowTask, syncWorkflowTask, validateWorkflowTask } from "@llmatic/task-provider";
 import {
   detectTaskSources,
   resolveTaskProvider,
@@ -113,8 +109,7 @@ export function createLlmaticMcpServer(): McpServer {
         root: z.string().optional(),
       }),
     },
-    async ({ root }) =>
-      toolResult(() => detectTaskSources(runtimeRoot(root))),
+    async ({ root }) => toolResult(() => detectTaskSources(runtimeRoot(root))),
   );
 
   server.registerTool(
@@ -137,9 +132,7 @@ export function createLlmaticMcpServer(): McpServer {
         );
 
         if (!selected.listTasks) {
-          throw new Error(
-            "Task provider " + selected.id + " does not support task listing.",
-          );
+          throw new Error("Task provider " + selected.id + " does not support task listing.");
         }
 
         return selected.listTasks();

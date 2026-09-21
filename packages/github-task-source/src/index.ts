@@ -21,11 +21,7 @@ export type GitHubTaskProcessRunner = (
   cwd: string,
 ) => GitHubTaskProcessResult;
 
-function defaultRunner(
-  executable: string,
-  args: string[],
-  cwd: string,
-): GitHubTaskProcessResult {
+function defaultRunner(executable: string, args: string[], cwd: string): GitHubTaskProcessResult {
   const result = spawnSync(executable, args, {
     cwd,
     env: process.env,
@@ -56,10 +52,7 @@ function run(
   return runner("gh", args, root);
 }
 
-function requireSuccess(
-  result: GitHubTaskProcessResult,
-  args: string[],
-): GitHubTaskProcessResult {
+function requireSuccess(result: GitHubTaskProcessResult, args: string[]): GitHubTaskProcessResult {
   if (result.exitCode !== 0) {
     const detail = (result.stderr || result.stdout).trim();
     throw new Error(
@@ -98,9 +91,7 @@ function section(body: string, names: readonly string[]): string | undefined {
 
     if (heading) {
       if (active) break;
-      active = names.some(
-        (name) => name.toLowerCase() === heading[1]!.trim().toLowerCase(),
-      );
+      active = names.some((name) => name.toLowerCase() === heading[1]!.trim().toLowerCase());
       continue;
     }
 
@@ -162,7 +153,9 @@ function issueTask(raw: Record<string, unknown>): TaskRecord {
     .map((item) =>
       typeof item === "string"
         ? item
-        : item && typeof item === "object" && typeof (item as Record<string, unknown>).name === "string"
+        : item &&
+            typeof item === "object" &&
+            typeof (item as Record<string, unknown>).name === "string"
           ? String((item as Record<string, unknown>).name)
           : "",
     )
@@ -172,9 +165,7 @@ function issueTask(raw: Record<string, unknown>): TaskRecord {
     .map((item) =>
       item && typeof item === "object"
         ? String(
-            (item as Record<string, unknown>).name ??
-              (item as Record<string, unknown>).login ??
-              "",
+            (item as Record<string, unknown>).name ?? (item as Record<string, unknown>).login ?? "",
           )
         : "",
     )
@@ -212,9 +203,7 @@ function issueTask(raw: Record<string, unknown>): TaskRecord {
     acceptanceCriteria: bullets(
       section(body, ["Acceptance criteria", "Acceptance Criteria", "AC"]),
     ),
-    definitionOfDone: bullets(
-      section(body, ["DoD", "Definition of Done", "Definition Of Done"]),
-    ),
+    definitionOfDone: bullets(section(body, ["DoD", "Definition of Done", "Definition Of Done"])),
     dependencies,
     source: {
       type: "github",
@@ -252,20 +241,9 @@ export class GitHubIssueTaskProvider implements TaskProvider {
     return issueTask(parseJson<Record<string, unknown>>(result, args));
   }
 
-  public async listTasks(
-    options: TaskProviderOperationOptions = {},
-  ): Promise<TaskRecord[]> {
+  public async listTasks(options: TaskProviderOperationOptions = {}): Promise<TaskRecord[]> {
     assertTaskPermission(this.runtimeConfig, "read", options.approved ?? false);
-    const args = [
-      "issue",
-      "list",
-      "--state",
-      "all",
-      "--limit",
-      "200",
-      "--json",
-      ISSUE_FIELDS,
-    ];
+    const args = ["issue", "list", "--state", "all", "--limit", "200", "--json", ISSUE_FIELDS];
     const result = requireSuccess(run(this.root, args, this.runner), args);
     return parseJson<Array<Record<string, unknown>>>(result, args).map(issueTask);
   }
@@ -318,13 +296,7 @@ export class GitHubIssueTaskProvider implements TaskProvider {
     const comment = text.trim();
     if (!comment) throw new Error("GitHub issue comment must not be empty.");
 
-    const args = [
-      "issue",
-      "comment",
-      referenceValue(reference),
-      "--body",
-      comment,
-    ];
+    const args = ["issue", "comment", referenceValue(reference), "--body", comment];
     requireSuccess(run(this.root, args, this.runner), args);
   }
 
@@ -340,8 +312,7 @@ export class GitHubIssueTaskProvider implements TaskProvider {
     const normalized = transitionInput.trim().toLowerCase();
     const transition = available.find(
       (candidate) =>
-        candidate.id.toLowerCase() === normalized ||
-        candidate.name.toLowerCase() === normalized,
+        candidate.id.toLowerCase() === normalized || candidate.name.toLowerCase() === normalized,
     );
 
     if (!transition) {

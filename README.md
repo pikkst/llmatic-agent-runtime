@@ -135,7 +135,6 @@ See docs/review-fix-loop.md.
 
 The canonical milestone roadmap is maintained in `docs/ROADMAP.md`.
 
-
 ## Universal task sources
 
 LLMatic task workflows no longer require Jira.

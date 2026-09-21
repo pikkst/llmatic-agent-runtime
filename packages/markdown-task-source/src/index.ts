@@ -37,7 +37,12 @@ function bullets(text: string | undefined): string[] {
     .split(/\r?\n/)
     .map((line) => line.trim())
     .filter(Boolean)
-    .map((line) => line.replace(/^[-*+]\s+/, "").replace(/^\d+[.)]\s+/, "").trim())
+    .map((line) =>
+      line
+        .replace(/^[-*+]\s+/, "")
+        .replace(/^\d+[.)]\s+/, "")
+        .trim(),
+    )
     .filter(Boolean);
 }
 
@@ -51,9 +56,7 @@ function section(block: string, names: readonly string[]): string | undefined {
 
     if (heading) {
       if (active) break;
-      active = names.some(
-        (name) => name.toLowerCase() === heading[1]!.trim().toLowerCase(),
-      );
+      active = names.some((name) => name.toLowerCase() === heading[1]!.trim().toLowerCase());
       continue;
     }
 
@@ -188,9 +191,7 @@ export class MarkdownTaskProvider implements TaskProvider {
     return readFile(this.filePath, "utf8");
   }
 
-  public async listTasks(
-    options: TaskProviderOperationOptions = {},
-  ): Promise<TaskRecord[]> {
+  public async listTasks(options: TaskProviderOperationOptions = {}): Promise<TaskRecord[]> {
     assertTaskPermission(this.runtimeConfig, "read", options.approved ?? false);
     const raw = await this.raw();
     return parseBlocks(raw).map((block) => toTask(this.filePath, block));
@@ -203,14 +204,11 @@ export class MarkdownTaskProvider implements TaskProvider {
     const tasks = await this.listTasks(options);
     const normalized = reference.trim().toLowerCase();
     const task = tasks.find(
-      (item) =>
-        item.key.toLowerCase() === normalized || item.id.toLowerCase() === normalized,
+      (item) => item.key.toLowerCase() === normalized || item.id.toLowerCase() === normalized,
     );
 
     if (!task) {
-      throw new Error(
-        "Task " + reference + " was not found in " + basename(this.filePath) + ".",
-      );
+      throw new Error("Task " + reference + " was not found in " + basename(this.filePath) + ".");
     }
 
     return task;
@@ -254,9 +252,7 @@ export class MarkdownTaskProvider implements TaskProvider {
     );
 
     if (!block) {
-      throw new Error(
-        "Task " + reference + " was not found in " + basename(this.filePath) + ".",
-      );
+      throw new Error("Task " + reference + " was not found in " + basename(this.filePath) + ".");
     }
 
     const notesHeading = /^###\s+Notes\s*$/im;
@@ -267,14 +263,12 @@ export class MarkdownTaskProvider implements TaskProvider {
       const afterHeading = notes.index + notes[0].length;
       const rest = updatedBlock.slice(afterHeading);
       const next = /^###\s+/m.exec(rest);
-      const insertAt =
-        next?.index !== undefined ? afterHeading + next.index : updatedBlock.length;
+      const insertAt = next?.index !== undefined ? afterHeading + next.index : updatedBlock.length;
       const prefix = updatedBlock.slice(0, insertAt).replace(/\s*$/, "");
       const suffix = updatedBlock.slice(insertAt);
       updatedBlock = prefix + "\n- " + note + "\n" + suffix;
     } else {
-      updatedBlock =
-        updatedBlock.replace(/\s*$/, "") + "\n\n### Notes\n- " + note + "\n";
+      updatedBlock = updatedBlock.replace(/\s*$/, "") + "\n\n### Notes\n- " + note + "\n";
     }
 
     await writeAtomic(
@@ -296,8 +290,7 @@ export class MarkdownTaskProvider implements TaskProvider {
     const normalized = transitionInput.trim().toLowerCase();
     const transition = available.find(
       (candidate) =>
-        candidate.id.toLowerCase() === normalized ||
-        candidate.name.toLowerCase() === normalized,
+        candidate.id.toLowerCase() === normalized || candidate.name.toLowerCase() === normalized,
     );
 
     if (!transition?.toStatus) {
@@ -315,9 +308,7 @@ export class MarkdownTaskProvider implements TaskProvider {
     );
 
     if (!block) {
-      throw new Error(
-        "Task " + reference + " disappeared from " + basename(this.filePath) + ".",
-      );
+      throw new Error("Task " + reference + " disappeared from " + basename(this.filePath) + ".");
     }
 
     const status = /^Status:\s*.*$/im;

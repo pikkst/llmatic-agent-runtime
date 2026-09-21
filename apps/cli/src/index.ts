@@ -351,11 +351,7 @@ taskCommand
     console.log("Selected: " + detection.selected);
     for (const candidate of detection.candidates) {
       console.log(
-        (candidate.available ? "✓" : "·") +
-          " " +
-          candidate.id +
-          " — " +
-          candidate.detail,
+        (candidate.available ? "✓" : "·") + " " + candidate.id + " — " + candidate.detail,
       );
     }
   });
@@ -398,7 +394,9 @@ taskCommand
 
 taskCommand
   .command("next")
-  .description("Return the next unblocked task when the provider supports dependency-aware selection.")
+  .description(
+    "Return the next unblocked task when the provider supports dependency-aware selection.",
+  )
   .option("-r, --root <path>", "Repository root", process.cwd())
   .option("--provider <provider>", "Provider: auto, markdown, jira, github, or manual", "auto")
   .option("--approve", "Approve when taskRead is configured as 'ask'")
@@ -415,9 +413,7 @@ taskCommand
       const provider = await resolveTaskProvider(root, config, options.provider);
 
       if (!provider.getNextTask) {
-        throw new Error(
-          "Task provider " + provider.id + " does not support next-task selection.",
-        );
+        throw new Error("Task provider " + provider.id + " does not support next-task selection.");
       }
 
       const task = await provider.getNextTask({ approved: options.approve ?? false });
@@ -498,30 +494,29 @@ taskCommand
 
 taskCommand
   .command("validate")
-  .description("Refresh the workflow task through its original provider and advance to TASK_VALIDATED.")
+  .description(
+    "Refresh the workflow task through its original provider and advance to TASK_VALIDATED.",
+  )
   .option("-r, --root <path>", "Repository root", process.cwd())
-  .option("--provider <provider>", "Override provider; default preserves the workflow provider", "auto")
+  .option(
+    "--provider <provider>",
+    "Override provider; default preserves the workflow provider",
+    "auto",
+  )
   .option("--approve", "Approve when taskRead is configured as 'ask'")
-  .action(
-    async (options: { root: string; provider: TaskProviderId; approve?: boolean }) => {
-      const root = resolve(options.root);
-      const config = await loadAgentConfig(root);
-      const store = new WorkflowStateStore(root, config);
-      const provider = await resolveWorkflowTaskProvider(
-        root,
-        config,
-        store,
-        options.provider,
-      );
-      const result = await validateWorkflowTask(store, provider, {
-        approved: options.approve ?? false,
-      });
+  .action(async (options: { root: string; provider: TaskProviderId; approve?: boolean }) => {
+    const root = resolve(options.root);
+    const config = await loadAgentConfig(root);
+    const store = new WorkflowStateStore(root, config);
+    const provider = await resolveWorkflowTaskProvider(root, config, store, options.provider);
+    const result = await validateWorkflowTask(store, provider, {
+      approved: options.approve ?? false,
+    });
 
-      printTask(result.task);
-      console.log("");
-      printWorkflow(result.workflow);
-    },
-  );
+    printTask(result.task);
+    console.log("");
+    printWorkflow(result.workflow);
+  });
 
 taskCommand
   .command("comment")
@@ -576,22 +571,22 @@ taskCommand
         approved: options.approve ?? false,
       });
       console.log(
-        "Transitioned " +
-          reference +
-          " via " +
-          transition.name +
-          " through " +
-          provider.id +
-          ".",
+        "Transitioned " + reference + " via " + transition.name + " through " + provider.id + ".",
       );
     },
   );
 
 taskCommand
   .command("complete")
-  .description("Complete the active workflow task in its original provider, optionally adding evidence.")
+  .description(
+    "Complete the active workflow task in its original provider, optionally adding evidence.",
+  )
   .option("-r, --root <path>", "Repository root", process.cwd())
-  .option("--provider <provider>", "Override provider; default preserves the workflow provider", "auto")
+  .option(
+    "--provider <provider>",
+    "Override provider; default preserves the workflow provider",
+    "auto",
+  )
   .option("--evidence <text>", "Completion evidence/comment")
   .option("--approve", "Approve when taskWrite is configured as 'ask'")
   .action(
@@ -604,12 +599,7 @@ taskCommand
       const root = resolve(options.root);
       const config = await loadAgentConfig(root);
       const store = new WorkflowStateStore(root, config);
-      const provider = await resolveWorkflowTaskProvider(
-        root,
-        config,
-        store,
-        options.provider,
-      );
+      const provider = await resolveWorkflowTaskProvider(root, config, store, options.provider);
       const result = await syncWorkflowTask(store, provider, {
         comment: options.evidence,
         transition: "complete",

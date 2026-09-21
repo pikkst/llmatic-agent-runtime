@@ -8,9 +8,7 @@ import { detectTaskSources, resolveTaskProvider } from "../src/index.js";
 const roots: string[] = [];
 
 afterEach(async () => {
-  await Promise.all(
-    roots.splice(0).map((root) => rm(root, { recursive: true, force: true })),
-  );
+  await Promise.all(roots.splice(0).map((root) => rm(root, { recursive: true, force: true })));
 });
 
 function config(root: string) {
@@ -30,11 +28,7 @@ describe("task router", () => {
   it("prefers local Markdown tasks over configured Jira", async () => {
     const root = await mkdtemp(join(tmpdir(), "llmatic-router-"));
     roots.push(root);
-    await writeFile(
-      join(root, "TASKS.md"),
-      "## TASK-001 — Local\n\nStatus: Todo\n",
-      "utf8",
-    );
+    await writeFile(join(root, "TASKS.md"), "## TASK-001 — Local\n\nStatus: Todo\n", "utf8");
 
     const detection = await detectTaskSources(root, {
       LLMATIC_JIRA_BASE_URL: "https://example.atlassian.net",
