@@ -174,6 +174,27 @@ try {
     }
   }
 
+  const forbiddenActivationBundleSignals = [
+    {
+      signal: 'require("./impl/format")',
+      detail: "jsonc-parser UMD relative runtime require",
+    },
+    {
+      signal: "jsonc-parser/lib/umd/main.js",
+      detail: "jsonc-parser UMD entry",
+    },
+  ];
+
+  for (const forbidden of forbiddenActivationBundleSignals) {
+    if (activationBundle.includes(forbidden.signal)) {
+      fail(
+        "packaged extension bundle contains unresolved " +
+          forbidden.detail +
+          ".",
+      );
+    }
+  }
+
   const packagedRuntimeManifest = JSON.parse(await readFile(packagedRuntimeManifestPath, "utf8"));
 
   if (String(packagedRuntimeManifest.runtimeVersion) !== manifest.runtime.version) {
