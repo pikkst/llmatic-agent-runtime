@@ -40,6 +40,7 @@ jobs:
         run: node scripts/release-acceptance.mjs "$GITHUB_REF_NAME" "$GITHUB_SHA"
 
       - name: Run VS Code clean-install acceptance
+        timeout-minutes: 10
         run: xvfb-run -a pnpm run vscode:acceptance
 
       - name: Verify release files
