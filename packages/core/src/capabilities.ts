@@ -9,19 +9,22 @@ const SCRIPT_CANDIDATES: Record<CapabilityName, string[]> = {
   ci: ["ci:local", "ci"],
 };
 
-function commandForScript(packageManager: PackageManager, script: string): string {
-  switch (packageManager) {
-    case "pnpm":
-      return "pnpm run " + script;
-    case "yarn":
-      return "yarn " + script;
-    case "bun":
-      return "bun run " + script;
-    case "npm":
-    case "unknown":
-    default:
-      return "npm run " + script;
+function executableForPackageManager(packageManager: PackageManager): string {
+  return packageManager === "unknown" ? "npm" : packageManager;
+}
+
+function argsForScript(packageManager: PackageManager, script: string): string[] {
+  if (packageManager === "yarn") {
+    return [script];
   }
+
+  return ["run", script];
+}
+
+function commandForScript(packageManager: PackageManager, script: string): string {
+  return [executableForPackageManager(packageManager), ...argsForScript(packageManager, script)].join(
+    " ",
+  );
 }
 
 export function detectCapabilities(
@@ -43,6 +46,9 @@ export function detectCapabilities(
       name,
       available: true,
       command: commandForScript(packageManager, script),
+      executable: executableForPackageManager(packageManager),
+      args: argsForScript(packageManager, script),
+      script,
       source: "package.json#" + script,
     };
   });
