@@ -12,11 +12,21 @@ export class LlmaticStatusProvider implements vscode.TreeDataProvider<vscode.Tre
   private readonly changed = new vscode.EventEmitter<vscode.TreeItem | undefined>();
   public readonly onDidChangeTreeData = this.changed.event;
   private health?: SetupHealth;
+  private gatewayKeyConfigured = false;
 
-  public update(health: SetupHealth | undefined): void {
+  public update(
+    health: SetupHealth | undefined,
+    gatewayKeyConfigured = this.gatewayKeyConfigured,
+  ): void {
     this.health = health;
+    this.gatewayKeyConfigured = gatewayKeyConfigured;
     this.changed.fire(undefined);
     void vscode.commands.executeCommand("setContext", "llmatic.health", health?.status);
+    void vscode.commands.executeCommand(
+      "setContext",
+      "llmatic.gatewayKeyConfigured",
+      gatewayKeyConfigured,
+    );
   }
 
   public getTreeItem(element: vscode.TreeItem): vscode.TreeItem {
@@ -76,6 +86,14 @@ export class LlmaticStatusProvider implements vscode.TreeDataProvider<vscode.Tre
         command: "llmatic.doctor",
       },
       {
+        label: this.gatewayKeyConfigured ? "Kilo Gateway API Key" : "Set Kilo Gateway API Key",
+        description: this.gatewayKeyConfigured
+          ? "configured securely — click to replace"
+          : "optional; required for direct agent and review",
+        icon: "key",
+        command: "llmatic.setKiloGatewayApiKey",
+      },
+      {
         label: "Check for Updates",
         description: "verify latest GitHub release manifest",
         icon: "cloud-download",
@@ -89,13 +107,13 @@ export class LlmaticStatusProvider implements vscode.TreeDataProvider<vscode.Tre
       },
       {
         label: "Run Gateway Agent",
-        description: "kilo-auto/free by default",
+        description: "kilo-auto/free; guides key setup if needed",
         icon: "sparkle",
         command: "llmatic.runAgent",
       },
       {
         label: "Review / Fix Loop",
-        description: "review, fix, validate, re-review",
+        description: "review, fix, validate, re-review; key guided",
         icon: "checklist",
         command: "llmatic.reviewFixLoop",
       },
