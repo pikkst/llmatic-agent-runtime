@@ -4,7 +4,7 @@ Universal local software-engineering runtime for coding agents.
 
 ## Current milestone
 
-M24 — Living Architecture
+M25 — End-to-End Product Acceptance
 
 LLMatic now supports:
 
@@ -288,3 +288,22 @@ The gate is enabled only when the repository contains the initialized LLMatic ba
     TASKS.md
 
 A clear model review is not sufficient when deterministic living-architecture impact remains unresolved. The workflow returns to FIXING until the required synchronization evidence is present.
+
+## Product lifecycle acceptance
+
+The assembled greenfield workflow is executable as one acceptance gate:
+
+    pnpm product:acceptance
+
+It creates an isolated temporary Git repository and proves:
+
+- discovery reaches ready_for_planning
+- a versioned private project plan is generated
+- exact human approval is verified
+- initialization reaches READY_FOR_IMPLEMENTATION
+- PLAN-001 is selected as the first unblocked task
+- unsynchronized API drift is blocked by Living Architecture
+- contract + test evidence clears the gate
+- completing PLAN-001 reveals PLAN-002
+
+The acceptance fixture is deleted after each run and does not mutate the LLMatic repository.
