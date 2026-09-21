@@ -283,7 +283,9 @@ function resourceLabel(value: string): string {
 
 function inferResource(text: string): string | undefined {
   const candidates: string[] = [];
-  const management = text.match(/\b([a-z][a-z0-9_-]{2,})\s+(?:management|manager|tracking|tracker)\b/i);
+  const management = text.match(
+    /\b([a-z][a-z0-9_-]{2,})\s+(?:management|manager|tracking|tracker)\b/i,
+  );
   if (management?.[1]) candidates.push(management[1]);
 
   const actionPattern =
@@ -327,10 +329,16 @@ function inferFields(text: string, context: PlanContext): string[] {
   if (/\btitle\b/i.test(text)) fields.push("title");
   if (/\bdescription\b/i.test(text)) fields.push("description");
   if (/\b(completion|complete|completed)\b/i.test(text)) fields.push("completed");
-  if (/\bcreated(?:At|\s+timestamp)?\b/i.test(text) || /\bcreated\/updated timestamps\b/i.test(text)) {
+  if (
+    /\bcreated(?:At|\s+timestamp)?\b/i.test(text) ||
+    /\bcreated\/updated timestamps\b/i.test(text)
+  ) {
     fields.push("createdAt");
   }
-  if (/\bupdated(?:At|\s+timestamp)?\b/i.test(text) || /\bcreated\/updated timestamps\b/i.test(text)) {
+  if (
+    /\bupdated(?:At|\s+timestamp)?\b/i.test(text) ||
+    /\bcreated\/updated timestamps\b/i.test(text)
+  ) {
     fields.push("updatedAt");
   }
   return [...new Set(fields)];
@@ -351,7 +359,10 @@ function productProfile(
     inferred,
     resourceSingular,
     resourcePlural,
-    resourceSlug: slugBase.replace(/[^a-z0-9]+/gi, "-").replace(/^-|-$/g, "").toLowerCase(),
+    resourceSlug: slugBase
+      .replace(/[^a-z0-9]+/gi, "-")
+      .replace(/^-|-$/g, "")
+      .toLowerCase(),
     resourceLabel: inferred ? resourceLabel(resourceSingular) : "Domain resource",
     actions: inferActions(source),
     fields: inferFields(source, context),
@@ -468,11 +479,7 @@ function requirements(context: PlanContext, profile: ProductProfile): string {
 
   if (profile.inferred) {
     productRequirements.push(
-      "The " +
-        profile.resourceLabel +
-        " lifecycle shall support " +
-        actionPhrase(profile) +
-        ".",
+      "The " + profile.resourceLabel + " lifecycle shall support " + actionPhrase(profile) + ".",
     );
     productRequirements.push(ownershipRequirement(context, profile));
     if (profile.fields.length > 0) {
@@ -564,9 +571,15 @@ function journeys(context: PlanContext, profile: ProductProfile): string {
         "1. The primary user opens the product.",
         "2. The user " + auth + ".",
         "3. The user " + tenant + ".",
-        "4. The user opens the " + profile.resourcePlural + " view and sees an explicit empty or loaded state.",
+        "4. The user opens the " +
+          profile.resourcePlural +
+          " view and sees an explicit empty or loaded state.",
         "5. The user creates a " + profile.resourceSingular + " with valid product-specific input.",
-        "6. The new " + profile.resourceSingular + " appears in the user's " + profile.resourcePlural + " collection.",
+        "6. The new " +
+          profile.resourceSingular +
+          " appears in the user's " +
+          profile.resourcePlural +
+          " collection.",
       ].join("\n"),
     ],
     [
@@ -582,7 +595,9 @@ function journeys(context: PlanContext, profile: ProductProfile): string {
       "Journey 3 — Authorization and recovery",
       [
         "1. Invalid or incomplete " + profile.resourceSingular + " input is rejected explicitly.",
-        "2. Attempts to access another owner's " + profile.resourcePlural + " are rejected server-side.",
+        "2. Attempts to access another owner's " +
+          profile.resourcePlural +
+          " are rejected server-side.",
         "3. Recoverable user input is preserved where feasible and retry does not create duplicate side effects.",
       ].join("\n"),
     ],
@@ -674,7 +689,8 @@ function dataModel(context: PlanContext, profile: ProductProfile): string {
   const fieldDetails = profile.fields.map((field) => {
     if (field === "id") return "id — stable unique identifier";
     if (field === "ownerUserId") return "ownerUserId — authenticated user ownership reference";
-    if (field === "organizationId") return "organizationId — owning organization/workspace reference";
+    if (field === "organizationId")
+      return "organizationId — owning organization/workspace reference";
     if (field === "title") return "title — required human-readable title";
     if (field === "description") return "description — optional descriptive text";
     if (field === "completed") return "completed — explicit completion state";
@@ -687,10 +703,7 @@ function dataModel(context: PlanContext, profile: ProductProfile): string {
     ["Primary persistence", context.labels.data_store],
     ["Foundational entities", list(entities)],
     ...(fieldDetails.length > 0
-      ? ([[
-          profile.resourceLabel + " fields",
-          list(fieldDetails),
-        ]] as Array<[string, string]>)
+      ? ([[profile.resourceLabel + " fields", list(fieldDetails)]] as Array<[string, string]>)
       : []),
     [
       "Ownership and lifecycle",
@@ -719,7 +732,9 @@ function apiContracts(context: PlanContext, profile: ProductProfile): string {
         "Contract rules",
         list([
           "No mandatory public HTTP API is assumed for the first delivery.",
-          "Internal use-cases expose typed request/result contracts for " + profile.resourcePlural + ".",
+          "Internal use-cases expose typed request/result contracts for " +
+            profile.resourcePlural +
+            ".",
           "CLI/desktop inputs are validated before domain execution.",
           "External integrations use typed adapter interfaces.",
         ]),
@@ -936,7 +951,11 @@ function phaseTasks(context: PlanContext, profile: ProductProfile): ProjectPlanT
       ? "Define " + resource + " domain model and lifecycle use-cases"
       : "Implement canonical domain model and use-case contracts",
     description: profile.inferred
-      ? "Implement the canonical " + resource + " model and use-cases for " + actionPhrase(profile) + "."
+      ? "Implement the canonical " +
+        resource +
+        " model and use-cases for " +
+        actionPhrase(profile) +
+        "."
       : "Translate approved requirements/journeys into domain types, invariants and application use-cases.",
     dependencies: ["PLAN-001"],
     acceptanceCriteria: [
@@ -956,7 +975,9 @@ function phaseTasks(context: PlanContext, profile: ProductProfile): ProjectPlanT
         ? "Implement " + resource + " persistence schema and ownership constraints"
         : "Implement persistence schema and migration baseline",
       description: profile.inferred
-        ? "Create the " + resource + " schema, ownership constraints, migrations and repository adapter."
+        ? "Create the " +
+          resource +
+          " schema, ownership constraints, migrations and repository adapter."
         : "Create approved persistence model, constraints, migrations and repository adapters.",
       dependencies: ["PLAN-010", "PLAN-003"],
       acceptanceCriteria: [
@@ -1020,7 +1041,9 @@ function phaseTasks(context: PlanContext, profile: ProductProfile): ProjectPlanT
           ? "Implement typed API contract and transport layer"
           : "Implement primary application command/use-case surface",
     description: profile.inferred
-      ? "Expose the approved " + resourceLower + " lifecycle through typed contracts with validation, stable errors and ownership checks."
+      ? "Expose the approved " +
+        resourceLower +
+        " lifecycle through typed contracts with validation, stable errors and ownership checks."
       : "Connect approved product inputs to canonical application use-cases with runtime validation and stable errors.",
     dependencies: backendDeps,
     acceptanceCriteria: [
@@ -1040,7 +1063,9 @@ function phaseTasks(context: PlanContext, profile: ProductProfile): ProjectPlanT
         ? "Implement " + resource + " list, empty, loading and error states"
         : "Implement application shell and primary navigation",
       description: profile.inferred
-        ? "Create the primary " + profile.resourcePlural + " UI with explicit loading, empty and recoverable error states."
+        ? "Create the primary " +
+          profile.resourcePlural +
+          " UI with explicit loading, empty and recoverable error states."
         : "Create accessible UI structure and loading/empty/error state patterns.",
       dependencies: context.applicationShape === "fullstack_web" ? ["PLAN-020"] : ["PLAN-001"],
       acceptanceCriteria: [
@@ -1057,7 +1082,11 @@ function phaseTasks(context: PlanContext, profile: ProductProfile): ProjectPlanT
         ? "Implement " + resource + " lifecycle end to end"
         : "Implement first successful user journey end to end",
       description: profile.inferred
-        ? "Deliver the complete user flow for " + actionPhrase(profile) + " on owned " + profile.resourcePlural + "."
+        ? "Deliver the complete user flow for " +
+          actionPhrase(profile) +
+          " on owned " +
+          profile.resourcePlural +
+          "."
         : "Deliver the minimum coherent user flow that produces the core product outcome.",
       dependencies: [
         "PLAN-030",
@@ -1065,7 +1094,11 @@ function phaseTasks(context: PlanContext, profile: ProductProfile): ProjectPlanT
       ],
       acceptanceCriteria: [
         profile.inferred
-          ? "A real user can " + actionPhrase(profile) + " " + profile.resourcePlural + " through the product UI."
+          ? "A real user can " +
+            actionPhrase(profile) +
+            " " +
+            profile.resourcePlural +
+            " through the product UI."
           : "A real user can complete the primary workflow.",
         "Validation, authorization and recoverable errors are represented in UI.",
       ],
@@ -1079,13 +1112,17 @@ function phaseTasks(context: PlanContext, profile: ProductProfile): ProjectPlanT
     phase: "Phase 4 — Quality",
     summary: "Complete integration and regression coverage",
     description: profile.inferred
-      ? "Cover the " + resource + " lifecycle, persistence, identity, ownership authorization and recovery paths."
+      ? "Cover the " +
+        resource +
+        " lifecycle, persistence, identity, ownership authorization and recovery paths."
       : "Cover persistence, identity, authorization and failure recovery based on selected test policy.",
     dependencies: [journeyTaskId ?? "PLAN-020"],
     acceptanceCriteria: [
       "Critical cross-boundary behavior is tested.",
       profile.inferred
-        ? "The complete " + resource + " lifecycle and cross-owner rejection have regression coverage."
+        ? "The complete " +
+          resource +
+          " lifecycle and cross-owner rejection have regression coverage."
         : "Known failure modes have regression coverage.",
     ],
     definitionOfDone: ["required quality gates pass", "no flaky test accepted as green evidence"],
