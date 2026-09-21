@@ -19,7 +19,8 @@
     "@llmatic/runtime-tools": "workspace:*",
     "@llmatic/task-router": "workspace:*",
     "@llmatic/discovery-engine": "workspace:*",
-    "@llmatic/planning-engine": "workspace:*"
+    "@llmatic/planning-engine": "workspace:*",
+    "@llmatic/project-initializer": "workspace:*"
   },
   "devDependencies": {
     "@modelcontextprotocol/client": "2.0.0"

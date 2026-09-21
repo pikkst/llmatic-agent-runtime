@@ -94,3 +94,14 @@
 - Added Generate Project Plan and Review Project Plan VS Code commands.
 - Added MCP plan status/generate/read-artifact tools.
 - Planning remains outside the repository and has no approval/materialization path yet.
+
+## M23 — Approval and initialization
+
+- Added digest-bound human approval for the exact current plan and discovery decisions.
+- Added PLAN_REVIEW actions for edit decisions, regenerate, request changes and approve/initialize.
+- Editing a decision clears dependent later discovery answers and invalidates approval.
+- Approved initialization is greenfield-only and refuses to overwrite existing project files.
+- Materialization verifies approved planning bytes before selecting the first dependency-unblocked task.
+- Failed initialization rolls back files created by that attempt.
+- Added read-only MCP approval/lifecycle status; MCP cannot self-approve or initialize.
+

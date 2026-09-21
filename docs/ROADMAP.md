@@ -8,8 +8,6 @@ Status: completed.
 
 Goal: prove that a tagged candidate contains a valid VS Code extension, verified runtime, valid release manifest and zero-repository-footprint package before GitHub Release publication.
 
-Status: in progress.
-
 ## M20 — Universal Task Sources
 
 Status: completed.
@@ -75,7 +73,7 @@ No implementation/scaffold/package install is allowed before approval.
 
 ## M22 — Project Planning Engine
 
-Status: in progress.
+Status: completed.
 
 Goal: turn approved discovery decisions into an engineering plan.
 
@@ -99,6 +97,8 @@ Generated planning artifacts:
 Planning artifacts stay in private LLMatic workspace storage until explicit project approval.
 
 ## M23 — Approval & Initialization
+
+Status: in progress.
 
 Goal: require a human decision before the generated plan becomes repository state.
 

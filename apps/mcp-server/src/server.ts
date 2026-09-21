@@ -8,6 +8,7 @@ import {
 } from "@llmatic/jira-adapter";
 import { selectWorkflowTask, syncWorkflowTask, validateWorkflowTask } from "@llmatic/task-provider";
 import { loadDiscoverySession } from "@llmatic/discovery-engine";
+import { planApprovalStatus } from "@llmatic/project-initializer";
 import {
   generateProjectPlan,
   loadCurrentProjectPlan,
@@ -303,6 +304,24 @@ export function createLlmaticMcpServer(): McpServer {
           current: current ?? null,
           manifest: manifest ?? null,
         };
+      }),
+  );
+
+  server.registerTool(
+    "llmatic_plan_approval_status",
+    {
+      description:
+        "Read whether the current private plan is exactly human-approved and inspect its lifecycle state. This tool is read-only and cannot approve or initialize a project.",
+      inputSchema: z.object({
+        root: z.string().optional(),
+      }),
+    },
+    async ({ root }) =>
+      toolResult(async () => {
+        const projectRoot = runtimeRoot(root);
+        const workspaceDirectory =
+          planningWorkspaceDirectory(projectRoot);
+        return planApprovalStatus(workspaceDirectory);
       }),
   );
 
