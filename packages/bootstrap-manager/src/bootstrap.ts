@@ -8,6 +8,7 @@ import {
   installRegisteredTool,
   type ToolDetection,
   type ToolId,
+  type ToolInstallResult,
 } from "@llmatic/tool-registry";
 import type {
   BootstrapRemediationOptions,
