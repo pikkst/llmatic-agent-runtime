@@ -12,11 +12,7 @@ import {
   type AgentConfig,
 } from "@llmatic/core";
 
-const LOCAL_EXCLUDE_PATTERNS = [
-  ".llmatic/",
-  "llmatic.agent.local.yaml",
-  "llmatic.agent.local.yml",
-];
+const LOCAL_EXCLUDE_PATTERNS = [".llmatic/", "llmatic.agent.local.yaml", "llmatic.agent.local.yml"];
 
 export interface ManagedWorkspace {
   id: string;
@@ -94,11 +90,7 @@ export async function ensureLocalGitExcludes(
   if (missing.length === 0) return { path: excludePath, updated: false };
 
   const prefix = existing && !existing.endsWith("\n") ? "\n" : "";
-  const block =
-    prefix +
-    "# LLMatic local-only workspace artifacts\n" +
-    missing.join("\n") +
-    "\n";
+  const block = prefix + "# LLMatic local-only workspace artifacts\n" + missing.join("\n") + "\n";
 
   await writeFile(excludePath, existing + block, "utf8");
   return { path: excludePath, updated: true };

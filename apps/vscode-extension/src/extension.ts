@@ -40,10 +40,7 @@ async function attachWorkspace(
   context: vscode.ExtensionContext,
   folder: vscode.WorkspaceFolder,
 ): Promise<ManagedWorkspace> {
-  const managed = await ensureManagedWorkspace(
-    folder.uri.fsPath,
-    context.globalStorageUri.fsPath,
-  );
+  const managed = await ensureManagedWorkspace(folder.uri.fsPath, context.globalStorageUri.fsPath);
 
   await context.workspaceState.update("llmatic.workspaceId", managed.id);
   await context.workspaceState.update("llmatic.workspaceRoot", managed.root);
@@ -73,10 +70,7 @@ async function connectKilo(context: vscode.ExtensionContext): Promise<boolean> {
   return true;
 }
 
-function updateStatusBar(
-  statusBar: vscode.StatusBarItem,
-  state: ExtensionState,
-): void {
+function updateStatusBar(statusBar: vscode.StatusBarItem, state: ExtensionState): void {
   statusBar.command = "llmatic.showStatus";
 
   if (state.lastError) {
@@ -126,23 +120,14 @@ async function refresh(
   updateStatusBar(statusBar, state);
 }
 
-async function showStatus(
-  context: vscode.ExtensionContext,
-  state: ExtensionState,
-): Promise<void> {
+async function showStatus(context: vscode.ExtensionContext, state: ExtensionState): Promise<void> {
   const kiloInstalled = Boolean(vscode.extensions.getExtension(KILO_EXTENSION_ID));
-  const kiloServer = kiloInstalled
-    ? await readGlobalKiloLlmaticServer(homedir())
-    : undefined;
+  const kiloServer = kiloInstalled ? await readGlobalKiloLlmaticServer(homedir()) : undefined;
   const hasGatewayKey = Boolean(await context.secrets.get(KILO_GATEWAY_SECRET));
 
   const lines = [
-    state.activeWorkspace
-      ? "Workspace: " + state.activeWorkspace.root
-      : "Workspace: not attached",
-    state.activeWorkspace
-      ? "Workspace data: " + state.activeWorkspace.directory
-      : undefined,
+    state.activeWorkspace ? "Workspace: " + state.activeWorkspace.root : "Workspace: not attached",
+    state.activeWorkspace ? "Workspace data: " + state.activeWorkspace.directory : undefined,
     "Kilo Code: " + (kiloInstalled ? "installed" : "not installed"),
     "Kilo MCP: " + (kiloServer ? "configured" : "not configured"),
     "Kilo Gateway key: " + (hasGatewayKey ? "stored securely" : "not stored"),
@@ -159,10 +144,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     kiloConnected: false,
   };
 
-  const statusBar = vscode.window.createStatusBarItem(
-    vscode.StatusBarAlignment.Left,
-    100,
-  );
+  const statusBar = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 100);
   context.subscriptions.push(statusBar);
 
   context.subscriptions.push(
@@ -220,7 +202,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     vscode.commands.registerCommand("llmatic.setKiloGatewayApiKey", async () => {
       const value = await vscode.window.showInputBox({
         title: "Kilo Gateway API Key",
-        prompt: "Stored only in VS Code SecretStorage. It is not written to the repository or Kilo config.",
+        prompt:
+          "Stored only in VS Code SecretStorage. It is not written to the repository or Kilo config.",
         password: true,
         ignoreFocusOut: true,
       });
