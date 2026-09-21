@@ -4,7 +4,7 @@ Universal local software-engineering runtime for coding agents.
 
 ## Current milestone
 
-M22 — Project Planning Engine
+M23 — Approval & Initialization
 
 LLMatic now supports:
 
@@ -217,3 +217,37 @@ The active draft is referenced by:
 Regeneration creates a new plan version and preserves the previous draft.
 
 M22 still cannot scaffold, install, migrate, push, create a PR, or deploy. M23 adds explicit human approval before any approved plan can become repository state.
+
+## Approval and initialization
+
+M23 keeps repository mutation blocked until the user explicitly approves the exact current plan.
+
+Use:
+
+    LLMatic: Review & Approve Project Plan
+
+PLAN_REVIEW actions:
+
+- Review plan artifacts
+- Edit decisions
+- Regenerate plan
+- Request changes
+- Approve & Initialize
+
+Approval is bound to:
+
+- exact plan ID
+- SHA-256 digest of the complete plan bundle
+- SHA-256 digest of the discovery decision record
+
+Changing a discovery decision, regenerating the plan, changing approved plan bytes, or requesting changes invalidates approval.
+
+Approve & Initialize materializes the approved planning documents, TASKS.md and the minimal approved project shape, validates materialized bytes and required foundation tools, then selects the first dependency-unblocked task.
+
+It does **not** automatically push Git, create or merge a PR, mutate a remote database, or deploy.
+
+Agents can inspect approval state using:
+
+    llmatic_plan_approval_status
+
+MCP cannot create human approval or initialize the repository.

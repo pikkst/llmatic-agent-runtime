@@ -58,6 +58,12 @@ export class LlmaticStatusProvider implements vscode.TreeDataProvider<vscode.Tre
         command: "llmatic.reviewPlan",
       },
       {
+        label: "Review & Approve Plan",
+        description: "edit, regenerate, request changes or initialize",
+        icon: "verified",
+        command: "llmatic.planReview",
+      },
+      {
         label: "Get Ready",
         description: "guided setup and repair",
         icon: "rocket",

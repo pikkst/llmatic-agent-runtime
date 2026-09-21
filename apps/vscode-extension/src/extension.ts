@@ -12,16 +12,25 @@ import {
 import { loadAgentConfig, WorkflowStateStore } from "@llmatic/core";
 import {
   answerDiscoveryQuestion,
+  answeredDiscoveryQuestions,
   createDiscoverySession,
   discoverySessionPath,
   discoverySummary,
   isGreenfieldRepository,
   loadDiscoverySession,
   nextDiscoveryQuestion,
+  reopenDiscoveryAt,
   type DiscoveryQuestion,
   type DiscoverySession,
 } from "@llmatic/discovery-engine";
 import { KiloGatewayClient } from "@llmatic/gateway-client";
+import {
+  approveCurrentProjectPlan,
+  initializeApprovedProject,
+  invalidateProjectApproval,
+  planApprovalStatus,
+  requestProjectPlanChanges,
+} from "@llmatic/project-initializer";
 import {
   generateProjectPlan,
   loadCurrentProjectPlan,
@@ -1279,6 +1288,7 @@ async function startProjectDiscovery(
   context: vscode.ExtensionContext,
   state: ExtensionState,
   output: vscode.OutputChannel,
+  resumeExisting = false,
 ): Promise<void> {
   const folder = firstWorkspaceFolder();
   if (!folder) {
@@ -1306,7 +1316,7 @@ async function startProjectDiscovery(
   const workspaceDirectory = state.activeWorkspace.directory;
   let session = await loadDiscoverySession(workspaceDirectory);
 
-  if (session) {
+  if (session && !resumeExisting) {
     const action = await vscode.window.showQuickPick(
       [
         {
@@ -1581,6 +1591,264 @@ async function showProjectDiscovery(
   writeDiscoverySummary(output, state.activeWorkspace.directory, session);
 }
 
+interface PlanReviewAction extends vscode.QuickPickItem {
+  action: "artifacts" | "edit" | "regenerate" | "changes" | "approve";
+}
+
+async function ensurePlanningWorkspace(
+  context: vscode.ExtensionContext,
+  state: ExtensionState,
+): Promise<{
+  folder: vscode.WorkspaceFolder;
+  workspace: ManagedWorkspace;
+}> {
+  const folder = firstWorkspaceFolder();
+  if (!folder) {
+    throw new Error("Open the project workspace first.");
+  }
+
+  if (!state.activeWorkspace) {
+    state.activeWorkspace = await attachWorkspace(context, folder);
+  }
+
+  return {
+    folder,
+    workspace: state.activeWorkspace,
+  };
+}
+
+async function editProjectDecisionsInUi(
+  context: vscode.ExtensionContext,
+  state: ExtensionState,
+  output: vscode.OutputChannel,
+): Promise<void> {
+  const { workspace } = await ensurePlanningWorkspace(context, state);
+  const session = await loadDiscoverySession(workspace.directory);
+
+  if (!session) {
+    await vscode.window.showInformationMessage(
+      "No discovery session exists. Start project discovery first.",
+    );
+    return;
+  }
+
+  const answered = answeredDiscoveryQuestions(session);
+  if (answered.length === 0) {
+    await vscode.window.showInformationMessage("No discovery decisions have been answered yet.");
+    return;
+  }
+
+  const selected = await vscode.window.showQuickPick(
+    answered.map((item) => ({
+      label: item.title,
+      description: item.answer.label,
+      detail: item.answer.source + (item.answer.rationale ? " — " + item.answer.rationale : ""),
+      questionId: item.id,
+    })),
+    {
+      title: "LLMatic — Edit Project Decisions",
+      placeHolder: "Changing this decision clears it and all dependent later decisions.",
+      ignoreFocusOut: true,
+    },
+  );
+
+  if (!selected) return;
+
+  const confirmation = await vscode.window.showWarningMessage(
+    "Reopen '" +
+      selected.label +
+      "'? This invalidates any existing approval and clears this decision plus later dependent discovery answers.",
+    { modal: true },
+    "Edit Decision",
+  );
+
+  if (confirmation !== "Edit Decision") return;
+
+  await invalidateProjectApproval(workspace.directory, "Discovery decisions reopened by the user.");
+  await reopenDiscoveryAt(workspace.directory, session, selected.questionId);
+
+  await startProjectDiscovery(context, state, output, true);
+}
+
+async function requestProjectPlanChangesInUi(
+  context: vscode.ExtensionContext,
+  state: ExtensionState,
+): Promise<void> {
+  const { workspace } = await ensurePlanningWorkspace(context, state);
+
+  const text = await vscode.window.showInputBox({
+    title: "LLMatic — Request Project Plan Changes",
+    prompt:
+      "Describe the change you want recorded before approval. Structural decisions should use Edit Project Decisions.",
+    placeHolder: "Example: Keep the MVP single-region and defer audit export to a later phase.",
+    ignoreFocusOut: true,
+    validateInput: (value) => (value.trim() ? undefined : "Describe the requested plan change."),
+  });
+
+  if (!text?.trim()) return;
+
+  await requestProjectPlanChanges(workspace.directory, text.trim());
+
+  await vscode.window.showInformationMessage(
+    "Plan change request saved privately and any previous approval invalidated. Review/edit decisions and generate a new draft before approval.",
+    "Review Plan",
+  );
+}
+
+async function approveAndInitializeProjectInUi(
+  context: vscode.ExtensionContext,
+  state: ExtensionState,
+  output: vscode.OutputChannel,
+): Promise<void> {
+  const { folder, workspace } = await ensurePlanningWorkspace(context, state);
+
+  const current = await loadCurrentProjectPlan(workspace.directory);
+  const manifest = current
+    ? await loadProjectPlanManifest(workspace.directory, current.planId)
+    : undefined;
+
+  if (!current || !manifest) {
+    await vscode.window.showInformationMessage(
+      "Generate and review a project plan before approval.",
+      "Generate Plan",
+    );
+    return;
+  }
+
+  const status = await planApprovalStatus(workspace.directory);
+  const digest = status.currentDigest ?? "Digest unavailable until the plan can be verified.";
+
+  const confirmation = await vscode.window.showWarningMessage(
+    [
+      "Approve this exact project plan and initialize the repository?",
+      "",
+      "Plan: " + current.planId,
+      "SHA-256: " + digest,
+      "Artifacts: " + manifest.artifactCount,
+      "Tasks: " + manifest.taskCount,
+      "",
+      "This will create tracked planning docs, TASKS.md and the approved scaffold, verify required foundation tools, and select the first unblocked task.",
+      "",
+      "It will not push Git, create/merge a PR, mutate a remote database, or deploy.",
+    ].join("\n"),
+    { modal: true },
+    "Approve & Initialize",
+  );
+
+  if (confirmation !== "Approve & Initialize") return;
+
+  const approval = await approveCurrentProjectPlan(workspace.directory);
+
+  const runtimeConfig = await loadAgentConfig(folder.uri.fsPath, {
+    LLMATIC_HOME: context.globalStorageUri.fsPath,
+  });
+
+  const result = await vscode.window.withProgress(
+    {
+      location: vscode.ProgressLocation.Notification,
+      title: "LLMatic is initializing the approved project",
+      cancellable: false,
+    },
+    () => initializeApprovedProject(folder.uri.fsPath, workspace.directory, runtimeConfig),
+  );
+
+  output.clear();
+  output.appendLine("LLMatic Project Initialization");
+  output.appendLine("");
+  output.appendLine("Plan: " + approval.planId);
+  output.appendLine("SHA-256: " + approval.planDigest);
+  output.appendLine("State: " + result.lifecycle.state);
+  output.appendLine("Materialized planning files: " + result.materializedFiles.length);
+  output.appendLine("Scaffold files: " + result.scaffoldFiles.length);
+  output.appendLine("Next task: " + result.nextTaskKey);
+  output.appendLine("Workflow: " + result.workflow.state);
+  output.show(true);
+
+  await vscode.window.showInformationMessage(
+    "Approved project initialization completed. " +
+      result.nextTaskKey +
+      " is selected and ready for implementation.",
+  );
+}
+
+async function projectPlanReviewInUi(
+  context: vscode.ExtensionContext,
+  state: ExtensionState,
+  output: vscode.OutputChannel,
+): Promise<void> {
+  const { workspace } = await ensurePlanningWorkspace(context, state);
+  const current = await loadCurrentProjectPlan(workspace.directory);
+
+  if (!current) {
+    const action = await vscode.window.showInformationMessage(
+      "No private project-plan draft exists.",
+      "Generate Plan",
+    );
+    if (action === "Generate Plan") {
+      await vscode.commands.executeCommand("llmatic.generatePlan");
+    }
+    return;
+  }
+
+  const approval = await planApprovalStatus(workspace.directory);
+  const actions: PlanReviewAction[] = [
+    {
+      label: "$(preview) Review plan artifacts",
+      description: "Inspect the current private plan",
+      action: "artifacts",
+    },
+    {
+      label: "$(edit) Edit decisions",
+      description: "Reopen discovery from a selected decision",
+      action: "edit",
+    },
+    {
+      label: "$(refresh) Regenerate plan",
+      description: "Create a new versioned draft from current discovery decisions",
+      action: "regenerate",
+    },
+    {
+      label: "$(comment-discussion) Request changes",
+      description: "Record a private plan change request and invalidate approval",
+      action: "changes",
+    },
+    {
+      label: "$(verified-filled) Approve & Initialize",
+      description: approval.verified
+        ? "Current digest is already approved; initialize exact plan"
+        : "Human approval required before repository materialization",
+      detail: approval.reason,
+      action: "approve",
+    },
+  ];
+
+  const selected = await vscode.window.showQuickPick(actions, {
+    title: "LLMatic Plan Review — " + current.planId,
+    placeHolder: "Repository mutation remains blocked until Approve & Initialize.",
+    ignoreFocusOut: true,
+  });
+
+  if (!selected) return;
+
+  switch (selected.action) {
+    case "artifacts":
+      await reviewProjectPlanInUi(context, state, output);
+      break;
+    case "edit":
+      await editProjectDecisionsInUi(context, state, output);
+      break;
+    case "regenerate":
+      await vscode.commands.executeCommand("llmatic.generatePlan");
+      break;
+    case "changes":
+      await requestProjectPlanChangesInUi(context, state);
+      break;
+    case "approve":
+      await approveAndInitializeProjectInUi(context, state, output);
+      break;
+  }
+}
+
 async function offerOnboarding(
   context: vscode.ExtensionContext,
   state: ExtensionState,
@@ -1676,6 +1944,38 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
         await vscode.window.showErrorMessage("LLMatic planning: " + message);
+      }
+    }),
+    vscode.commands.registerCommand("llmatic.planReview", async () => {
+      try {
+        await projectPlanReviewInUi(context, state, output);
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        await vscode.window.showErrorMessage("LLMatic plan review: " + message);
+      }
+    }),
+    vscode.commands.registerCommand("llmatic.editPlanDecisions", async () => {
+      try {
+        await editProjectDecisionsInUi(context, state, output);
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        await vscode.window.showErrorMessage("LLMatic edit decisions: " + message);
+      }
+    }),
+    vscode.commands.registerCommand("llmatic.requestPlanChanges", async () => {
+      try {
+        await requestProjectPlanChangesInUi(context, state);
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        await vscode.window.showErrorMessage("LLMatic plan changes: " + message);
+      }
+    }),
+    vscode.commands.registerCommand("llmatic.approveAndInitialize", async () => {
+      try {
+        await approveAndInitializeProjectInUi(context, state, output);
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        await vscode.window.showErrorMessage("LLMatic initialization: " + message);
       }
     }),
     vscode.commands.registerCommand("llmatic.getReady", async () => {

@@ -121,4 +121,38 @@ describe("MarkdownTaskProvider", () => {
 
     await expect(provider.transitionTask("TASK-002", "start")).rejects.toThrow("requires approval");
   });
+
+  it("treats explicit no-dependency markers as empty dependencies", async () => {
+    const root = await fixture();
+    await writeFile(
+      join(root, "TASKS.md"),
+      [
+        "# Tasks",
+        "",
+        "## PLAN-001 — Foundation",
+        "",
+        "Status: Todo",
+        "",
+        "### Dependencies",
+        "",
+        "- None",
+        "",
+        "## PLAN-002 — CI",
+        "",
+        "Status: Todo",
+        "",
+        "### Dependencies",
+        "",
+        "- PLAN-001",
+        "",
+      ].join("\n"),
+      "utf8",
+    );
+
+    const provider = await createMarkdownTaskProvider(root, config(root));
+
+    const first = await provider.getTask("PLAN-001");
+    expect(first.dependencies).toEqual([]);
+    expect((await provider.getNextTask())?.key).toBe("PLAN-001");
+  });
 });

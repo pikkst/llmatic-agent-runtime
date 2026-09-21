@@ -10,6 +10,8 @@ describe("VS Code extension activation surface", () => {
     expect(source).toContain('vscode.commands.registerCommand("llmatic.startDiscovery"');
     expect(source).toContain('vscode.commands.registerCommand("llmatic.generatePlan"');
     expect(source).toContain('vscode.commands.registerCommand("llmatic.reviewPlan"');
+    expect(source).toContain('vscode.commands.registerCommand("llmatic.planReview"');
+    expect(source).toContain('vscode.commands.registerCommand("llmatic.approveAndInitialize"');
     expect(source).toContain('vscode.commands.registerCommand("llmatic.getReady"');
     expect(source).toContain('vscode.commands.registerCommand("llmatic.reviewFixLoop"');
     expect(source).toContain('vscode.commands.registerCommand("llmatic.checkForUpdates"');
