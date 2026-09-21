@@ -217,6 +217,12 @@ export class LlmaticStatusProvider implements vscode.TreeDataProvider<vscode.Tre
         command: "llmatic.refreshWorkspaceRecovery",
       },
       {
+        label: "Generate PR Draft",
+        description: "task, validation, review, security and rule evidence",
+        icon: "git-pull-request-create",
+        command: "llmatic.generatePrDraft",
+      },
+      {
         label: "Review / Fix Loop",
         description: "review, fix, validate, re-review; key guided",
         icon: "checklist",
