@@ -94,4 +94,3 @@
 - Added Generate Project Plan and Review Project Plan VS Code commands.
 - Added MCP plan status/generate/read-artifact tools.
 - Planning remains outside the repository and has no approval/materialization path yet.
-

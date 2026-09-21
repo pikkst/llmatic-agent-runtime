@@ -6,7 +6,5 @@
     "outDir": "dist"
   },
   "include": ["src/**/*.ts"],
-  "references": [
-    { "path": "../discovery-engine" }
-  ]
+  "references": [{ "path": "../discovery-engine" }]
 }

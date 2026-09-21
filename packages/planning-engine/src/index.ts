@@ -121,9 +121,7 @@ function contextFor(session: DiscoverySession): PlanContext {
     deployment: values.deployment.value,
     testing: values.testing.value,
     security: values.security.value,
-    labels: Object.fromEntries(
-      Object.entries(values).map(([key, value]) => [key, value.label]),
-    ),
+    labels: Object.fromEntries(Object.entries(values).map(([key, value]) => [key, value.label])),
   };
 }
 
@@ -144,13 +142,11 @@ function architectureRecommendation(context: PlanContext): ArchitectureRecommend
   } else if (context.applicationShape === "desktop_app") {
     client = "TypeScript desktop UI with a thin runtime shell";
     backend = "Local application service layer; remote API only when required";
-    repository =
-      "Single repository with desktop shell, UI, domain and infrastructure boundaries";
+    repository = "Single repository with desktop shell, UI, domain and infrastructure boundaries";
   } else if (context.applicationShape === "cli_app") {
     client = "TypeScript CLI";
     backend = "Local domain/application layer";
-    repository =
-      "Single package or small workspace with CLI, domain and adapter boundaries";
+    repository = "Single package or small workspace with CLI, domain and adapter boundaries";
   }
 
   let persistence = "No primary application database";
@@ -235,11 +231,9 @@ function decisionTable(session: DiscoverySession): string {
     ];
   });
 
-  return [
-    "| Decision | Value | Source | Rationale |",
-    "| --- | --- | --- | --- |",
-    ...rows,
-  ].join("\n");
+  return ["| Decision | Value | Source | Rationale |", "| --- | --- | --- | --- |", ...rows].join(
+    "\n",
+  );
 }
 
 function productBrief(session: DiscoverySession, context: PlanContext): string {
@@ -361,10 +355,7 @@ function journeys(context: PlanContext): string {
   ]);
 }
 
-function architecture(
-  context: PlanContext,
-  recommendation: ArchitectureRecommendation,
-): string {
+function architecture(context: PlanContext, recommendation: ArchitectureRecommendation): string {
   return md("Architecture", [
     [
       "Recommended shape",
@@ -700,8 +691,7 @@ function phaseTasks(context: PlanContext): ProjectPlanTask[] {
       id: "PLAN-012",
       phase: "Phase 1 — Identity",
       summary: "Implement authentication boundary",
-      description:
-        "Integrate approved identity mechanism behind an explicit identity adapter.",
+      description: "Integrate approved identity mechanism behind an explicit identity adapter.",
       dependencies: ["PLAN-003"],
       acceptanceCriteria: [
         "Valid identity maps to internal actor/user reference.",
@@ -718,10 +708,7 @@ function phaseTasks(context: PlanContext): ProjectPlanTask[] {
       summary: "Implement organizations, membership and authorization scope",
       description:
         "Establish tenant ownership, membership roles and server-side scope enforcement.",
-      dependencies: [
-        "PLAN-010",
-        ...(context.authentication !== "none" ? ["PLAN-012"] : []),
-      ],
+      dependencies: ["PLAN-010", ...(context.authentication !== "none" ? ["PLAN-012"] : [])],
       acceptanceCriteria: [
         "Cross-tenant reads/writes are rejected.",
         "Membership roles are enforced server-side.",
@@ -762,10 +749,8 @@ function phaseTasks(context: PlanContext): ProjectPlanTask[] {
       id: "PLAN-030",
       phase: "Phase 3 — Product UI",
       summary: "Implement application shell and primary navigation",
-      description:
-        "Create accessible UI structure and loading/empty/error state patterns.",
-      dependencies:
-        context.applicationShape === "fullstack_web" ? ["PLAN-020"] : ["PLAN-001"],
+      description: "Create accessible UI structure and loading/empty/error state patterns.",
+      dependencies: context.applicationShape === "fullstack_web" ? ["PLAN-020"] : ["PLAN-001"],
       acceptanceCriteria: [
         "Navigation matches approved journeys.",
         "Loading, empty and error states are explicit.",
@@ -777,8 +762,7 @@ function phaseTasks(context: PlanContext): ProjectPlanTask[] {
       id: "PLAN-031",
       phase: "Phase 3 — Product UI",
       summary: "Implement first successful user journey end to end",
-      description:
-        "Deliver the minimum coherent user flow that produces the core product outcome.",
+      description: "Deliver the minimum coherent user flow that produces the core product outcome.",
       dependencies: [
         "PLAN-030",
         ...(context.applicationShape === "fullstack_web" ? ["PLAN-020"] : []),
@@ -787,10 +771,7 @@ function phaseTasks(context: PlanContext): ProjectPlanTask[] {
         "A real user can complete the primary workflow.",
         "Validation and recoverable errors are represented in UI.",
       ],
-      definitionOfDone: [
-        "critical journey E2E passes",
-        "journey docs match behavior",
-      ],
+      definitionOfDone: ["critical journey E2E passes", "journey docs match behavior"],
     });
   }
 
@@ -805,10 +786,7 @@ function phaseTasks(context: PlanContext): ProjectPlanTask[] {
       "Critical cross-boundary behavior is tested.",
       "Known failure modes have regression coverage.",
     ],
-    definitionOfDone: [
-      "required quality gates pass",
-      "no flaky test accepted as green evidence",
-    ],
+    definitionOfDone: ["required quality gates pass", "no flaky test accepted as green evidence"],
   });
 
   add({
@@ -845,9 +823,7 @@ function phaseTasks(context: PlanContext): ProjectPlanTask[] {
     });
   }
 
-  const phase4 = tasks
-    .filter((task) => task.phase.startsWith("Phase 4"))
-    .map((task) => task.id);
+  const phase4 = tasks.filter((task) => task.phase.startsWith("Phase 4")).map((task) => task.id);
 
   add({
     id: "PLAN-050",
@@ -998,8 +974,7 @@ export async function loadCurrentProjectPlan(
       await readFile(currentPlanPath(workspaceDirectory), "utf8"),
     ) as CurrentProjectPlan;
   } catch (error) {
-    const code =
-      error instanceof Error && "code" in error ? String(error.code) : undefined;
+    const code = error instanceof Error && "code" in error ? String(error.code) : undefined;
     if (code === "ENOENT") return undefined;
     throw error;
   }
@@ -1009,9 +984,7 @@ export async function loadProjectPlanManifest(
   workspaceDirectory: string,
   planId?: string,
 ): Promise<ProjectPlanManifest | undefined> {
-  const current = planId
-    ? undefined
-    : await loadCurrentProjectPlan(workspaceDirectory);
+  const current = planId ? undefined : await loadCurrentProjectPlan(workspaceDirectory);
   const selectedId = planId ?? current?.planId;
   if (!selectedId) return undefined;
 
@@ -1023,8 +996,7 @@ export async function loadProjectPlanManifest(
       ),
     ) as ProjectPlanManifest;
   } catch (error) {
-    const code =
-      error instanceof Error && "code" in error ? String(error.code) : undefined;
+    const code = error instanceof Error && "code" in error ? String(error.code) : undefined;
     if (code === "ENOENT") return undefined;
     throw error;
   }
@@ -1058,11 +1030,7 @@ export async function generateProjectPlan(
         1,
         "Application architecture",
         "A coherent application shape must be approved before implementation.",
-        "Use " +
-          context.labels.application_shape +
-          " with " +
-          recommendation.repository +
-          ".",
+        "Use " + context.labels.application_shape + " with " + recommendation.repository + ".",
         recommendation.rationale,
       ),
     ],
@@ -1086,11 +1054,7 @@ export async function generateProjectPlan(
         3,
         "Identity and tenancy",
         "Identity and ownership affect every protected boundary.",
-        "Use " +
-          context.labels.authentication +
-          " with " +
-          context.labels.tenancy +
-          ".",
+        "Use " + context.labels.authentication + " with " + context.labels.tenancy + ".",
         [
           "Authorization is enforced server-side/application-side.",
           "Ownership becomes part of domain/persistence contracts where applicable.",
@@ -1108,19 +1072,15 @@ export async function generateProjectPlan(
     ["dependency-graph.json", dependencyGraph(tasks)],
   ]);
 
-  const artifacts: ProjectPlanArtifact[] = [...files.keys()].map(
-    (relativePath) => ({
-      id: relativePath
-        .toLowerCase()
-        .replace(/[^a-z0-9]+/g, "-")
-        .replace(/^-|-$/g, ""),
-      title: relativePath
-        .replaceAll("_", " ")
-        .replace(/\.md$|\.json$/i, ""),
-      relativePath,
-      kind: relativePath.endsWith(".json") ? "json" : "markdown",
-    }),
-  );
+  const artifacts: ProjectPlanArtifact[] = [...files.keys()].map((relativePath) => ({
+    id: relativePath
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, "-")
+      .replace(/^-|-$/g, ""),
+    title: relativePath.replaceAll("_", " ").replace(/\.md$|\.json$/i, ""),
+    relativePath,
+    kind: relativePath.endsWith(".json") ? "json" : "markdown",
+  }));
 
   const manifest: ProjectPlanManifest = {
     version: 1,
@@ -1139,10 +1099,7 @@ export async function generateProjectPlan(
   files.set("plan-manifest.json", JSON.stringify(manifest, null, 2) + "\n");
 
   for (const [relativePath, content] of files) {
-    await writeAtomic(
-      resolve(directory, relativePath),
-      content.trimEnd() + "\n",
-    );
+    await writeAtomic(resolve(directory, relativePath), content.trimEnd() + "\n");
   }
 
   const current: CurrentProjectPlan = {
@@ -1155,14 +1112,10 @@ export async function generateProjectPlan(
     updatedAt: now,
   };
 
-  await writeAtomic(
-    currentPlanPath(workspaceDirectory),
-    JSON.stringify(current, null, 2) + "\n",
-  );
+  await writeAtomic(currentPlanPath(workspaceDirectory), JSON.stringify(current, null, 2) + "\n");
 
   return { current, manifest, tasks };
 }
-
 
 export async function readProjectPlanArtifact(
   workspaceDirectory: string,
@@ -1172,9 +1125,7 @@ export async function readProjectPlanArtifact(
   const manifest = await loadProjectPlanManifest(workspaceDirectory, planId);
   if (!manifest) throw new Error("No project plan is available.");
 
-  const artifact = manifest.artifacts.find(
-    (item) => item.relativePath === relativePath,
-  );
+  const artifact = manifest.artifacts.find((item) => item.relativePath === relativePath);
   if (!artifact) {
     throw new Error("Unknown project plan artifact: " + relativePath + ".");
   }

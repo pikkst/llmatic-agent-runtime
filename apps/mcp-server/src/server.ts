@@ -68,9 +68,7 @@ function runtimeRoot(root?: string): string {
 function planningWorkspaceDirectory(root: string): string {
   const llmaticHome = process.env.LLMATIC_HOME?.trim();
   if (!llmaticHome) {
-    throw new Error(
-      "LLMATIC_HOME is required for private discovery/planning MCP tools.",
-    );
+    throw new Error("LLMATIC_HOME is required for private discovery/planning MCP tools.");
   }
 
   return managedWorkspaceDirectory(root, llmaticHome);
@@ -351,11 +349,7 @@ export function createLlmaticMcpServer(): McpServer {
         return {
           planId: planId ?? (await loadCurrentProjectPlan(workspaceDirectory))?.planId ?? null,
           relativePath,
-          content: await readProjectPlanArtifact(
-            workspaceDirectory,
-            relativePath,
-            planId,
-          ),
+          content: await readProjectPlanArtifact(workspaceDirectory, relativePath, planId),
         };
       }),
   );

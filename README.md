@@ -182,7 +182,6 @@ Cancelling the wizard pauses discovery without losing answered decisions.
 
 M21 never scaffolds source code, installs packages, creates migrations, or writes planning files into the tracked repository.
 
-
 ## Private project planning
 
 After discovery reaches `ready_for_planning`, use:

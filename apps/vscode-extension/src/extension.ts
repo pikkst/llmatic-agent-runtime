@@ -1377,7 +1377,6 @@ async function startProjectDiscovery(
   }
 }
 
-
 interface PlanQuickPickItem extends vscode.QuickPickItem {
   relativePath?: string;
   action?: "reveal";
@@ -1536,10 +1535,7 @@ async function reviewProjectPlanInUi(
   if (!selected) return;
 
   if (selected.action === "reveal") {
-    await vscode.commands.executeCommand(
-      "revealFileInOS",
-      vscode.Uri.file(current.manifestPath),
-    );
+    await vscode.commands.executeCommand("revealFileInOS", vscode.Uri.file(current.manifestPath));
     return;
   }
 

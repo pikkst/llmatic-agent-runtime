@@ -14,11 +14,7 @@ import {
 const roots: string[] = [];
 
 afterEach(async () => {
-  await Promise.all(
-    roots
-      .splice(0)
-      .map((root) => rm(root, { recursive: true, force: true })),
-  );
+  await Promise.all(roots.splice(0).map((root) => rm(root, { recursive: true, force: true })));
 });
 
 function discovery(projectRoot: string): DiscoverySession {
@@ -41,48 +37,16 @@ function discovery(projectRoot: string): DiscoverySession {
     createdAt: now,
     updatedAt: now,
     answers: {
-      product_type: answer(
-        "product_type",
-        "saas_web",
-        "SaaS web application",
-      ),
+      product_type: answer("product_type", "saas_web", "SaaS web application"),
       maturity: answer("maturity", "mvp", "MVP"),
-      primary_users: answer(
-        "primary_users",
-        "business",
-        "Business customers",
-      ),
-      application_shape: answer(
-        "application_shape",
-        "fullstack_web",
-        "Full-stack web",
-      ),
-      authentication: answer(
-        "authentication",
-        "email_oauth",
-        "Email + OAuth",
-      ),
-      tenancy: answer(
-        "tenancy",
-        "organizations",
-        "Organizations / workspaces",
-      ),
-      data_store: answer(
-        "data_store",
-        "managed_postgres",
-        "Managed PostgreSQL",
-      ),
-      deployment: answer(
-        "deployment",
-        "managed_cloud",
-        "Managed cloud",
-      ),
+      primary_users: answer("primary_users", "business", "Business customers"),
+      application_shape: answer("application_shape", "fullstack_web", "Full-stack web"),
+      authentication: answer("authentication", "email_oauth", "Email + OAuth"),
+      tenancy: answer("tenancy", "organizations", "Organizations / workspaces"),
+      data_store: answer("data_store", "managed_postgres", "Managed PostgreSQL"),
+      deployment: answer("deployment", "managed_cloud", "Managed cloud"),
       testing: answer("testing", "balanced", "Balanced"),
-      security: answer(
-        "security",
-        "standard",
-        "Standard application security",
-      ),
+      security: answer("security", "standard", "Standard application security"),
     },
   };
 }
@@ -92,32 +56,21 @@ describe("project planning engine", () => {
     const workspace = await mkdtemp(join(tmpdir(), "llmatic-plan-"));
     roots.push(workspace);
 
-    const result = await generateProjectPlan(
-      workspace,
-      discovery("/repo"),
-    );
+    const result = await generateProjectPlan(workspace, discovery("/repo"));
 
     expect(result.manifest.status).toBe("draft_ready");
     expect(result.manifest.artifactCount).toBeGreaterThanOrEqual(15);
     expect(result.manifest.taskCount).toBeGreaterThanOrEqual(10);
-    expect(result.current.planDirectory).toBe(
-      planDirectory(workspace, result.manifest.planId),
-    );
+    expect(result.current.planDirectory).toBe(planDirectory(workspace, result.manifest.planId));
 
-    const tasks = await readFile(
-      resolve(result.current.planDirectory, "TASKS.md"),
-      "utf8",
-    );
+    const tasks = await readFile(resolve(result.current.planDirectory, "TASKS.md"), "utf8");
     expect(tasks).toContain("PLAN-001");
     expect(tasks).toContain("PLAN-013");
     expect(tasks).toContain("PLAN-031");
     expect(tasks).toContain("### Dependencies");
 
     const graph = JSON.parse(
-      await readFile(
-        resolve(result.current.planDirectory, "dependency-graph.json"),
-        "utf8",
-      ),
+      await readFile(resolve(result.current.planDirectory, "dependency-graph.json"), "utf8"),
     ) as {
       edges: Array<{ from: string; to: string; type: string }>;
     };
@@ -136,9 +89,7 @@ describe("project planning engine", () => {
     const session = discovery("/repo");
     session.status = "in_progress";
 
-    await expect(
-      generateProjectPlan(workspace, session),
-    ).rejects.toThrow("Finish discovery");
+    await expect(generateProjectPlan(workspace, session)).rejects.toThrow("Finish discovery");
   });
 
   it("regeneration creates a new plan while preserving the previous draft", async () => {
@@ -150,13 +101,10 @@ describe("project planning engine", () => {
     const second = await generateProjectPlan(workspace, session);
 
     expect(second.manifest.planId).not.toBe(first.manifest.planId);
-    expect((await loadCurrentProjectPlan(workspace))?.planId).toBe(
-      second.manifest.planId,
+    expect((await loadCurrentProjectPlan(workspace))?.planId).toBe(second.manifest.planId);
+    expect((await loadProjectPlanManifest(workspace, first.manifest.planId))?.planId).toBe(
+      first.manifest.planId,
     );
-    expect(
-      (await loadProjectPlanManifest(workspace, first.manifest.planId))
-        ?.planId,
-    ).toBe(first.manifest.planId);
     expect(currentPlanPath(workspace).startsWith(workspace)).toBe(true);
   });
 });
