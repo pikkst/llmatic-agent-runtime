@@ -33,7 +33,8 @@
     "@llmatic/release-metadata": "workspace:*",
     "@llmatic/update-installer": "workspace:*",
     "@llmatic/discovery-engine": "workspace:*",
-    "@llmatic/planning-engine": "workspace:*"
+    "@llmatic/planning-engine": "workspace:*",
+    "@llmatic/project-initializer": "workspace:*"
   },
   "devDependencies": {
     "@types/vscode": "1.105.0",
@@ -60,6 +61,26 @@
       {
         "command": "llmatic.reviewPlan",
         "title": "Review Project Plan",
+        "category": "LLMatic"
+      },
+      {
+        "command": "llmatic.planReview",
+        "title": "Review & Approve Project Plan",
+        "category": "LLMatic"
+      },
+      {
+        "command": "llmatic.editPlanDecisions",
+        "title": "Edit Project Decisions",
+        "category": "LLMatic"
+      },
+      {
+        "command": "llmatic.requestPlanChanges",
+        "title": "Request Project Plan Changes",
+        "category": "LLMatic"
+      },
+      {
+        "command": "llmatic.approveAndInitialize",
+        "title": "Approve & Initialize Project",
         "category": "LLMatic"
       },
       {
