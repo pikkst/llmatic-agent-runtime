@@ -28,5 +28,8 @@ jobs:
       - name: Install dependencies
         run: pnpm install --no-frozen-lockfile
 
+      - name: Show canonical M2 formatting
+        run: pnpm exec prettier apps/cli/src/index.ts packages/core/src/executor.ts
+
       - name: Validate
         run: pnpm run ci
