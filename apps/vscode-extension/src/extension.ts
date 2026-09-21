@@ -68,6 +68,10 @@ import {
 import { stageVerifiedVsix } from "@llmatic/update-installer";
 import { ensureManagedWorkspace, type ManagedWorkspace } from "@llmatic/workspace-manager";
 import {
+  decideRepositoryRuleProposal,
+  type ConstitutionEntry,
+} from "@llmatic/repository-constitution";
+import {
   recoverWorkspace,
   workspaceRecoveryContext,
   type WorkspaceRecovery,
@@ -2071,6 +2075,175 @@ async function offerOnboarding(
   }
 }
 
+function ruleLabel(rule: ConstitutionEntry): string {
+  const source =
+    rule.source.path +
+    (rule.source.line ? ":" + String(rule.source.line) : "");
+  return (
+    rule.id +
+    " · " +
+    rule.kind.replaceAll("_", " ") +
+    " · " +
+    rule.strength +
+    " · " +
+    source
+  );
+}
+
+async function showRepositoryRulesInUi(
+  context: vscode.ExtensionContext,
+  state: ExtensionState,
+  statusProvider: LlmaticStatusProvider,
+  chatProvider: AgentChatViewProvider,
+  output: vscode.OutputChannel,
+): Promise<void> {
+  if (!state.recovery) {
+    await refreshWorkspaceRecovery(
+      context,
+      state,
+      statusProvider,
+      chatProvider,
+      output,
+      false,
+    );
+  }
+
+  const constitution = state.recovery?.constitution;
+  if (!constitution) {
+    await vscode.window.showWarningMessage(
+      "Repository rules are unavailable until a repository workspace is mapped.",
+    );
+    return;
+  }
+
+  const items = constitution.rules.map((rule) => ({
+    label:
+      (rule.status === "proposed" ? "$(question) " : rule.strength === "blocking" ? "$(lock) " : "$(law) ") +
+      rule.text,
+    description: ruleLabel(rule),
+    detail: rule.rationale,
+    rule,
+  }));
+
+  if (items.length === 0) {
+    await vscode.window.showInformationMessage(
+      "No repository rules or inferred conventions were found.",
+    );
+    return;
+  }
+
+  await vscode.window.showQuickPick(items, {
+    title: "LLMatic Repository Constitution",
+    placeHolder:
+      constitution.counts.explicitRule +
+      " explicit · " +
+      constitution.counts.approvedRule +
+      " approved · " +
+      constitution.counts.inferredConvention +
+      " inferred · " +
+      constitution.counts.proposedRule +
+      " proposed",
+    matchOnDescription: true,
+    matchOnDetail: true,
+    ignoreFocusOut: true,
+  });
+}
+
+async function reviewRepositoryRuleProposalsInUi(
+  context: vscode.ExtensionContext,
+  state: ExtensionState,
+  statusProvider: LlmaticStatusProvider,
+  chatProvider: AgentChatViewProvider,
+  output: vscode.OutputChannel,
+): Promise<void> {
+  if (!state.recovery) {
+    await refreshWorkspaceRecovery(
+      context,
+      state,
+      statusProvider,
+      chatProvider,
+      output,
+      false,
+    );
+  }
+
+  const proposals =
+    state.recovery?.constitution.rules.filter(
+      (rule) => rule.kind === "proposed_rule" && rule.status === "proposed",
+    ) ?? [];
+
+  if (proposals.length === 0) {
+    await vscode.window.showInformationMessage(
+      "There are no repository rule proposals awaiting review.",
+    );
+    return;
+  }
+
+  const selected = await vscode.window.showQuickPick(
+    proposals.map((rule) => ({
+      label: "$(question) " + rule.text,
+      description: ruleLabel(rule),
+      detail: rule.rationale,
+      rule,
+    })),
+    {
+      title: "Review Repository Rule Proposals",
+      placeHolder:
+        "A proposal is not enforced until you explicitly approve it.",
+      matchOnDescription: true,
+      matchOnDetail: true,
+      ignoreFocusOut: true,
+    },
+  );
+
+  if (!selected) return;
+
+  const decision = await vscode.window.showWarningMessage(
+    selected.rule.text +
+      "\n\nReason: " +
+      (selected.rule.rationale ?? "No rationale supplied.") +
+      "\n\nSource: " +
+      selected.rule.source.path +
+      (selected.rule.source.line ? ":" + selected.rule.source.line : ""),
+    { modal: true },
+    "Approve Rule",
+    "Reject Rule",
+  );
+
+  if (decision !== "Approve Rule" && decision !== "Reject Rule") return;
+
+  if (!state.activeWorkspace) {
+    const folder = firstWorkspaceFolder();
+    if (!folder) return;
+    state.activeWorkspace = await attachWorkspace(context, folder);
+  }
+
+  const config = await loadAgentConfig(state.activeWorkspace.root, {
+    LLMATIC_HOME: context.globalStorageUri.fsPath,
+  });
+  await decideRepositoryRuleProposal(
+    state.activeWorkspace.root,
+    config,
+    selected.rule.id,
+    decision === "Approve Rule" ? "approved" : "rejected",
+  );
+
+  await refreshWorkspaceRecovery(
+    context,
+    state,
+    statusProvider,
+    chatProvider,
+    output,
+    true,
+  );
+
+  await vscode.window.showInformationMessage(
+    decision === "Approve Rule"
+      ? "Repository rule approved and now active in review policy."
+      : "Repository rule proposal rejected.",
+  );
+}
+
 async function showStatus(context: vscode.ExtensionContext, state: ExtensionState): Promise<void> {
   const kiloInstalled = Boolean(vscode.extensions.getExtension(KILO_EXTENSION_ID));
   const kiloServer = kiloInstalled ? await readGlobalKiloLlmaticServer(homedir()) : undefined;
@@ -2392,6 +2565,36 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     vscode.commands.registerCommand("llmatic.openAgentChat", async () => {
       await vscode.commands.executeCommand("workbench.view.extension.llmatic");
       await vscode.commands.executeCommand("llmatic.agentChat.focus");
+    }),
+    vscode.commands.registerCommand("llmatic.showRepositoryRules", async () => {
+      try {
+        await showRepositoryRulesInUi(
+          context,
+          state,
+          statusProvider,
+          chatProvider,
+          output,
+        );
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        await vscode.window.showErrorMessage("LLMatic rules: " + message);
+      }
+    }),
+    vscode.commands.registerCommand("llmatic.reviewRuleProposals", async () => {
+      try {
+        await reviewRepositoryRuleProposalsInUi(
+          context,
+          state,
+          statusProvider,
+          chatProvider,
+          output,
+        );
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        await vscode.window.showErrorMessage(
+          "LLMatic rule proposal review: " + message,
+        );
+      }
     }),
     vscode.commands.registerCommand("llmatic.refreshWorkspaceRecovery", async () => {
       try {
