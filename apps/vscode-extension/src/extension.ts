@@ -902,8 +902,29 @@ async function runGatewayReview(
   const config = await loadAgentConfig(root, {
     LLMATIC_HOME: context.globalStorageUri.fsPath,
   });
-  const store = new WorkflowStateStore(root, config);
+  let store = new WorkflowStateStore(root, config);
   const gateway = new KiloGatewayClient({ apiKey });
+
+  if (fixLoop) {
+    const current = await store.loadCurrent();
+    if (!current || current.state !== "CODE_REVIEW") {
+      const adHocConfig = {
+        ...config,
+        runtime: {
+          ...config.runtime,
+          stateDirectory: resolve(state.activeWorkspace.directory, "ad-hoc-review-state"),
+        },
+      };
+      store = new WorkflowStateStore(root, adHocConfig);
+      output.appendLine(
+        current
+          ? "[INFO] Active workflow is " +
+              current.state +
+              "; running this Review / Fix Loop in ad-hoc mode without changing workflow state."
+          : "[INFO] No active workflow; running ad-hoc Review / Fix Loop.",
+      );
+    }
+  }
 
   output.clear();
   output.appendLine(fixLoop ? "LLMatic Review / Fix Loop" : "LLMatic Code Review");
@@ -927,6 +948,7 @@ async function runGatewayReview(
           model,
           maxSteps: configuration().get<number>("agentMaxSteps", 20),
           maxReviewRounds: config.workflow.maxFixAttempts,
+          allowAdHoc: true,
           onEvent: (event) => {
             const line = formatReviewLoopEvent(event);
             output.appendLine(line);
@@ -2027,6 +2049,21 @@ async function showStatus(context: vscode.ExtensionContext, state: ExtensionStat
     "Kilo Code: " + (kiloInstalled ? "installed" : "not installed"),
     "Kilo MCP: " + (kiloServer ? "configured" : "not configured"),
     "Kilo Gateway key: " + (hasGatewayKey ? "stored securely" : "not stored"),
+    state.recovery
+      ? "Repository map: " +
+        state.recovery.repository.fileCount +
+        " files / " +
+        state.recovery.repository.symbolCount +
+        " symbols / " +
+        state.recovery.repository.importCount +
+        " imports"
+      : "Repository map: not loaded",
+    state.recovery
+      ? "Recovered work: " +
+        state.recovery.recommendation.title +
+        " — " +
+        state.recovery.recommendation.detail
+      : undefined,
     state.kiloReloadRecommended ? "Kilo reload: recommended after config update" : undefined,
     state.lastError ? "Error: " + state.lastError : undefined,
   ].filter((line): line is string => Boolean(line));
@@ -2055,6 +2092,34 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   context.subscriptions.push(
     vscode.window.registerTreeDataProvider("llmatic.status", statusProvider),
   );
+
+  const chatProvider = new AgentChatViewProvider();
+  context.subscriptions.push(
+    vscode.window.registerWebviewViewProvider("llmatic.agentChat", chatProvider),
+  );
+  chatProvider.setHandlers({
+    send: (text) =>
+      runAgentChatTurn(
+        context,
+        state,
+        statusProvider,
+        chatProvider,
+        output,
+        text,
+      ),
+    refresh: async () => {
+      chatProvider.appendActivity("Refreshing repository map and workspace recovery…");
+      await refreshWorkspaceRecovery(
+        context,
+        state,
+        statusProvider,
+        chatProvider,
+        output,
+        true,
+      );
+      chatProvider.appendActivity("Repository context refreshed.", true);
+    },
+  });
 
   context.subscriptions.push(
     vscode.commands.registerCommand("llmatic.startDiscovery", async () => {
@@ -2124,6 +2189,16 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     vscode.commands.registerCommand("llmatic.getReady", async () => {
       try {
         await getReady(context, state, statusBar, statusProvider, output);
+        if (state.health?.status === "READY") {
+          await refreshWorkspaceRecovery(
+            context,
+            state,
+            statusProvider,
+            chatProvider,
+            output,
+            true,
+          );
+        }
       } catch (error) {
         state.lastError = error instanceof Error ? error.message : String(error);
         state.health = {
@@ -2275,13 +2350,33 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         "Kilo Gateway API key cleared. Kilo MCP remains available; direct agent and review will ask for a key when needed.",
       );
     }),
-    vscode.commands.registerCommand("llmatic.runAgent", async () => {
+    vscode.commands.registerCommand("llmatic.openAgentChat", async () => {
+      await vscode.commands.executeCommand("workbench.view.extension.llmatic");
+      await vscode.commands.executeCommand("llmatic.agentChat.focus");
+    }),
+    vscode.commands.registerCommand("llmatic.refreshWorkspaceRecovery", async () => {
       try {
-        await runGatewayAgent(context, state, output);
+        await refreshWorkspaceRecovery(
+          context,
+          state,
+          statusProvider,
+          chatProvider,
+          output,
+          true,
+        );
+        await vscode.window.showInformationMessage(
+          state.recovery
+            ? "LLMatic repository context refreshed: " +
+                state.recovery.recommendation.title
+            : "LLMatic repository context cleared.",
+        );
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
-        await vscode.window.showErrorMessage("LLMatic agent: " + message);
+        await vscode.window.showErrorMessage("LLMatic recovery: " + message);
       }
+    }),
+    vscode.commands.registerCommand("llmatic.runAgent", async () => {
+      await vscode.commands.executeCommand("llmatic.openAgentChat");
     }),
     vscode.commands.registerCommand("llmatic.review", async () => {
       try {
@@ -2322,19 +2417,59 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     }),
     vscode.workspace.onDidChangeWorkspaceFolders(async () => {
       await refresh(context, statusBar, state);
-      statusProvider.update(state.health, state.gatewayKeyConfigured);
+      statusProvider.update(state.health, state.gatewayKeyConfigured, state.recovery);
+      await refreshWorkspaceRecovery(
+        context,
+        state,
+        statusProvider,
+        chatProvider,
+        output,
+        false,
+      ).catch((error) => {
+        output.appendLine(
+          "[WARN] Workspace recovery failed after folder change: " +
+            (error instanceof Error ? error.message : String(error)),
+        );
+      });
     }),
     vscode.workspace.onDidChangeConfiguration(async (event) => {
       if (event.affectsConfiguration("llmatic")) {
         await refresh(context, statusBar, state);
-        statusProvider.update(state.health, state.gatewayKeyConfigured);
+        statusProvider.update(state.health, state.gatewayKeyConfigured, state.recovery);
+        await refreshWorkspaceRecovery(
+          context,
+          state,
+          statusProvider,
+          chatProvider,
+          output,
+          false,
+        ).catch((error) => {
+          output.appendLine(
+            "[WARN] Workspace recovery failed after configuration change: " +
+              (error instanceof Error ? error.message : String(error)),
+          );
+        });
       }
     }),
   );
 
   await refresh(context, statusBar, state);
-  statusProvider.update(state.health, state.gatewayKeyConfigured);
+  statusProvider.update(state.health, state.gatewayKeyConfigured, state.recovery);
   await vscode.commands.executeCommand("setContext", "llmatic.health", state.health?.status);
+
+  void refreshWorkspaceRecovery(
+    context,
+    state,
+    statusProvider,
+    chatProvider,
+    output,
+    false,
+  ).catch((error) => {
+    output.appendLine(
+      "[WARN] Initial workspace recovery failed: " +
+        (error instanceof Error ? error.message : String(error)),
+    );
+  });
 
   // Onboarding must never block extension activation. In headless Extension Host
   // acceptance there is no user available to answer the notification, and in
