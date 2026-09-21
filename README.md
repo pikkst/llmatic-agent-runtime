@@ -224,7 +224,7 @@ LLMatic: Check for Updates
 LLMatic: Install Latest Update
 ```
 
-Marketplace publishing is gated separately and uses trusted GitHub OIDC publishing rather than a stored Marketplace PAT.
+Marketplace publishing is gated separately. Future automated releases use GitHub OIDC to authenticate to Microsoft Entra ID, then `vsce publish --azure-credential`; no Marketplace PAT or Entra client secret is stored in the repository.
 
 ## Troubleshooting
 
@@ -273,7 +273,7 @@ pnpm release:acceptance v0.1.1 <commit-sha>
 
 The milestone roadmap is maintained in [docs/ROADMAP.md](docs/ROADMAP.md).
 
-Marketplace publisher setup and trusted-publishing instructions are in [docs/marketplace-publishing.md](docs/marketplace-publishing.md).
+Marketplace publisher and Microsoft Entra automated-publishing setup are documented in [docs/marketplace-publishing.md](docs/marketplace-publishing.md).
 
 ## License
 
