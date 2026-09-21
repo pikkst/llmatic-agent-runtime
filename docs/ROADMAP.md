@@ -239,4 +239,3 @@ The repository connector cannot create Git tags. Once main is green, the only ma
     git pull --ff-only origin main
     git tag -a v0.1.0 -m "LLMatic Agent Runtime v0.1.0"
     git push origin v0.1.0
-

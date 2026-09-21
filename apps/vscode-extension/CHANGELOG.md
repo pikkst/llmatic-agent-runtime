@@ -121,4 +121,3 @@
 - Verifies critical LLMatic commands are registered from the installed VSIX.
 - Verifies extension activation keeps the opened repository free of LLMatic runtime/config files.
 - Added the clean-install gate to hosted CI and the tag-driven release workflow.
-

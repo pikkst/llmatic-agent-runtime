@@ -1,40 +1,19 @@
 #!/usr/bin/env node
 
 import { spawnSync } from "node:child_process";
-import {
-  mkdir,
-  mkdtemp,
-  readFile,
-  rm,
-  writeFile,
-} from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import process from "node:process";
 
 const repositoryRoot = process.cwd();
-const vsixPath = resolve(
-  repositoryRoot,
-  "artifacts",
-  "llmatic-agent-runtime.vsix",
-);
-const extensionPackagePath = resolve(
-  repositoryRoot,
-  "apps",
-  "vscode-extension",
-  "package.json",
-);
-const extensionSourcePath = resolve(
-  repositoryRoot,
-  "apps",
-  "vscode-extension",
-);
+const vsixPath = resolve(repositoryRoot, "artifacts", "llmatic-agent-runtime.vsix");
+const extensionPackagePath = resolve(repositoryRoot, "apps", "vscode-extension", "package.json");
+const extensionSourcePath = resolve(repositoryRoot, "apps", "vscode-extension");
 
 function fail(message) {
-  throw new Error(
-    "VS Code clean-install acceptance failed: " + message,
-  );
+  throw new Error("VS Code clean-install acceptance failed: " + message);
 }
 
 function run(command, args, cwd) {
@@ -46,11 +25,7 @@ function run(command, args, cwd) {
   });
 
   if (result.error) {
-    fail(
-      command +
-        " could not start: " +
-        result.error.message,
-    );
+    fail(command + " could not start: " + result.error.message);
   }
 
   if (result.status !== 0) {
@@ -67,23 +42,14 @@ function run(command, args, cwd) {
 }
 
 if (!existsSync(vsixPath)) {
-  fail(
-    "Candidate VSIX is missing. Run pnpm package:vsix or pnpm ci first.",
-  );
+  fail("Candidate VSIX is missing. Run pnpm package:vsix or pnpm ci first.");
 }
 
-const extensionPackage = JSON.parse(
-  await readFile(extensionPackagePath, "utf8"),
-);
+const extensionPackage = JSON.parse(await readFile(extensionPackagePath, "utf8"));
 const expectedVersion = String(extensionPackage.version);
-const extensionId =
-  String(extensionPackage.publisher) +
-  "." +
-  String(extensionPackage.name);
+const extensionId = String(extensionPackage.publisher) + "." + String(extensionPackage.name);
 
-const root = await mkdtemp(
-  join(tmpdir(), "llmatic-vscode-acceptance-"),
-);
+const root = await mkdtemp(join(tmpdir(), "llmatic-vscode-acceptance-"));
 const workspace = resolve(root, "workspace");
 const harness = resolve(root, "harness");
 const userData = resolve(root, "user-data");
@@ -145,11 +111,11 @@ try {
       'const vscode = require("vscode");',
       "",
       "exports.run = async function run() {",
-      '  const extensionId = process.env.LLMATIC_EXTENSION_ID;',
-      '  const expectedVersion = process.env.LLMATIC_EXPECTED_VERSION;',
-      '  const sourceExtensionPath = process.env.LLMATIC_SOURCE_EXTENSION_PATH;',
-      "  assert.ok(extensionId, \"missing expected extension id\");",
-      "  assert.ok(expectedVersion, \"missing expected extension version\");",
+      "  const extensionId = process.env.LLMATIC_EXTENSION_ID;",
+      "  const expectedVersion = process.env.LLMATIC_EXPECTED_VERSION;",
+      "  const sourceExtensionPath = process.env.LLMATIC_SOURCE_EXTENSION_PATH;",
+      '  assert.ok(extensionId, "missing expected extension id");',
+      '  assert.ok(expectedVersion, "missing expected extension version");',
       "",
       "  const target = vscode.extensions.getExtension(extensionId);",
       '  assert.ok(target, "installed LLMatic extension was not discovered");',
@@ -179,7 +145,7 @@ try {
       '    "llmatic.installUpdate",',
       "  ];",
       "  for (const command of requiredCommands) {",
-      "    assert.ok(commands.has(command), \"missing installed command \" + command);",
+      '    assert.ok(commands.has(command), "missing installed command " + command);',
       "  }",
       "",
       "  const folder = vscode.workspace.workspaceFolders?.[0];",
@@ -207,55 +173,30 @@ try {
   process.chdir(root);
 
   try {
-    const {
-      downloadAndUnzipVSCode,
-      resolveCliArgsFromVSCodeExecutablePath,
-      runTests,
-    } = await import("@vscode/test-electron");
+    const { downloadAndUnzipVSCode, resolveCliArgsFromVSCodeExecutablePath, runTests } =
+      await import("@vscode/test-electron");
 
-    const vscodeExecutablePath =
-      await downloadAndUnzipVSCode("1.105.0");
+    const vscodeExecutablePath = await downloadAndUnzipVSCode("1.105.0");
 
-    const [cliPath, ...cliBaseArgs] =
-      resolveCliArgsFromVSCodeExecutablePath(
-        vscodeExecutablePath,
-        {
-          reuseMachineInstall: true,
-        },
-      );
+    const [cliPath, ...cliBaseArgs] = resolveCliArgsFromVSCodeExecutablePath(vscodeExecutablePath, {
+      reuseMachineInstall: true,
+    });
 
-    const profileArgs = [
-      "--user-data-dir",
-      userData,
-      "--extensions-dir",
-      extensions,
-    ];
+    const profileArgs = ["--user-data-dir", userData, "--extensions-dir", extensions];
 
     run(
       cliPath,
-      [
-        ...cliBaseArgs,
-        ...profileArgs,
-        "--install-extension",
-        vsixPath,
-        "--force",
-      ],
+      [...cliBaseArgs, ...profileArgs, "--install-extension", vsixPath, "--force"],
       root,
     );
 
     const installed = run(
       cliPath,
-      [
-        ...cliBaseArgs,
-        ...profileArgs,
-        "--list-extensions",
-        "--show-versions",
-      ],
+      [...cliBaseArgs, ...profileArgs, "--list-extensions", "--show-versions"],
       root,
     );
 
-    const expectedInstalledLine =
-      extensionId + "@" + expectedVersion;
+    const expectedInstalledLine = extensionId + "@" + expectedVersion;
 
     if (
       !installed
@@ -276,16 +217,11 @@ try {
       extensionDevelopmentPath: harness,
       extensionTestsPath: runnerPath,
       reuseMachineInstall: true,
-      launchArgs: [
-        workspace,
-        ...profileArgs,
-        "--disable-workspace-trust",
-      ],
+      launchArgs: [workspace, ...profileArgs, "--disable-workspace-trust"],
       extensionTestsEnv: {
         LLMATIC_EXTENSION_ID: extensionId,
         LLMATIC_EXPECTED_VERSION: expectedVersion,
-        LLMATIC_SOURCE_EXTENSION_PATH:
-          extensionSourcePath,
+        LLMATIC_SOURCE_EXTENSION_PATH: extensionSourcePath,
       },
     });
   } finally {

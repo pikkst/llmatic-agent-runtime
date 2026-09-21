@@ -308,7 +308,6 @@ It creates an isolated temporary Git repository and proves:
 
 The acceptance fixture is deleted after each run and does not mutate the LLMatic repository.
 
-
 ## VS Code clean-install acceptance
 
 The packaged VSIX is tested as a real installed production extension, not only as a source bundle:
