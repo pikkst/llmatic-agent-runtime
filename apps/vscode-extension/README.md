@@ -31,7 +31,7 @@ Extensions → … → Install from VSIX…
 or:
 
 ```powershell
-code --install-extension .\llmatic-agent-runtime-0.1.2.vsix
+code --install-extension .\llmatic-agent-runtime-0.2.0.vsix
 ```
 
 ## First run
@@ -84,23 +84,34 @@ Repository files remain untouched until you explicitly choose **Approve & Initia
 
 ## Existing repository workflow
 
-For an existing codebase:
+For an existing codebase, run:
 
 ```text
 LLMatic: Get Ready
-LLMatic: Doctor
 ```
 
-Then use LLMatic's agent, review, and task workflows as needed.
+LLMatic maps the repository and automatically recovers current engineering work from Git/worktree state, active LLMatic workflow, open pull request/CI and the configured task source.
 
-Task sources are detected in this order:
+The sidebar then shows:
 
 ```text
-TASKS.md / Tasks.md / TODO.md
-  -> Jira when configured
-  -> GitHub Issues when available
-  -> manual workflow references
+Repository Map
+Recovered task / workflow / PR
+Recommended next action
+Agent Chat
 ```
+
+Agent Chat is a persistent multi-turn conversation. It shows the agent's tool activity and keeps the recovered repository context available across messages.
+
+Use **Refresh Repository Context** whenever you want to rebuild the map and re-check task/PR/CI state.
+
+Task sources can be auto-detected or explicitly selected with `llmatic.taskSource`:
+
+```text
+auto | jira | markdown | github
+```
+
+For Jira, optional `llmatic.jiraProjectKey` and `llmatic.jiraRecoveryJql` settings scope the recovery queue. Live Jira task candidates are exposed to Agent Chat so the Kilo model can help sequence work without guessing task state.
 
 ## Kilo Code
 
@@ -144,7 +155,8 @@ LLMatic: Start Project Discovery
 LLMatic: Generate Project Plan
 LLMatic: Review Project Plan
 LLMatic: Review & Approve Project Plan
-LLMatic: Run Gateway Agent
+LLMatic: Open Agent Chat
+LLMatic: Refresh Repository Context
 LLMatic: Run Code Review
 LLMatic: Run Review / Fix Loop
 LLMatic: Check for Updates
