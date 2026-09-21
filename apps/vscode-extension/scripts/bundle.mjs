@@ -33,9 +33,7 @@ await build({
   logLevel: "info",
 });
 
-const extensionPackage = JSON.parse(
-  await readFile(resolve(extensionRoot, "package.json"), "utf8"),
-);
+const extensionPackage = JSON.parse(await readFile(resolve(extensionRoot, "package.json"), "utf8"));
 const runtime = await readFile(runtimePath);
 const metadata = await stat(runtimePath);
 const manifest = {

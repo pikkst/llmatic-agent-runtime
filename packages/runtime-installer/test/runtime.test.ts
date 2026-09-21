@@ -13,9 +13,9 @@ const temporaryDirectories: string[] = [];
 
 afterEach(async () => {
   await Promise.all(
-    temporaryDirectories.splice(0).map((directory) =>
-      rm(directory, { recursive: true, force: true }),
-    ),
+    temporaryDirectories
+      .splice(0)
+      .map((directory) => rm(directory, { recursive: true, force: true })),
   );
 });
 
@@ -76,8 +76,6 @@ describe("runtime installer", () => {
     const item = await fixture();
     await writeFile(item.bundlePath, "tampered", "utf8");
 
-    await expect(installRuntimeBundle(item)).rejects.toThrow(
-      /does not match its manifest/,
-    );
+    await expect(installRuntimeBundle(item)).rejects.toThrow(/does not match its manifest/);
   });
 });

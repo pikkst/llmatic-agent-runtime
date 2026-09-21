@@ -253,11 +253,7 @@ async function runDoctor(
     detail:
       runtime.source === "override"
         ? "Custom runtime override: " + runtime.serverPath
-        : runtime.runtimeVersion +
-          " / " +
-          runtime.sha256.slice(0, 12) +
-          " / " +
-          runtime.serverPath,
+        : runtime.runtimeVersion + " / " + runtime.sha256.slice(0, 12) + " / " + runtime.serverPath,
   });
 
   let nodeStatus: DoctorCheck["status"] = "FAIL";
@@ -778,9 +774,7 @@ async function showStatus(context: vscode.ExtensionContext, state: ExtensionStat
     state.activeWorkspace ? "Workspace data: " + state.activeWorkspace.directory : undefined,
     state.runtime
       ? "Runtime: " +
-        (state.runtime.healthy
-          ? state.runtime.runtimeVersion + " verified"
-          : "needs repair")
+        (state.runtime.healthy ? state.runtime.runtimeVersion + " verified" : "needs repair")
       : "Runtime: unknown",
     "Kilo Code: " + (kiloInstalled ? "installed" : "not installed"),
     "Kilo MCP: " + (kiloServer ? "configured" : "not configured"),

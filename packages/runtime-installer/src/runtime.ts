@@ -1,12 +1,5 @@
 import { createHash, randomUUID } from "node:crypto";
-import {
-  mkdir,
-  readFile,
-  rename,
-  rm,
-  stat,
-  writeFile,
-} from "node:fs/promises";
+import { mkdir, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
 import { basename, resolve } from "node:path";
 
 export interface RuntimeManifest {
@@ -47,24 +40,13 @@ function assertManifest(value: unknown): RuntimeManifest {
   if (typeof input.runtimeVersion !== "string" || !input.runtimeVersion.trim()) {
     throw new Error("Runtime manifest runtimeVersion is invalid.");
   }
-  if (
-    typeof input.file !== "string" ||
-    !input.file.trim() ||
-    basename(input.file) !== input.file
-  ) {
+  if (typeof input.file !== "string" || !input.file.trim() || basename(input.file) !== input.file) {
     throw new Error("Runtime manifest file must be a plain file name.");
   }
-  if (
-    typeof input.sha256 !== "string" ||
-    !/^[a-f0-9]{64}$/i.test(input.sha256)
-  ) {
+  if (typeof input.sha256 !== "string" || !/^[a-f0-9]{64}$/i.test(input.sha256)) {
     throw new Error("Runtime manifest sha256 is invalid.");
   }
-  if (
-    typeof input.size !== "number" ||
-    !Number.isInteger(input.size) ||
-    input.size < 0
-  ) {
+  if (typeof input.size !== "number" || !Number.isInteger(input.size) || input.size < 0) {
     throw new Error("Runtime manifest size is invalid.");
   }
 
@@ -95,10 +77,7 @@ export async function sha256File(path: string): Promise<string> {
   return createHash("sha256").update(content).digest("hex");
 }
 
-async function fileHealthy(
-  path: string,
-  manifest: RuntimeManifest,
-): Promise<boolean> {
+async function fileHealthy(path: string, manifest: RuntimeManifest): Promise<boolean> {
   try {
     const metadata = await stat(path);
     if (!metadata.isFile() || metadata.size !== manifest.size) return false;
@@ -110,16 +89,8 @@ async function fileHealthy(
   }
 }
 
-export function runtimeInstallDirectory(
-  runtimeHome: string,
-  manifest: RuntimeManifest,
-): string {
-  return resolve(
-    runtimeHome,
-    "runtime",
-    manifest.runtimeVersion,
-    manifest.sha256.slice(0, 16),
-  );
+export function runtimeInstallDirectory(runtimeHome: string, manifest: RuntimeManifest): string {
+  return resolve(runtimeHome, "runtime", manifest.runtimeVersion, manifest.sha256.slice(0, 16));
 }
 
 export async function inspectInstalledRuntime(
@@ -181,10 +152,7 @@ export async function installRuntimeBundle(
   await mkdir(current.installDirectory, { recursive: true });
   const runtimeContent = await readFile(options.bundlePath);
   await writeAtomic(current.serverPath, runtimeContent);
-  await writeAtomic(
-    current.manifestPath,
-    JSON.stringify(manifest, null, 2) + "\n",
-  );
+  await writeAtomic(current.manifestPath, JSON.stringify(manifest, null, 2) + "\n");
 
   const healthy = await fileHealthy(current.serverPath, manifest);
   if (!healthy) {
