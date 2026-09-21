@@ -15,6 +15,8 @@ describe("VS Code extension activation surface", () => {
     expect(source).toContain('vscode.commands.registerCommand("llmatic.getReady"');
     expect(source).toContain('vscode.commands.registerCommand("llmatic.setKiloGatewayApiKey"');
     expect(source).toContain('vscode.commands.registerCommand("llmatic.reviewFixLoop"');
+    expect(source).toContain('vscode.commands.registerCommand("llmatic.openAgentChat"');
+    expect(source).toContain('vscode.commands.registerCommand("llmatic.refreshWorkspaceRecovery"');
     expect(source).toContain('vscode.commands.registerCommand("llmatic.checkForUpdates"');
     expect(source).toContain('vscode.commands.registerCommand("llmatic.installUpdate"');
     expect(source).toContain("loadProjectChangeRequest");
@@ -22,6 +24,11 @@ describe("VS Code extension activation surface", () => {
     expect(source).toContain("vscode.extensions.onDidChange");
     expect(source).toContain("Kilo Code installation detected; resuming Get Ready.");
     expect(source).toContain("gatewayApiKeyOrPrompt");
+    expect(source).toContain("recoverWorkspace");
+    expect(source).toContain("workspaceRecoveryContext");
+    expect(source).toContain("AgentChatViewProvider");
+    expect(source).toContain("runAgentChatTurn");
+    expect(source).toContain("allowAdHoc: true");
     expect(source).toContain('"Set API Key"');
     expect(source).toContain("password: true");
     expect(source).toContain("Kilo Code and the LLMatic MCP connection remain usable without it.");
@@ -37,4 +44,34 @@ describe("VS Code extension activation surface", () => {
     expect(source).toContain("optional; required for direct agent and review");
     expect(source).toContain('command: "llmatic.setKiloGatewayApiKey"');
   });
+  it("contributes a persistent Agent Chat webview with repository recovery controls", async () => {
+    const packageJson = JSON.parse(
+      await readFile(new URL("../package.json", import.meta.url), "utf8"),
+    ) as {
+      contributes: {
+        views: { llmatic: Array<{ id: string; type?: string }> };
+        configuration: { properties: Record<string, unknown> };
+      };
+    };
+
+    expect(packageJson.contributes.views.llmatic).toContainEqual(
+      expect.objectContaining({
+        id: "llmatic.agentChat",
+        type: "webview",
+      }),
+    );
+    expect(packageJson.contributes.configuration.properties).toHaveProperty(
+      "llmatic.taskSource",
+    );
+    expect(packageJson.contributes.configuration.properties).toHaveProperty(
+      "llmatic.jiraProjectKey",
+    );
+
+    const source = await readFile(new URL("../src/agent-chat-view.ts", import.meta.url), "utf8");
+    expect(source).toContain("Continue recommended");
+    expect(source).toContain("Refresh context");
+    expect(source).toContain("conversationHistory");
+    expect(source).toContain("Repository map");
+  });
+
 });
