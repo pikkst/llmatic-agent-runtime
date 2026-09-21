@@ -35,7 +35,8 @@
     "@llmatic/planning-engine": "workspace:*",
     "@llmatic/project-initializer": "workspace:*",
     "@llmatic/workspace-recovery": "workspace:*",
-    "@llmatic/repository-constitution": "workspace:*"
+    "@llmatic/repository-constitution": "workspace:*",
+    "@llmatic/pr-draft": "workspace:*"
   },
   "devDependencies": {
     "@types/vscode": "1.105.0",
@@ -177,6 +178,11 @@
       {
         "command": "llmatic.reviewRuleProposals",
         "title": "Review Repository Rule Proposals",
+        "category": "LLMatic"
+      },
+      {
+        "command": "llmatic.generatePrDraft",
+        "title": "Generate PR Draft",
         "category": "LLMatic"
       }
     ],
