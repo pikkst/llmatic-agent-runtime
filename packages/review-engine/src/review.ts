@@ -6,10 +6,12 @@ import {
   type ArchitectureImpactReport,
 } from "@llmatic/architecture-impact";
 import {
+  executeCapability,
   recordActionCheckpoint,
   runLocalValidation,
   transitionWorkflow,
   type AgentConfig,
+  type CapabilityName,
   type WorkflowStateStore,
 } from "@llmatic/core";
 import { runCodingAgent } from "@llmatic/agent-orchestrator";
@@ -75,6 +77,7 @@ export interface CodeReviewOptions {
 
 export interface ReviewFixLoopOptions extends CodeReviewOptions {
   maxReviewRounds?: number;
+  allowAdHoc?: boolean;
   onEvent?: (event: ReviewLoopEvent) => void;
 }
 
@@ -463,6 +466,27 @@ function blockingFixInstruction(report: CodeReviewReport): string {
   ].join("\n\n");
 }
 
+async function runAdHocValidation(
+  options: ReviewFixLoopOptions,
+  round: number,
+): Promise<boolean> {
+  for (const gate of options.config.workflow.requiredGates) {
+    const result = await executeCapability(
+      options.root,
+      options.config,
+      gate as CapabilityName,
+    );
+
+    if (!result.success) {
+      options.onEvent?.({ type: "validation", round, success: false });
+      return false;
+    }
+  }
+
+  options.onEvent?.({ type: "validation", round, success: true });
+  return true;
+}
+
 async function reachCodeReviewAfterFix(
   options: ReviewFixLoopOptions,
   round: number,
@@ -503,8 +527,17 @@ export async function runReviewFixLoop(
   options: ReviewFixLoopOptions,
 ): Promise<ReviewFixLoopResult> {
   const initial = await options.store.loadCurrent();
-  if (!initial || initial.state !== "CODE_REVIEW") {
-    throw new Error("Review/fix loop requires active workflow state CODE_REVIEW.");
+  const workflowMode = initial?.state === "CODE_REVIEW";
+  const adHocMode = !initial && Boolean(options.allowAdHoc);
+
+  if (!workflowMode && !adHocMode) {
+    throw new Error(
+      initial
+        ? "Review/fix loop requires workflow state CODE_REVIEW. Current state: " +
+            initial.state +
+            "."
+        : "Review/fix loop requires CODE_REVIEW or allowAdHoc=true when no workflow is active.",
+    );
   }
 
   const maxRounds = Math.max(
@@ -539,7 +572,18 @@ export async function runReviewFixLoop(
       instruction: blockingFixInstruction(review),
     });
 
-    await reachCodeReviewAfterFix(options, round);
+    if (workflowMode) {
+      await reachCodeReviewAfterFix(options, round);
+    } else {
+      const valid = await runAdHocValidation(options, round);
+      if (!valid) {
+        options.onEvent?.({
+          type: "info",
+          message:
+            "Ad-hoc validation still has failing quality gates; the next review round will keep the repository in the loop.",
+        });
+      }
+    }
   }
 
   throw new Error("Review/fix loop reached its configured round limit with blocking findings.");
