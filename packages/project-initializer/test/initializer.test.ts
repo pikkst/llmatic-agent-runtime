@@ -13,8 +13,10 @@ import {
   approveCurrentProjectPlan,
   calculateProjectPlanDigest,
   initializeApprovedProject,
+  loadProjectChangeRequest,
   loadProjectLifecycle,
   planApprovalStatus,
+  requestProjectPlanChanges,
 } from "../src/index.js";
 
 const roots: string[] = [];
@@ -94,6 +96,24 @@ describe("project approval and initialization", () => {
     const status = await planApprovalStatus(workspace);
     expect(status.verified).toBe(false);
     expect(status.reason).toContain("approval belongs to plan");
+  });
+
+  it("persists requested plan changes and invalidates prior approval", async () => {
+    const { workspace } = await fixture();
+
+    await approveCurrentProjectPlan(workspace);
+    await requestProjectPlanChanges(
+      workspace,
+      "Make the plan product-specific and replace generic resource placeholders.",
+    );
+
+    const request = await loadProjectChangeRequest(workspace);
+    const status = await planApprovalStatus(workspace);
+
+    expect(request?.text).toContain("product-specific");
+    expect(request?.requestedBy).toBe("user");
+    expect(status.verified).toBe(false);
+    expect(status.reason).toContain("has not been approved");
   });
 
   it("refuses initialization before human approval", async () => {

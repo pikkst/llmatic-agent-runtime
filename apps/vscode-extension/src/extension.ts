@@ -28,6 +28,7 @@ import {
   approveCurrentProjectPlan,
   initializeApprovedProject,
   invalidateProjectApproval,
+  loadProjectChangeRequest,
   planApprovalStatus,
   requestProjectPlanChanges,
 } from "@llmatic/project-initializer";
@@ -1479,13 +1480,18 @@ async function generateProjectPlanInUi(
     if (action !== "Generate New Draft") return;
   }
 
+  const pendingChangeRequest = await loadProjectChangeRequest(workspaceDirectory);
+
   const result = await vscode.window.withProgress(
     {
       location: vscode.ProgressLocation.Notification,
       title: "LLMatic is generating the private project plan",
       cancellable: false,
     },
-    () => generateProjectPlan(workspaceDirectory, discovery),
+    () =>
+      generateProjectPlan(workspaceDirectory, discovery, {
+        changeRequest: pendingChangeRequest?.text,
+      }),
   );
 
   writePlanSummary(output, result.manifest, result.current.planDirectory);
@@ -1559,7 +1565,7 @@ async function reviewProjectPlanInUi(
   const selected = await vscode.window.showQuickPick(items, {
     title: "LLMatic Project Plan — " + manifest.planId,
     placeHolder:
-      "Review a private planning artifact. Approval/materialization is intentionally unavailable until M23.",
+      "Review a private planning artifact before approval and repository materialization.",
     ignoreFocusOut: true,
   });
 
@@ -1923,6 +1929,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     kiloReloadRecommended: false,
   };
 
+  let kiloPreviouslyInstalled = Boolean(vscode.extensions.getExtension(KILO_EXTENSION_ID));
+
   const output = vscode.window.createOutputChannel("LLMatic");
   context.subscriptions.push(output);
 
@@ -2175,6 +2183,16 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         "revealFileInOS",
         vscode.Uri.file(state.activeWorkspace.configPath),
       );
+    }),
+    vscode.extensions.onDidChange(async () => {
+      const kiloInstalled = Boolean(vscode.extensions.getExtension(KILO_EXTENSION_ID));
+      const justInstalled = !kiloPreviouslyInstalled && kiloInstalled;
+      kiloPreviouslyInstalled = kiloInstalled;
+
+      if (!justInstalled || !configuration().get<boolean>("autoConnectKilo", true)) return;
+
+      output.appendLine("[SETUP] Kilo Code installation detected; resuming Get Ready.");
+      await vscode.commands.executeCommand("llmatic.getReady");
     }),
     vscode.workspace.onDidChangeWorkspaceFolders(async () => {
       await refresh(context, statusBar, state);
