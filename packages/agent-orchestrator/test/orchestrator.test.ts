@@ -1,0 +1,160 @@
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { afterEach, describe, expect, it } from "vitest";
+import { WorkflowStateStore, createDefaultConfig, type RepositoryDetection } from "@llmatic/core";
+import type {
+  GatewayChatClient,
+  GatewayChatRequest,
+  GatewayChatResponse,
+} from "@llmatic/gateway-client";
+import { runCodingAgent } from "../src/orchestrator.js";
+
+const temporaryDirectories: string[] = [];
+
+afterEach(async () => {
+  await Promise.all(
+    temporaryDirectories.splice(0).map((directory) => rm(directory, { recursive: true })),
+  );
+});
+
+function configFor(root: string) {
+  const detection: RepositoryDetection = {
+    root,
+    git: true,
+    packageJson: true,
+    packageManager: "pnpm",
+    technologies: [],
+    capabilities: [],
+  };
+  return createDefaultConfig(detection);
+}
+
+class ScriptedGateway implements GatewayChatClient {
+  public readonly requests: GatewayChatRequest[] = [];
+
+  public constructor(private readonly responses: GatewayChatResponse[]) {}
+
+  public async createChatCompletion(request: GatewayChatRequest): Promise<GatewayChatResponse> {
+    this.requests.push(request);
+    const response = this.responses.shift();
+    if (!response) throw new Error("No scripted gateway response remains.");
+    return response;
+  }
+}
+
+function response(
+  content: string | null,
+  toolCalls?: Array<{ id: string; name: string; arguments: Record<string, unknown> }>,
+): GatewayChatResponse {
+  return {
+    id: "test",
+    model: "kilo-auto/free",
+    choices: [
+      {
+        index: 0,
+        message: {
+          role: "assistant",
+          content,
+          tool_calls: toolCalls?.map((call) => ({
+            id: call.id,
+            type: "function",
+            function: {
+              name: call.name,
+              arguments: JSON.stringify(call.arguments),
+            },
+          })),
+        },
+      },
+    ],
+    usage: {
+      prompt_tokens: 10,
+      completion_tokens: 5,
+      total_tokens: 15,
+    },
+  };
+}
+
+describe("gateway coding agent", () => {
+  it("defaults to kilo-auto/free and can inspect then edit a repository file", async () => {
+    const root = await mkdtemp(join(tmpdir(), "llmatic-agent-"));
+    temporaryDirectories.push(root);
+    await mkdir(join(root, ".git"));
+    await mkdir(join(root, "src"));
+    await writeFile(join(root, "src", "value.ts"), "export const value = 1;\n");
+
+    const config = configFor(root);
+    const store = new WorkflowStateStore(root, config);
+    const gateway = new ScriptedGateway([
+      response(null, [{ id: "call-1", name: "read_file", arguments: { path: "src/value.ts" } }]),
+      response(null, [
+        {
+          id: "call-2",
+          name: "replace_in_file",
+          arguments: {
+            path: "src/value.ts",
+            old_text: "value = 1",
+            new_text: "value = 2",
+          },
+        },
+      ]),
+      response("Updated src/value.ts."),
+    ]);
+
+    const result = await runCodingAgent({
+      root,
+      config,
+      store,
+      gateway,
+      instruction: "Set value to 2.",
+    });
+
+    expect(gateway.requests[0]?.model).toBe("kilo-auto/free");
+    expect(result.finalText).toBe("Updated src/value.ts.");
+    expect(result.steps).toBe(3);
+    expect(result.usage.totalTokens).toBe(45);
+    expect(await readFile(join(root, "src", "value.ts"), "utf8")).toContain("value = 2");
+  });
+
+  it("returns tool failures to the model instead of bypassing ask permissions", async () => {
+    const root = await mkdtemp(join(tmpdir(), "llmatic-agent-"));
+    temporaryDirectories.push(root);
+    await mkdir(join(root, ".git"));
+    await mkdir(join(root, "src"));
+    await writeFile(join(root, "src", "value.ts"), "export const value = 1;\n");
+
+    const config = configFor(root);
+    config.permissions.repositoryWrite = "ask";
+    const store = new WorkflowStateStore(root, config);
+    const gateway = new ScriptedGateway([
+      response(null, [
+        {
+          id: "call-1",
+          name: "replace_in_file",
+          arguments: {
+            path: "src/value.ts",
+            old_text: "1",
+            new_text: "2",
+          },
+        },
+      ]),
+      response("Write requires human approval; no change made."),
+    ]);
+
+    await runCodingAgent({
+      root,
+      config,
+      store,
+      gateway,
+      instruction: "Change the value.",
+    });
+
+    const secondRequest = gateway.requests[1];
+    expect(secondRequest?.messages.at(-1)).toMatchObject({
+      role: "tool",
+      tool_call_id: "call-1",
+    });
+    expect(JSON.stringify(secondRequest?.messages.at(-1))).toContain("explicit human approval");
+    expect(await readFile(join(root, "src", "value.ts"), "utf8")).toContain("value = 1");
+  });
+});

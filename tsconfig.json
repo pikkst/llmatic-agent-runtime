@@ -26,6 +26,15 @@
       "path": "./packages/runtime-tools"
     },
     {
+      "path": "./packages/gateway-client"
+    },
+    {
+      "path": "./packages/workspace-files"
+    },
+    {
+      "path": "./packages/agent-orchestrator"
+    },
+    {
       "path": "./packages/workspace-manager"
     },
     {

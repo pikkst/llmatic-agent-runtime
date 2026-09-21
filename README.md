@@ -4,44 +4,59 @@ Universal local software-engineering runtime for coding agents.
 
 ## Current milestone
 
-M11 — VS Code Extension + Zero-Repo Workspace
+M13 — Gateway Agent Orchestrator
 
-The runtime can now be integrated at editor/user level instead of being installed into every repository.
+LLMatic can now operate in two complementary modes:
 
-### VS Code integration
+1. **Kilo-driven** — Kilo Code calls the global LLMatic MCP server.
+2. **LLMatic-driven** — the VS Code extension runs a constrained coding agent through Kilo Gateway.
 
-- auto-attaches opened repositories
-- stores config/state/cache outside the repository
-- uses deterministic workspace identities
-- keeps local fallback artifacts in `.git/info/exclude`, not tracked `.gitignore`
-- detects Kilo Code
-- registers LLMatic as a global Kilo MCP server
-- preserves existing Kilo JSONC comments/settings
-- bundles the MCP runtime with the extension
-- stores a Kilo Gateway API key only in VS Code SecretStorage
-- exposes a READY/status-bar indicator
+The direct agent defaults to:
 
-### Runtime configuration lookup
+    kilo-auto/free
 
-Config precedence:
+The model can be changed with the `llmatic.agentModel` setting.
 
-1. `LLMATIC_CONFIG_PATH`
-2. repository `llmatic.agent.yaml` (optional shared team policy)
-3. `LLMATIC_HOME/workspaces/<workspace-id>/llmatic.agent.yaml`
+## Direct agent safety boundary
 
-This means repositories can remain completely free of LLMatic runtime files.
+The direct Gateway agent can:
 
-### Existing runtime
+- search the repository index
+- read bounded repository text files
+- replace one exact text occurrence
+- create new repository text files
+- run detected format/lint/typecheck/test/build capabilities
+- run the existing local workflow validation
+- inspect Git/workflow status
 
-The extension sits on top of the existing CLI/MCP runtime:
+It cannot:
 
-- Jira task provider
-- repository intelligence
-- local CI
-- Git/GitHub workflow
-- Docker/Supabase/Python/Ollama tool packs
-- persistent workflow/checkpoints
-- protected permission model
+- read common secret files such as `.env`, private keys, or credentials
+- escape the repository through paths or symlinks
+- execute arbitrary shell commands
+- install packages
+- push Git branches
+- create or merge pull requests
+- mutate databases
+- deploy
+
+Operations configured as `ask` cannot be self-approved by the direct agent.
+
+## Auto Free privacy
+
+`kilo-auto/free` requires no Kilo credits, but Kilo documents that Auto Free may route requests to providers that log prompts and outputs. The extension shows a one-time warning before direct Auto Free usage.
+
+Do not use Auto Free for confidential source repositories. Choose a provider/model whose data policy matches the repository when confidentiality is required.
+
+## Existing editor/runtime integration
+
+- zero-repo VS Code workspace state
+- `.git/info/exclude` fallback protection
+- bundled MCP runtime
+- global Kilo MCP registration
+- VS Code SecretStorage for Gateway credentials
+- VSIX packaging and Doctor checks
+- Jira, GitHub, local CI, Docker, Supabase, Python, and Ollama runtime adapters
 
 ## Development
 
@@ -49,18 +64,6 @@ The extension sits on top of the existing CLI/MCP runtime:
     pnpm install
     pnpm ci:local
     pnpm build
+    pnpm package:vsix
 
-The build produces:
-
-    apps/vscode-extension/dist/extension.cjs
-    apps/vscode-extension/dist/runtime/mcp-server.mjs
-
-## Next milestones
-
-1. runtime bootstrap/installer UX and VSIX packaging
-2. richer Kilo connector health/reload flow
-3. agent orchestrator using securely stored Gateway credentials
-4. automated review/fix loop
-5. Marketplace publishing and update channel
-
-See `docs/vscode-extension.md` and the runtime documents under `docs/`.
+See `docs/vscode-extension.md`, `docs/vsix-doctor.md`, and `docs/gateway-agent.md`.

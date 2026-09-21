@@ -3,6 +3,9 @@ import { access } from "node:fs/promises";
 import { homedir } from "node:os";
 import { resolve } from "node:path";
 import * as vscode from "vscode";
+import { runCodingAgent, type CodingAgentEvent } from "@llmatic/agent-orchestrator";
+import { loadAgentConfig, WorkflowStateStore } from "@llmatic/core";
+import { KiloGatewayClient } from "@llmatic/gateway-client";
 import {
   ensureGlobalKiloMcpServer,
   isGlobalKiloLlmaticServerHealthy,
@@ -12,6 +15,7 @@ import { ensureManagedWorkspace, type ManagedWorkspace } from "@llmatic/workspac
 
 const KILO_EXTENSION_ID = "kilocode.kilo-code";
 const KILO_GATEWAY_SECRET = "llmatic.kiloGatewayApiKey";
+const AUTO_FREE_WARNING_ACCEPTED = "llmatic.autoFreeDataWarningAccepted";
 
 interface ExtensionState {
   activeWorkspace?: ManagedWorkspace;
@@ -266,6 +270,123 @@ async function showDoctor(
   }
 }
 
+function formatAgentEvent(event: CodingAgentEvent): string {
+  if (event.type === "model") return "[MODEL] step " + event.step;
+  if (event.type === "tool-start") return "[TOOL] " + event.name;
+  if (event.type === "tool-result") {
+    return "[" + (event.success ? "PASS" : "FAIL") + "] " + event.name;
+  }
+  return "[INFO] " + event.message;
+}
+
+async function confirmAutoFreeDataHandling(
+  context: vscode.ExtensionContext,
+  model: string,
+): Promise<boolean> {
+  if (model !== "kilo-auto/free") return true;
+
+  const accepted = context.globalState.get<boolean>(AUTO_FREE_WARNING_ACCEPTED, false);
+  if (accepted) return true;
+
+  const selection = await vscode.window.showWarningMessage(
+    "Auto Free may route repository snippets to third-party inference providers that can log prompts/outputs. LLMatic blocks common secret files, but do not use Auto Free for confidential source code.",
+    { modal: true },
+    "Continue with Auto Free",
+  );
+
+  if (selection !== "Continue with Auto Free") return false;
+  await context.globalState.update(AUTO_FREE_WARNING_ACCEPTED, true);
+  return true;
+}
+
+async function runGatewayAgent(
+  context: vscode.ExtensionContext,
+  state: ExtensionState,
+  output: vscode.OutputChannel,
+): Promise<void> {
+  const folder = firstWorkspaceFolder();
+  if (!folder) {
+    throw new Error("Open a repository workspace before running the LLMatic agent.");
+  }
+
+  if (!state.activeWorkspace) {
+    state.activeWorkspace = await attachWorkspace(context, folder);
+  }
+
+  const apiKey = await context.secrets.get(KILO_GATEWAY_SECRET);
+  if (!apiKey) {
+    throw new Error(
+      "Kilo Gateway API key is not configured. Run 'LLMatic: Set Kilo Gateway API Key' first.",
+    );
+  }
+
+  const model =
+    configuration().get<string>("agentModel", "kilo-auto/free").trim() || "kilo-auto/free";
+  if (!(await confirmAutoFreeDataHandling(context, model))) return;
+
+  const instruction = await vscode.window.showInputBox({
+    title: "LLMatic Gateway Agent",
+    prompt: "Describe the implementation or fix you want the agent to perform in this repository.",
+    ignoreFocusOut: true,
+  });
+
+  if (!instruction?.trim()) return;
+
+  const maxSteps = configuration().get<number>("agentMaxSteps", 20);
+  const root = folder.uri.fsPath;
+  const runtimeConfig = await loadAgentConfig(root, {
+    LLMATIC_HOME: context.globalStorageUri.fsPath,
+  });
+  const store = new WorkflowStateStore(root, runtimeConfig);
+  const gateway = new KiloGatewayClient({ apiKey });
+
+  output.clear();
+  output.appendLine("LLMatic Gateway Agent");
+  output.appendLine("Model: " + model);
+  output.appendLine("Workspace: " + root);
+  output.appendLine("");
+
+  const result = await vscode.window.withProgress(
+    {
+      location: vscode.ProgressLocation.Notification,
+      title: "LLMatic agent is working",
+      cancellable: false,
+    },
+    async (progress) =>
+      runCodingAgent({
+        root,
+        config: runtimeConfig,
+        store,
+        gateway,
+        instruction: instruction.trim(),
+        model,
+        maxSteps,
+        onEvent: (event) => {
+          const line = formatAgentEvent(event);
+          output.appendLine(line);
+          progress.report({ message: line });
+        },
+      }),
+  );
+
+  output.appendLine("");
+  output.appendLine("Final response:");
+  output.appendLine(result.finalText);
+  output.appendLine("");
+  output.appendLine(
+    "Usage: " +
+      result.usage.promptTokens +
+      " prompt / " +
+      result.usage.completionTokens +
+      " completion tokens",
+  );
+  output.show(true);
+
+  await vscode.window.showInformationMessage(
+    "LLMatic agent completed in " + result.steps + " step(s). See the LLMatic output channel.",
+  );
+}
+
 async function showStatus(context: vscode.ExtensionContext, state: ExtensionState): Promise<void> {
   const kiloInstalled = Boolean(vscode.extensions.getExtension(KILO_EXTENSION_ID));
   const kiloServer = kiloInstalled ? await readGlobalKiloLlmaticServer(homedir()) : undefined;
@@ -382,6 +503,14 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     vscode.commands.registerCommand("llmatic.clearKiloGatewayApiKey", async () => {
       await context.secrets.delete(KILO_GATEWAY_SECRET);
       await vscode.window.showInformationMessage("Kilo Gateway API key cleared.");
+    }),
+    vscode.commands.registerCommand("llmatic.runAgent", async () => {
+      try {
+        await runGatewayAgent(context, state, output);
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        await vscode.window.showErrorMessage("LLMatic agent: " + message);
+      }
     }),
     vscode.commands.registerCommand("llmatic.openWorkspaceData", async () => {
       if (!state.activeWorkspace) {
