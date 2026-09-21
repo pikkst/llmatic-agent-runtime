@@ -44,6 +44,7 @@ export interface CodingAgentRunOptions {
   gateway: GatewayChatClient;
   instruction: string;
   history?: readonly CodingAgentConversationTurn[];
+  context?: string;
   model?: string;
   maxSteps?: number;
   maxTokens?: number;
@@ -346,6 +347,9 @@ export async function runCodingAgent(
   const maxSteps = Math.max(1, Math.min(50, options.maxSteps ?? 20));
   const messages: GatewayMessage[] = [
     { role: "system", content: systemPrompt(options.root) },
+    ...(options.context?.trim()
+      ? [{ role: "system" as const, content: options.context.trim() }]
+      : []),
     ...boundedConversationHistory(options.history),
     { role: "user", content: options.instruction },
   ];
