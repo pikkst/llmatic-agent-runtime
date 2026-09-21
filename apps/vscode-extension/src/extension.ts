@@ -32,6 +32,7 @@ import {
   planApprovalStatus,
   requestProjectPlanChanges,
 } from "@llmatic/project-initializer";
+import { buildPullRequestDraft } from "@llmatic/pr-draft";
 import {
   generateProjectPlan,
   loadCurrentProjectPlan,
@@ -44,6 +45,7 @@ import {
   type ReleaseManifest,
 } from "@llmatic/release-metadata";
 import {
+  loadLatestReviewReport,
   runCodeReview,
   runReviewFixLoop,
   type CodeReviewReport,
@@ -2090,6 +2092,62 @@ function ruleLabel(rule: ConstitutionEntry): string {
   );
 }
 
+async function generatePrDraftInUi(
+  context: vscode.ExtensionContext,
+  state: ExtensionState,
+  statusProvider: LlmaticStatusProvider,
+  chatProvider: AgentChatViewProvider,
+  output: vscode.OutputChannel,
+): Promise<void> {
+  const folder = firstWorkspaceFolder();
+  if (!folder) {
+    await vscode.window.showWarningMessage(
+      "Open a repository workspace before generating a PR draft.",
+    );
+    return;
+  }
+
+  if (!state.activeWorkspace) {
+    state.activeWorkspace = await attachWorkspace(context, folder);
+  }
+
+  if (!state.recovery) {
+    await refreshWorkspaceRecovery(
+      context,
+      state,
+      statusProvider,
+      chatProvider,
+      output,
+      false,
+    );
+  }
+
+  const config = await loadAgentConfig(folder.uri.fsPath, {
+    LLMATIC_HOME: context.globalStorageUri.fsPath,
+  });
+  const store = new WorkflowStateStore(folder.uri.fsPath, config);
+  const workflow = await store.loadCurrent();
+  const review = await loadLatestReviewReport(folder.uri.fsPath, config);
+  const recovery = state.recovery;
+
+  const draft = buildPullRequestDraft({
+    branch: recovery?.git.branch,
+    base: recovery?.pullRequest?.pullRequest.baseRefName,
+    task: recovery?.task ?? recovery?.nextTask,
+    workflow,
+    review,
+    changedFiles: review?.changedFiles,
+  });
+
+  const document = await vscode.workspace.openTextDocument({
+    language: "markdown",
+    content: "# " + draft.title + "\n\n" + draft.body,
+  });
+  await vscode.window.showTextDocument(document, {
+    preview: false,
+  });
+}
+
 async function showRepositoryRulesInUi(
   context: vscode.ExtensionContext,
   state: ExtensionState,
@@ -2565,6 +2623,20 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     vscode.commands.registerCommand("llmatic.openAgentChat", async () => {
       await vscode.commands.executeCommand("workbench.view.extension.llmatic");
       await vscode.commands.executeCommand("llmatic.agentChat.focus");
+    }),
+    vscode.commands.registerCommand("llmatic.generatePrDraft", async () => {
+      try {
+        await generatePrDraftInUi(
+          context,
+          state,
+          statusProvider,
+          chatProvider,
+          output,
+        );
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        await vscode.window.showErrorMessage("LLMatic PR draft: " + message);
+      }
     }),
     vscode.commands.registerCommand("llmatic.showRepositoryRules", async () => {
       try {
