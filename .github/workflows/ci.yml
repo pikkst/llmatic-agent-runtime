@@ -7,7 +7,7 @@ on:
       - main
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
   validate:
@@ -16,8 +16,6 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-        with:
-          ref: ${{ github.head_ref || github.ref_name }}
 
       - name: Set up Node.js
         uses: actions/setup-node@v4
@@ -29,41 +27,6 @@ jobs:
 
       - name: Install dependencies
         run: pnpm install --no-frozen-lockfile
-
-      - name: Canonical format M26 files
-        run: |
-          pnpm exec prettier --write \
-            apps/vscode-extension/CHANGELOG.md \
-            docs/ROADMAP.md \
-            README.md \
-            scripts/vscode-clean-install-acceptance.mjs
-          echo "__BEGIN_CANONICAL_CI__"
-          pnpm exec prettier .github/workflows/ci.yml
-          echo "__END_CANONICAL_CI__"
-          pnpm exec prettier --write .github/workflows/ci.yml
-
-      - name: Commit canonical M26 formatting
-        shell: bash
-        run: |
-          if git diff --quiet -- \
-            apps/vscode-extension/CHANGELOG.md \
-            docs/ROADMAP.md \
-            README.md \
-            scripts/vscode-clean-install-acceptance.mjs
-          then
-            echo "No canonical non-workflow formatting changes to commit."
-            exit 0
-          fi
-
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add \
-            apps/vscode-extension/CHANGELOG.md \
-            docs/ROADMAP.md \
-            README.md \
-            scripts/vscode-clean-install-acceptance.mjs
-          git commit -m "style: apply canonical M26 formatting"
-          git push origin HEAD:"${{ github.head_ref || github.ref_name }}"
 
       - name: Validate
         run: pnpm run ci
@@ -114,4 +77,3 @@ jobs:
 
       - name: Run installed-extension acceptance
         run: xvfb-run -a pnpm run vscode:acceptance
-
