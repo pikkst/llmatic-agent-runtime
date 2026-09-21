@@ -27,6 +27,9 @@
     },
     {
       "path": "../../packages/jira-adapter"
+    },
+    {
+      "path": "../../packages/runtime-tools"
     }
   ]
 }
