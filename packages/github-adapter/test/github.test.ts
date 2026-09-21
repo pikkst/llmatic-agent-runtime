@@ -12,6 +12,7 @@ import {
 import {
   createPullRequest,
   createWorkflowPullRequest,
+  getFailedPullRequestDiagnostics,
   getPullRequestStatus,
   mergePullRequest,
   mergeWorkflowPullRequest,
@@ -150,6 +151,52 @@ describe("github adapter", () => {
 
     expect(status.ciState).toBe("pending");
     expect(status.checks).toHaveLength(1);
+  });
+
+  it("returns bounded failed GitHub Actions logs for PR diagnostics", async () => {
+    const calls: string[][] = [];
+    const runner: GitHubProcessRunner = (_executable, args) => {
+      calls.push(args);
+
+      if (args[1] === "view" && args[0] === "pr") {
+        return { exitCode: 0, stdout: pullRequestJson(), stderr: "" };
+      }
+
+      if (args[1] === "checks") {
+        return {
+          exitCode: 1,
+          stdout: JSON.stringify([
+            {
+              name: "CI",
+              state: "FAILURE",
+              bucket: "fail",
+              workflow: "CI",
+              link: "https://github.com/example/repo/actions/runs/123456789/job/1",
+            },
+          ]),
+          stderr: "",
+        };
+      }
+
+      if (args[0] === "run" && args[1] === "view") {
+        return {
+          exitCode: 0,
+          stdout: "FAIL src/example.test.ts\nAssertionError: expected 1 to be 2\n",
+          stderr: "",
+        };
+      }
+
+      return { exitCode: 1, stdout: "", stderr: "unexpected command" };
+    };
+
+    const diagnostics = await getFailedPullRequestDiagnostics("/repo", "7", runner);
+
+    expect(diagnostics.status.ciState).toBe("failing");
+    expect(diagnostics.failed[0]).toMatchObject({
+      runId: "123456789",
+      log: expect.stringContaining("AssertionError"),
+    });
+    expect(calls).toContainEqual(["run", "view", "123456789", "--log-failed"]);
   });
 
   it("creates the workflow PR before moving PUSHED to PR_OPEN", async () => {
