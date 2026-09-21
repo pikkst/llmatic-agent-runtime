@@ -19,10 +19,7 @@ import {
   loadRepositoryIndex,
   searchRepositoryIndex,
 } from "@llmatic/repo-intelligence";
-import {
-  isWorkspacePathSensitive,
-  readWorkspaceFile,
-} from "@llmatic/workspace-files";
+import { isWorkspacePathSensitive, readWorkspaceFile } from "@llmatic/workspace-files";
 
 const MAX_DIFF_CHARS = 64000;
 const MAX_TOOL_RESULT_CHARS = 64000;
@@ -97,12 +94,12 @@ const REVIEW_TOOLS: GatewayTool[] = [
         properties: {
           path: { type: "string" },
           start_line: { type: "integer", minimum: 1 },
-          end_line: { type: "integer", minimum: 1 }
+          end_line: { type: "integer", minimum: 1 },
         },
         required: ["path"],
-        additionalProperties: false
-      }
-    }
+        additionalProperties: false,
+      },
+    },
   },
   {
     type: "function",
@@ -113,9 +110,9 @@ const REVIEW_TOOLS: GatewayTool[] = [
         type: "object",
         properties: { path: { type: "string" } },
         required: ["path"],
-        additionalProperties: false
-      }
-    }
+        additionalProperties: false,
+      },
+    },
   },
   {
     type: "function",
@@ -126,13 +123,13 @@ const REVIEW_TOOLS: GatewayTool[] = [
         type: "object",
         properties: {
           query: { type: "string" },
-          limit: { type: "integer", minimum: 1, maximum: 30 }
+          limit: { type: "integer", minimum: 1, maximum: 30 },
         },
         required: ["query"],
-        additionalProperties: false
-      }
-    }
-  }
+        additionalProperties: false,
+      },
+    },
+  },
 ];
 
 function runGit(root: string, args: string[]): string {
@@ -140,7 +137,7 @@ function runGit(root: string, args: string[]): string {
     cwd: root,
     env: process.env,
     encoding: "utf8",
-    shell: false
+    shell: false,
   });
 
   if (result.error) throw result.error;
@@ -149,7 +146,7 @@ function runGit(root: string, args: string[]): string {
       "Git review command failed: git " +
         args.join(" ") +
         " — " +
-        (result.stderr || result.stdout).trim()
+        (result.stderr || result.stdout).trim(),
     );
   }
 
@@ -212,7 +209,10 @@ async function repositorySearch(context: ReviewToolContext, query: string, limit
   return searchRepositoryIndex(index, query, limit);
 }
 
-async function executeReviewTool(context: ReviewToolContext, call: GatewayToolCall): Promise<unknown> {
+async function executeReviewTool(
+  context: ReviewToolContext,
+  call: GatewayToolCall,
+): Promise<unknown> {
   const args = parseArguments(call);
 
   if (call.function.name === "read_file") {
@@ -234,7 +234,8 @@ async function executeReviewTool(context: ReviewToolContext, call: GatewayToolCa
     const diff = runGit(context.root, ["diff", "--no-ext-diff", "--unified=4", "HEAD", "--", path]);
     return {
       path,
-      diff: diff.length <= MAX_DIFF_CHARS ? diff : diff.slice(0, MAX_DIFF_CHARS) + "\n[DIFF TRUNCATED]"
+      diff:
+        diff.length <= MAX_DIFF_CHARS ? diff : diff.slice(0, MAX_DIFF_CHARS) + "\n[DIFF TRUNCATED]",
     };
   }
 
@@ -242,7 +243,7 @@ async function executeReviewTool(context: ReviewToolContext, call: GatewayToolCa
     return repositorySearch(
       context,
       requiredString(args, "query"),
-      typeof args.limit === "number" ? Math.min(30, Math.max(1, args.limit)) : 15
+      typeof args.limit === "number" ? Math.min(30, Math.max(1, args.limit)) : 15,
     );
   }
 
@@ -260,7 +261,7 @@ function reviewSystemPrompt(): string {
     "A blocking finding means the change should not proceed until fixed.",
     "Return ONLY JSON with summary and findings.",
     "Each finding requires severity, category, title, path, evidence, recommendation; line is optional.",
-    "Use an empty findings array when no concrete finding is supported."
+    "Use an empty findings array when no concrete finding is supported.",
   ].join("\n");
 }
 
@@ -273,7 +274,7 @@ function extractJson(content: string): unknown {
 
 async function applyWorkflowReviewResult(
   store: WorkflowStateStore,
-  blockingCount: number
+  blockingCount: number,
 ): Promise<void> {
   const current = await store.loadCurrent();
   if (!current) return;
@@ -299,7 +300,7 @@ export async function runCodeReview(options: CodeReviewOptions): Promise<CodeRev
       blockingCount: 0,
       nonBlockingCount: 0,
       model,
-      changedFiles
+      changedFiles,
     };
     await applyWorkflowReviewResult(options.store, 0);
     return report;
@@ -311,13 +312,13 @@ export async function runCodeReview(options: CodeReviewOptions): Promise<CodeRev
       role: "user",
       content:
         "Review the current working-tree change. Changed non-secret files:\n" +
-        changedFiles.map((path) => "- " + path).join("\n")
-    }
+        changedFiles.map((path) => "- " + path).join("\n"),
+    },
   ];
   const context: ReviewToolContext = {
     root: options.root,
     config: options.config,
-    changedFiles: new Set(changedFiles)
+    changedFiles: new Set(changedFiles),
   };
   const maxSteps = Math.max(1, Math.min(30, options.maxSteps ?? 12));
 
@@ -328,15 +329,16 @@ export async function runCodeReview(options: CodeReviewOptions): Promise<CodeRev
       messages: [...messages],
       tools: REVIEW_TOOLS,
       max_tokens: 4000,
-      temperature: 0
+      temperature: 0,
     });
     const assistant = response.choices[0]?.message;
-    if (!assistant) throw new Error("Review Gateway response did not contain an assistant message.");
+    if (!assistant)
+      throw new Error("Review Gateway response did not contain an assistant message.");
 
     messages.push({
       role: "assistant",
       content: assistant.content,
-      tool_calls: assistant.tool_calls
+      tool_calls: assistant.tool_calls,
     });
 
     const calls = assistant.tool_calls ?? [];
@@ -349,7 +351,9 @@ export async function runCodeReview(options: CodeReviewOptions): Promise<CodeRev
           messages.push({
             role: "tool",
             tool_call_id: call.id,
-            content: JSON.stringify({ error: error instanceof Error ? error.message : String(error) })
+            content: JSON.stringify({
+              error: error instanceof Error ? error.message : String(error),
+            }),
           });
         }
       }
@@ -361,13 +365,15 @@ export async function runCodeReview(options: CodeReviewOptions): Promise<CodeRev
     }
 
     const parsed = rawReviewSchema.parse(extractJson(assistant.content));
-    const blockingCount = parsed.findings.filter((finding) => finding.severity === "blocking").length;
+    const blockingCount = parsed.findings.filter(
+      (finding) => finding.severity === "blocking",
+    ).length;
     const report: CodeReviewReport = {
       ...parsed,
       blockingCount,
       nonBlockingCount: parsed.findings.length - blockingCount,
       model,
-      changedFiles
+      changedFiles,
     };
 
     await recordActionCheckpoint(options.store, {
@@ -378,8 +384,8 @@ export async function runCodeReview(options: CodeReviewOptions): Promise<CodeRev
       metadata: {
         model,
         blockingCount: String(blockingCount),
-        findingCount: String(report.findings.length)
-      }
+        findingCount: String(report.findings.length),
+      },
     });
     await applyWorkflowReviewResult(options.store, blockingCount);
     return report;
@@ -406,12 +412,15 @@ function blockingFixInstruction(report: CodeReviewReport): string {
           "\nEvidence: " +
           finding.evidence +
           "\nRequired fix: " +
-          finding.recommendation
-      )
+          finding.recommendation,
+      ),
   ].join("\n\n");
 }
 
-async function reachCodeReviewAfterFix(options: ReviewFixLoopOptions, round: number): Promise<void> {
+async function reachCodeReviewAfterFix(
+  options: ReviewFixLoopOptions,
+  round: number,
+): Promise<void> {
   for (let attempt = 1; attempt <= options.config.workflow.maxFixAttempts; attempt += 1) {
     const current = await options.store.loadCurrent();
     if (!current) throw new Error("Review/fix loop lost its active workflow.");
@@ -426,7 +435,7 @@ async function reachCodeReviewAfterFix(options: ReviewFixLoopOptions, round: num
 
     options.onEvent?.({
       type: "info",
-      message: "Local validation is still failing; starting another constrained fix attempt."
+      message: "Local validation is still failing; starting another constrained fix attempt.",
     });
 
     await runCodingAgent({
@@ -437,7 +446,7 @@ async function reachCodeReviewAfterFix(options: ReviewFixLoopOptions, round: num
       model: options.model,
       maxSteps: options.maxSteps,
       instruction:
-        "Local validation is failing after review fixes. Fix the failing quality gates without unrelated changes and validate again."
+        "Local validation is failing after review fixes. Fix the failing quality gates without unrelated changes and validate again.",
     });
   }
 
@@ -445,7 +454,7 @@ async function reachCodeReviewAfterFix(options: ReviewFixLoopOptions, round: num
 }
 
 export async function runReviewFixLoop(
-  options: ReviewFixLoopOptions
+  options: ReviewFixLoopOptions,
 ): Promise<ReviewFixLoopResult> {
   const initial = await options.store.loadCurrent();
   if (!initial || initial.state !== "CODE_REVIEW") {
@@ -454,7 +463,7 @@ export async function runReviewFixLoop(
 
   const maxRounds = Math.max(
     1,
-    Math.min(10, options.maxReviewRounds ?? options.config.workflow.maxFixAttempts)
+    Math.min(10, options.maxReviewRounds ?? options.config.workflow.maxFixAttempts),
   );
   let fixRounds = 0;
 
@@ -464,7 +473,7 @@ export async function runReviewFixLoop(
     options.onEvent?.({
       type: "review-complete",
       round,
-      blockingCount: review.blockingCount
+      blockingCount: review.blockingCount,
     });
 
     if (review.blockingCount === 0) {
@@ -481,7 +490,7 @@ export async function runReviewFixLoop(
       gateway: options.gateway,
       model: options.model,
       maxSteps: options.maxSteps,
-      instruction: blockingFixInstruction(review)
+      instruction: blockingFixInstruction(review),
     });
 
     await reachCodeReviewAfterFix(options, round);

@@ -21,7 +21,7 @@ const temporaryDirectories: string[] = [];
 
 afterEach(async () => {
   await Promise.all(
-    temporaryDirectories.splice(0).map((directory) => rm(directory, { recursive: true }))
+    temporaryDirectories.splice(0).map((directory) => rm(directory, { recursive: true })),
   );
 });
 
@@ -32,7 +32,7 @@ function configFor(root: string) {
     packageJson: true,
     packageManager: "pnpm",
     technologies: [],
-    capabilities: []
+    capabilities: [],
   };
   return createDefaultConfig(detection);
 }
@@ -75,7 +75,7 @@ function response(content: string): GatewayChatResponse {
   return {
     id: "review",
     model: "kilo-auto/free",
-    choices: [{ index: 0, message: { role: "assistant", content } }]
+    choices: [{ index: 0, message: { role: "assistant", content } }],
   };
 }
 
@@ -102,18 +102,22 @@ describe("review engine", () => {
     await moveToCodeReview(store);
 
     const gateway = new ScriptedGateway([
-      response(JSON.stringify({
-        summary: "One blocking defect.",
-        findings: [{
-          severity: "blocking",
-          category: "correctness",
-          title: "Incorrect value",
-          path: "src/value.ts",
-          line: 1,
-          evidence: "The changed constant violates the expected contract.",
-          recommendation: "Restore the required value."
-        }]
-      }))
+      response(
+        JSON.stringify({
+          summary: "One blocking defect.",
+          findings: [
+            {
+              severity: "blocking",
+              category: "correctness",
+              title: "Incorrect value",
+              path: "src/value.ts",
+              line: 1,
+              evidence: "The changed constant violates the expected contract.",
+              recommendation: "Restore the required value.",
+            },
+          ],
+        }),
+      ),
     ]);
 
     const report = await runCodeReview({ root, config, store, gateway });
@@ -130,10 +134,12 @@ describe("review engine", () => {
     await moveToCodeReview(store);
 
     const gateway = new ScriptedGateway([
-      response(JSON.stringify({
-        summary: "No blocking defects found.",
-        findings: []
-      }))
+      response(
+        JSON.stringify({
+          summary: "No blocking defects found.",
+          findings: [],
+        }),
+      ),
     ]);
 
     const report = await runCodeReview({ root, config, store, gateway });
