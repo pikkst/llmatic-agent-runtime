@@ -282,15 +282,7 @@ function writeBootstrapReport(output: vscode.OutputChannel, report: BootstrapRep
     const marker = item.installed ? "PASS" : item.level === "required" ? "FAIL" : "WARN";
     const installer = !item.installed && item.installerAvailable ? " [auto-install available]" : "";
     output.appendLine(
-      "[" +
-        marker +
-        "] " +
-        item.name +
-        " (" +
-        item.level +
-        "): " +
-        item.reason +
-        installer,
+      "[" + marker + "] " + item.name + " (" + item.level + "): " + item.reason + installer,
     );
   }
 
@@ -313,10 +305,7 @@ async function bootstrapWorkspace(
   }
 
   state.activeWorkspace = await attachWorkspace(context, folder);
-  let report = await inspectBootstrap(
-    state.activeWorkspace.root,
-    state.activeWorkspace.config,
-  );
+  let report = await inspectBootstrap(state.activeWorkspace.root, state.activeWorkspace.config);
   writeBootstrapReport(output, report);
   output.show(true);
 
