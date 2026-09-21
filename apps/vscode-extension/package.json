@@ -30,7 +30,8 @@
     "@llmatic/bootstrap-manager": "workspace:*",
     "@llmatic/runtime-installer": "workspace:*",
     "@llmatic/setup-health": "workspace:*",
-    "@llmatic/release-metadata": "workspace:*"
+    "@llmatic/release-metadata": "workspace:*",
+    "@llmatic/update-installer": "workspace:*"
   },
   "devDependencies": {
     "@types/vscode": "1.105.0",
@@ -67,6 +68,11 @@
       {
         "command": "llmatic.checkForUpdates",
         "title": "Check for Updates",
+        "category": "LLMatic"
+      },
+      {
+        "command": "llmatic.installUpdate",
+        "title": "Install Latest Update",
         "category": "LLMatic"
       },
       {

@@ -50,6 +50,9 @@
       "path": "./packages/release-metadata"
     },
     {
+      "path": "./packages/update-installer"
+    },
+    {
       "path": "./packages/workspace-manager"
     },
     {

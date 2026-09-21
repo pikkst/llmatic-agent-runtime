@@ -40,6 +40,9 @@
     },
     {
       "path": "../../packages/release-metadata"
+    },
+    {
+      "path": "../../packages/update-installer"
     }
   ]
 }

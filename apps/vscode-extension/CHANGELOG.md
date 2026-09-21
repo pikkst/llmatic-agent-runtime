@@ -57,3 +57,14 @@
 - Release publishes a versioned VSIX plus SHA-256 release manifest.
 - Added `LLMatic: Check for Updates` backed by validated GitHub release metadata.
 - Update checks do not silently install or replace extension bytes.
+
+## M18 — Verified self-update and extension-surface regression guard
+
+- Restored the full VS Code activation entrypoint after detecting an M16 formatter-roundtrip truncation.
+- Added a regression test that requires the activation entrypoint and critical commands to remain present.
+- Added explicit Download & Install update flow.
+- Release repository/tag/asset identity is checked before download.
+- Downloaded VSIX size and SHA-256 must match release-manifest.json.
+- Verified VSIX is staged only in versioned VS Code global storage.
+- VS Code installation happens only after a user confirmation.
+- No silent background update installation is performed.
