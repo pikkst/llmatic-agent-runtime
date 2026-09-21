@@ -28,7 +28,8 @@
     "@llmatic/gateway-client": "workspace:*",
     "@llmatic/review-engine": "workspace:*",
     "@llmatic/bootstrap-manager": "workspace:*",
-    "@llmatic/runtime-installer": "workspace:*"
+    "@llmatic/runtime-installer": "workspace:*",
+    "@llmatic/setup-health": "workspace:*"
   },
   "devDependencies": {
     "@types/vscode": "1.105.0",
@@ -37,6 +38,11 @@
   },
   "contributes": {
     "commands": [
+      {
+        "command": "llmatic.getReady",
+        "title": "Get Ready",
+        "category": "LLMatic"
+      },
       {
         "command": "llmatic.attachWorkspace",
         "title": "Attach Workspace",
@@ -134,6 +140,23 @@
           "description": "Maximum model/tool rounds for one direct LLMatic agent run."
         }
       }
+    },
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "llmatic",
+          "title": "LLMatic",
+          "icon": "media/llmatic.svg"
+        }
+      ]
+    },
+    "views": {
+      "llmatic": [
+        {
+          "id": "llmatic.status",
+          "name": "Runtime Status"
+        }
+      ]
     }
   },
   "license": "MIT",

@@ -40,3 +40,12 @@
 - Kilo MCP points to the verified installed runtime.
 - Doctor validates runtime integrity.
 - Added `LLMatic: Repair Runtime` to restore corrupted/stale runtime bytes and reconcile Kilo MCP.
+
+## M16 — Guided onboarding and health UI
+
+- Added deterministic READY / NEEDS SETUP / NEEDS REPAIR evaluation.
+- Added LLMatic Activity Bar Runtime Status view.
+- Added `LLMatic: Get Ready` guided workspace/runtime/tool/Kilo setup flow.
+- Status bar now uses the same canonical health state and routes non-ready states to Get Ready.
+- Added one-time per-workspace onboarding prompt.
+- Gateway API key remains optional and does not block runtime readiness.

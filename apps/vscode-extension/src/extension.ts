@@ -28,15 +28,24 @@ import {
   readRuntimeManifest,
   type RuntimeInstallResult,
 } from "@llmatic/runtime-installer";
+import {
+  evaluateSetupHealth,
+  type SetupHealth,
+  type SetupHealthIssue,
+} from "@llmatic/setup-health";
 import { ensureManagedWorkspace, type ManagedWorkspace } from "@llmatic/workspace-manager";
+import { LlmaticStatusProvider } from "./status-view.js";
 
 const KILO_EXTENSION_ID = "kilocode.kilo-code";
 const KILO_GATEWAY_SECRET = "llmatic.kiloGatewayApiKey";
 const AUTO_FREE_WARNING_ACCEPTED = "llmatic.autoFreeDataWarningAccepted";
+const ONBOARDING_VERSION = 1;
 
 interface ExtensionState {
   activeWorkspace?: ManagedWorkspace;
   runtime?: RuntimeInstallResult;
+  bootstrap?: BootstrapReport;
+  health?: SetupHealth;
   kiloConnected: boolean;
   kiloReloadRecommended: boolean;
   lastError?: string;
@@ -151,24 +160,89 @@ async function connectKilo(context: vscode.ExtensionContext): Promise<KiloConnec
   return { connected: true, changed: registration.changed };
 }
 
+function issueDetail(issue: SetupHealthIssue): string {
+  return issue.detail ? issue.label + ": " + issue.detail : issue.label;
+}
+
+async function evaluateExtensionHealth(
+  context: vscode.ExtensionContext,
+  state: ExtensionState,
+): Promise<SetupHealth> {
+  const folder = firstWorkspaceFolder();
+  const runtime = state.runtime ?? (await inspectExtensionRuntime(context));
+  const kiloInstalled = Boolean(vscode.extensions.getExtension(KILO_EXTENSION_ID));
+  const nodeCommand = configuration().get<string>("nodeCommand", "node").trim() || "node";
+  const autoConnectKilo = configuration().get<boolean>("autoConnectKilo", true);
+
+  let bootstrap = state.bootstrap;
+  if (folder && state.activeWorkspace) {
+    bootstrap = await inspectBootstrap(state.activeWorkspace.root, state.activeWorkspace.config);
+    state.bootstrap = bootstrap;
+  }
+
+  const server = kiloInstalled ? await readGlobalKiloLlmaticServer(homedir()) : undefined;
+  const kiloMcpHealthy =
+    kiloInstalled &&
+    isGlobalKiloLlmaticServerHealthy(server, {
+      serverPath: runtime.serverPath,
+      llmaticHome: context.globalStorageUri.fsPath,
+      nodeCommand,
+    });
+
+  const health = evaluateSetupHealth({
+    workspaceOpen: Boolean(folder),
+    workspaceAttached: Boolean(state.activeWorkspace),
+    managedConfigPresent: Boolean(
+      state.activeWorkspace && (await exists(state.activeWorkspace.configPath)),
+    ),
+    runtimeHealthy: runtime.healthy,
+    missingRequiredTools:
+      bootstrap?.requirements
+        .filter((item) => item.level === "required" && !item.installed)
+        .map((item) => item.name) ?? [],
+    kiloRequired: autoConnectKilo,
+    kiloInstalled,
+    kiloMcpHealthy,
+  });
+
+  state.health = health;
+  return health;
+}
+
+function writeHealthReport(output: vscode.OutputChannel, health: SetupHealth): void {
+  output.appendLine("Health: " + health.status);
+  if (health.issues.length === 0) {
+    output.appendLine("[PASS] Runtime is ready.");
+    return;
+  }
+
+  for (const issue of health.issues) {
+    output.appendLine(
+      "[" + (issue.kind === "repair" ? "REPAIR" : "SETUP") + "] " + issueDetail(issue),
+    );
+  }
+}
+
 function updateStatusBar(statusBar: vscode.StatusBarItem, state: ExtensionState): void {
-  statusBar.command = "llmatic.showStatus";
+  const health = state.health;
+  statusBar.command = health?.status === "READY" ? "llmatic.showStatus" : "llmatic.getReady";
 
   if (state.lastError) {
-    statusBar.text = "$(error) LLMatic";
+    statusBar.text = "$(error) LLMatic: NEEDS REPAIR";
     statusBar.tooltip = state.lastError;
     statusBar.backgroundColor = new vscode.ThemeColor("statusBarItem.errorBackground");
-  } else if (!state.activeWorkspace) {
-    statusBar.text = "$(circle-slash) LLMatic: no workspace";
-    statusBar.tooltip = "Open a repository workspace to attach LLMatic.";
-    statusBar.backgroundColor = undefined;
-  } else if (!state.kiloConnected) {
-    statusBar.text = "$(plug) LLMatic: workspace ready";
-    statusBar.tooltip = "Workspace attached. Kilo Code MCP is not connected.";
-    statusBar.backgroundColor = undefined;
+  } else if (!health || health.status === "NEEDS_SETUP") {
+    statusBar.text = "$(tools) LLMatic: NEEDS SETUP";
+    statusBar.tooltip =
+      health?.issues.map(issueDetail).join("\n") ?? "Run LLMatic: Get Ready.";
+    statusBar.backgroundColor = new vscode.ThemeColor("statusBarItem.warningBackground");
+  } else if (health.status === "NEEDS_REPAIR") {
+    statusBar.text = "$(wrench) LLMatic: NEEDS REPAIR";
+    statusBar.tooltip = health.issues.map(issueDetail).join("\n");
+    statusBar.backgroundColor = new vscode.ThemeColor("statusBarItem.errorBackground");
   } else {
     statusBar.text = "$(check) LLMatic: READY";
-    statusBar.tooltip = "Workspace attached and Kilo Code MCP configured globally.";
+    statusBar.tooltip = "Workspace, runtime, required tools, and configured Kilo MCP are ready.";
     statusBar.backgroundColor = undefined;
   }
 
@@ -203,6 +277,8 @@ async function refresh(
       state.kiloConnected = false;
       state.kiloReloadRecommended = false;
     }
+
+    await evaluateExtensionHealth(context, state);
   } catch (error) {
     state.lastError = error instanceof Error ? error.message : String(error);
   }
@@ -764,12 +840,164 @@ async function bootstrapWorkspace(
   }
 }
 
+async function getReady(
+  context: vscode.ExtensionContext,
+  state: ExtensionState,
+  statusBar: vscode.StatusBarItem,
+  statusProvider: LlmaticStatusProvider,
+  output: vscode.OutputChannel,
+): Promise<void> {
+  const folder = firstWorkspaceFolder();
+  if (!folder) {
+    await vscode.window.showWarningMessage(
+      "Open a repository workspace before running LLMatic: Get Ready.",
+    );
+    return;
+  }
+
+  output.clear();
+  output.appendLine("LLMatic Get Ready");
+  output.appendLine("Repository: " + folder.uri.fsPath);
+  output.appendLine("");
+
+  state.activeWorkspace = await attachWorkspace(context, folder);
+  output.appendLine("[PASS] Workspace attached outside the repository.");
+
+  let runtime = await inspectExtensionRuntime(context);
+  if (!runtime.healthy) {
+    output.appendLine("[REPAIR] Runtime integrity failed; reinstalling bundled runtime.");
+    runtime = await installRuntimeBundle({
+      bundlePath: bundledMcpServerPath(context),
+      manifestPath: bundledRuntimeManifestPath(context),
+      runtimeHome: context.globalStorageUri.fsPath,
+      force: true,
+    });
+  } else {
+    output.appendLine("[PASS] Runtime integrity verified.");
+  }
+  state.runtime = runtime;
+
+  let bootstrap = await inspectBootstrap(state.activeWorkspace.root, state.activeWorkspace.config);
+  const installableRequired = bootstrap.requirements.filter(
+    (item) => item.level === "required" && !item.installed && item.installerAvailable,
+  );
+
+  if (installableRequired.length > 0) {
+    const action = await vscode.window.showInformationMessage(
+      "LLMatic can install required registered tools: " +
+        installableRequired.map((item) => item.name).join(", ") +
+        ".",
+      { modal: true },
+      "Install Required Tools",
+    );
+
+    if (action === "Install Required Tools") {
+      const remediation = await remediateBootstrap(
+        state.activeWorkspace.root,
+        state.activeWorkspace.config,
+        installableRequired.map((item) => item.id),
+        { approved: true },
+      );
+      bootstrap = remediation.report;
+      for (const installation of remediation.installations) {
+        output.appendLine(
+          "[INSTALL] " +
+            installation.tool.name +
+            ": " +
+            (installation.changed ? "installed" : "already available"),
+        );
+      }
+    }
+  }
+
+  state.bootstrap = bootstrap;
+  const missingRequired = bootstrap.requirements.filter(
+    (item) => item.level === "required" && !item.installed,
+  );
+  for (const item of missingRequired) {
+    output.appendLine("[SETUP] Required tool missing: " + item.name + " — " + item.reason);
+  }
+
+  const kiloInstalled = Boolean(vscode.extensions.getExtension(KILO_EXTENSION_ID));
+  if (!kiloInstalled && configuration().get<boolean>("autoConnectKilo", true)) {
+    output.appendLine("[SETUP] Kilo Code is not installed.");
+    const action = await vscode.window.showInformationMessage(
+      "Kilo Code is required by the current LLMatic auto-connect configuration.",
+      "Open Kilo Code Extension",
+    );
+    if (action === "Open Kilo Code Extension") {
+      await vscode.commands.executeCommand(
+        "workbench.extensions.search",
+        "@id:" + KILO_EXTENSION_ID,
+      );
+    }
+  } else if (kiloInstalled) {
+    const kilo = await connectKilo(context);
+    state.kiloConnected = kilo.connected;
+    state.kiloReloadRecommended = kilo.changed;
+    output.appendLine(
+      "[PASS] Kilo MCP: " + (kilo.changed ? "registration reconciled" : "already healthy"),
+    );
+  }
+
+  const health = await evaluateExtensionHealth(context, state);
+  output.appendLine("");
+  writeHealthReport(output, health);
+  output.show(true);
+  updateStatusBar(statusBar, state);
+  statusProvider.update(state.health);
+
+  if (health.status === "READY") {
+    await context.workspaceState.update("llmatic.onboardingVersion", ONBOARDING_VERSION);
+    const action = state.kiloReloadRecommended
+      ? await vscode.window.showInformationMessage(
+          "LLMatic is READY. Kilo MCP changed and a window reload is recommended.",
+          "Reload Window",
+        )
+      : await vscode.window.showInformationMessage("LLMatic is READY.");
+
+    if (action === "Reload Window") {
+      await vscode.commands.executeCommand("workbench.action.reloadWindow");
+    }
+    return;
+  }
+
+  await vscode.window.showWarningMessage(
+    "LLMatic is " +
+      health.status.replace("_", " ") +
+      ". See the LLMatic output and Runtime Status view.",
+  );
+}
+
+async function offerOnboarding(
+  context: vscode.ExtensionContext,
+  state: ExtensionState,
+): Promise<void> {
+  if (!firstWorkspaceFolder()) return;
+  if (state.health?.status === "READY") return;
+
+  const seen = context.workspaceState.get<number>("llmatic.onboardingVersion", 0);
+  if (seen >= ONBOARDING_VERSION) return;
+
+  await context.workspaceState.update("llmatic.onboardingVersion", ONBOARDING_VERSION);
+  const action = await vscode.window.showInformationMessage(
+    "LLMatic needs setup for this workspace. Get Ready can configure the external runtime without adding LLMatic files to the repository.",
+    "Get Ready",
+  );
+
+  if (action === "Get Ready") {
+    await vscode.commands.executeCommand("llmatic.getReady");
+  }
+}
+
 async function showStatus(context: vscode.ExtensionContext, state: ExtensionState): Promise<void> {
   const kiloInstalled = Boolean(vscode.extensions.getExtension(KILO_EXTENSION_ID));
   const kiloServer = kiloInstalled ? await readGlobalKiloLlmaticServer(homedir()) : undefined;
   const hasGatewayKey = Boolean(await context.secrets.get(KILO_GATEWAY_SECRET));
 
+  const health = state.health ?? (await evaluateExtensionHealth(context, state));
   const lines = [
+    "Health: " + health.status,
     state.activeWorkspace ? "Workspace: " + state.activeWorkspace.root : "Workspace: not attached",
     state.activeWorkspace ? "Workspace data: " + state.activeWorkspace.directory : undefined,
     state.runtime
@@ -800,7 +1028,33 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   const statusBar = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 100);
   context.subscriptions.push(statusBar);
 
+  const statusProvider = new LlmaticStatusProvider();
   context.subscriptions.push(
+    vscode.window.registerTreeDataProvider("llmatic.status", statusProvider),
+  );
+
+  context.subscriptions.push(
+    vscode.commands.registerCommand("llmatic.getReady", async () => {
+      try {
+        await getReady(context, state, statusBar, statusProvider, output);
+      } catch (error) {
+        state.lastError = error instanceof Error ? error.message : String(error);
+        state.health = {
+          status: "NEEDS_REPAIR",
+          issues: [
+            {
+              code: "runtime_error",
+              kind: "repair",
+              label: "LLMatic runtime error",
+              detail: state.lastError,
+            },
+          ],
+        };
+        updateStatusBar(statusBar, state);
+        statusProvider.update(state.health);
+        await vscode.window.showErrorMessage("LLMatic Get Ready: " + state.lastError);
+      }
+    }),
     vscode.commands.registerCommand("llmatic.attachWorkspace", async () => {
       const folder = firstWorkspaceFolder();
       if (!folder) {
@@ -943,15 +1197,20 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     }),
     vscode.workspace.onDidChangeWorkspaceFolders(async () => {
       await refresh(context, statusBar, state);
+      statusProvider.update(state.health);
     }),
     vscode.workspace.onDidChangeConfiguration(async (event) => {
       if (event.affectsConfiguration("llmatic")) {
         await refresh(context, statusBar, state);
+        statusProvider.update(state.health);
       }
     }),
   );
 
   await refresh(context, statusBar, state);
+  statusProvider.update(state.health);
+  await vscode.commands.executeCommand("setContext", "llmatic.health", state.health?.status);
+  await offerOnboarding(context, state);
 }
 
 export function deactivate(): void {
