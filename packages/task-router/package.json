@@ -15,6 +15,7 @@
     "@llmatic/core": "workspace:*",
     "@llmatic/task-provider": "workspace:*",
     "@llmatic/markdown-task-source": "workspace:*",
-    "@llmatic/jira-adapter": "workspace:*"
+    "@llmatic/jira-adapter": "workspace:*",
+    "@llmatic/github-task-source": "workspace:*"
   }
 }

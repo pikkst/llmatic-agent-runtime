@@ -10,6 +10,8 @@ Status: in progress.
 
 ## M20 — Universal Task Sources
 
+Status: in progress.
+
 Goal: remove Jira as a required workflow assumption.
 
 Canonical task abstraction:

@@ -364,7 +364,7 @@ taskCommand
   .command("list")
   .description("List tasks from a provider that supports enumeration.")
   .option("-r, --root <path>", "Repository root", process.cwd())
-  .option("--provider <provider>", "Provider: auto, markdown, jira, or manual", "auto")
+  .option("--provider <provider>", "Provider: auto, markdown, jira, github, or manual", "auto")
   .option("--approve", "Approve when taskRead is configured as 'ask'")
   .option("--json", "Print machine-readable JSON")
   .action(
@@ -400,7 +400,7 @@ taskCommand
   .command("next")
   .description("Return the next unblocked task when the provider supports dependency-aware selection.")
   .option("-r, --root <path>", "Repository root", process.cwd())
-  .option("--provider <provider>", "Provider: auto, markdown, jira, or manual", "auto")
+  .option("--provider <provider>", "Provider: auto, markdown, jira, github, or manual", "auto")
   .option("--approve", "Approve when taskRead is configured as 'ask'")
   .option("--json", "Print machine-readable JSON")
   .action(
@@ -441,7 +441,7 @@ taskCommand
   .description("Read one task through the selected provider.")
   .argument("<reference>", "Task key/reference")
   .option("-r, --root <path>", "Repository root", process.cwd())
-  .option("--provider <provider>", "Provider: auto, markdown, jira, or manual", "auto")
+  .option("--provider <provider>", "Provider: auto, markdown, jira, github, or manual", "auto")
   .option("--approve", "Approve when taskRead is configured as 'ask'")
   .option("--json", "Print machine-readable JSON")
   .action(
@@ -475,7 +475,7 @@ taskCommand
   .description("Select a provider task and start the persistent workflow in TASK_SELECTED.")
   .argument("<reference>", "Task key/reference")
   .option("-r, --root <path>", "Repository root", process.cwd())
-  .option("--provider <provider>", "Provider: auto, markdown, jira, or manual", "auto")
+  .option("--provider <provider>", "Provider: auto, markdown, jira, github, or manual", "auto")
   .option("--approve", "Approve when taskRead is configured as 'ask'")
   .action(
     async (
@@ -529,7 +529,7 @@ taskCommand
   .argument("<reference>", "Task key/reference")
   .requiredOption("--text <text>", "Comment/note text")
   .option("-r, --root <path>", "Repository root", process.cwd())
-  .option("--provider <provider>", "Provider: auto, markdown, jira, or manual", "auto")
+  .option("--provider <provider>", "Provider: auto, markdown, jira, github, or manual", "auto")
   .option("--approve", "Approve when taskWrite is configured as 'ask'")
   .action(
     async (
@@ -557,7 +557,7 @@ taskCommand
   .argument("<reference>", "Task key/reference")
   .requiredOption("--to <transition>", "Transition name or ID")
   .option("-r, --root <path>", "Repository root", process.cwd())
-  .option("--provider <provider>", "Provider: auto, markdown, jira, or manual", "auto")
+  .option("--provider <provider>", "Provider: auto, markdown, jira, github, or manual", "auto")
   .option("--approve", "Approve when taskWrite is configured as 'ask'")
   .action(
     async (

@@ -9,8 +9,12 @@ import {
   detectMarkdownTaskFile,
 } from "@llmatic/markdown-task-source";
 import { createJiraTaskProviderFromEnvironment } from "@llmatic/jira-adapter";
+import {
+  createGitHubIssueTaskProvider,
+  isGitHubIssueTaskSourceAvailable,
+} from "@llmatic/github-task-source";
 
-export type TaskProviderId = "auto" | "markdown" | "jira" | "manual";
+export type TaskProviderId = "auto" | "markdown" | "jira" | "github" | "manual";
 
 export interface TaskSourceCandidate {
   id: Exclude<TaskProviderId, "auto">;
@@ -83,6 +87,7 @@ export async function detectTaskSources(
 ): Promise<TaskSourceDetection> {
   const markdown = await detectMarkdownTaskFile(root);
   const hasJira = jiraConfigured(environment);
+  const hasGitHub = isGitHubIssueTaskSourceAvailable(root);
 
   const candidates: TaskSourceCandidate[] = [
     {
@@ -98,6 +103,14 @@ export async function detectTaskSources(
         ? "Jira environment configuration detected."
         : "Jira environment configuration not detected.",
       priority: 80,
+    },
+    {
+      id: "github",
+      available: hasGitHub,
+      detail: hasGitHub
+        ? "GitHub origin and authenticated GitHub CLI detected."
+        : "GitHub Issues source is not available.",
+      priority: 60,
     },
     {
       id: "manual",
@@ -137,6 +150,10 @@ export async function resolveTaskProvider(
     return createJiraTaskProviderFromEnvironment(config, environment);
   }
 
+  if (providerId === "github") {
+    return createGitHubIssueTaskProvider(root, config);
+  }
+
   if (providerId === "manual") {
     return new ManualTaskProvider();
   }
@@ -156,6 +173,7 @@ function workflowProviderId(run: WorkflowRun | undefined): Exclude<TaskProviderI
       checkpoint.action === "task.select" &&
       (checkpoint.provider === "markdown" ||
         checkpoint.provider === "jira" ||
+        checkpoint.provider === "github" ||
         checkpoint.provider === "manual")
     ) {
       return checkpoint.provider;

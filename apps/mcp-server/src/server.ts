@@ -102,7 +102,7 @@ export function createLlmaticMcpServer(): McpServer {
     version: "0.1.0",
   });
 
-  const taskProviderSchema = z.enum(["auto", "markdown", "jira", "manual"]);
+  const taskProviderSchema = z.enum(["auto", "markdown", "jira", "github", "manual"]);
 
   server.registerTool(
     "llmatic_task_detect",
