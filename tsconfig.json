@@ -23,6 +23,9 @@
       "path": "./packages/markdown-task-source"
     },
     {
+      "path": "./packages/github-task-source"
+    },
+    {
       "path": "./packages/task-router"
     },
     {
