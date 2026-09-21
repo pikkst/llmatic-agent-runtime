@@ -50,6 +50,7 @@ export interface WorkspaceRecovery {
   taskSource: TaskSourceDetection;
   task?: TaskRecord;
   nextTask?: TaskRecord;
+  taskCandidates: TaskRecord[];
   pullRequest?: PullRequestStatus;
   warnings: string[];
   recommendation: WorkspaceRecoveryRecommendation;
@@ -179,8 +180,8 @@ async function recoverProviderTasks(
   config: AgentConfig,
   detection: TaskSourceDetection,
   environment: NodeJS.ProcessEnv,
-): Promise<{ task?: TaskRecord; nextTask?: TaskRecord }> {
-  if (detection.selected === "manual") return {};
+): Promise<{ task?: TaskRecord; nextTask?: TaskRecord; candidates: TaskRecord[] }> {
+  if (detection.selected === "manual") return { candidates: [] };
 
   try {
     const provider = await resolveTaskProvider(
@@ -193,17 +194,43 @@ async function recoverProviderTasks(
     if (provider.listTasks) {
       const tasks = await provider.listTasks();
       const active = tasks.find((task) => task.status.lifecycle === "in_progress");
-      if (active) return { task: active };
+      if (active) {
+        return {
+          task: active,
+          candidates: tasks
+            .filter((task) => task.status.lifecycle !== "done")
+            .slice(0, 10),
+        };
+      }
+
+      if (provider.getNextTask) {
+        return {
+          nextTask: await provider.getNextTask(),
+          candidates: tasks
+            .filter((task) => task.status.lifecycle !== "done")
+            .slice(0, 10),
+        };
+      }
+
+      return {
+        candidates: tasks
+          .filter((task) => task.status.lifecycle !== "done")
+          .slice(0, 10),
+      };
     }
 
     if (provider.getNextTask) {
-      return { nextTask: await provider.getNextTask() };
+      const nextTask = await provider.getNextTask();
+      return {
+        nextTask,
+        candidates: nextTask ? [nextTask] : [],
+      };
     }
   } catch {
     // Recovery should still succeed when an optional external provider is unavailable.
   }
 
-  return {};
+  return { candidates: [] };
 }
 
 async function recoverPullRequest(root: string): Promise<PullRequestStatus | undefined> {
@@ -367,6 +394,7 @@ export async function recoverWorkspace(
 
   let task: TaskRecord | undefined;
   let nextTask: TaskRecord | undefined;
+  let taskCandidates: TaskRecord[] = [];
 
   if (workflow) {
     task = await recoverWorkflowTask(root, config, store, workflow, environment);
@@ -391,6 +419,7 @@ export async function recoverWorkspace(
       );
       task = providerTasks.task;
       nextTask = providerTasks.nextTask;
+      taskCandidates = providerTasks.candidates;
     }
   }
 
@@ -400,6 +429,7 @@ export async function recoverWorkspace(
     workflow,
     task,
     nextTask,
+    taskCandidates,
     pullRequest,
   });
 
@@ -453,6 +483,22 @@ export function workspaceRecoveryContext(recovery: WorkspaceRecovery): string {
     recovery.nextTask
       ? "- Next task: " + recovery.nextTask.key + " — " + recovery.nextTask.summary
       : undefined,
+    recovery.taskCandidates.length > 0
+      ? "- Task candidates: " +
+        recovery.taskCandidates
+          .map(
+            (task) =>
+              task.key +
+              " [" +
+              task.status.name +
+              "] " +
+              task.summary +
+              (task.dependencies.length > 0
+                ? " (depends on " + task.dependencies.join(", ") + ")"
+                : ""),
+          )
+          .join(" | ")
+      : "- Task candidates: none",
     recovery.pullRequest
       ? "- Open PR: #" +
         recovery.pullRequest.pullRequest.number +
