@@ -23,7 +23,8 @@
   "dependencies": {
     "@llmatic/core": "workspace:*",
     "@llmatic/kilo-connector": "workspace:*",
-    "@llmatic/workspace-manager": "workspace:*"
+    "@llmatic/workspace-manager": "workspace:*",
+    "@llmatic/bootstrap-manager": "workspace:*"
   },
   "devDependencies": {
     "@types/vscode": "1.105.0",
@@ -35,6 +36,11 @@
       {
         "command": "llmatic.attachWorkspace",
         "title": "Attach Workspace",
+        "category": "LLMatic"
+      },
+      {
+        "command": "llmatic.bootstrapWorkspace",
+        "title": "Bootstrap Workspace",
         "category": "LLMatic"
       },
       {

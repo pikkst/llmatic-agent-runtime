@@ -55,6 +55,14 @@ The build produces:
     apps/vscode-extension/dist/extension.cjs
     apps/vscode-extension/dist/runtime/mcp-server.mjs
 
+## Workspace bootstrap
+
+The VS Code command `LLMatic: Bootstrap Workspace` now derives tool requirements from the opened repository and offers controlled remediation for registry-backed installers.
+
+It does not add LLMatic packages or tool descriptions to the repository.
+
+See `docs/bootstrap-remediation.md`.
+
 ## Next milestones
 
 1. runtime bootstrap/installer UX and VSIX packaging

@@ -4,12 +4,26 @@
     "composite": true,
     "rootDir": "src",
     "outDir": "lib",
-    "types": ["node", "vscode"]
+    "types": [
+      "node",
+      "vscode"
+    ]
   },
-  "include": ["src/**/*.ts"],
+  "include": [
+    "src/**/*.ts"
+  ],
   "references": [
-    { "path": "../../packages/core" },
-    { "path": "../../packages/workspace-manager" },
-    { "path": "../../packages/kilo-connector" }
+    {
+      "path": "../../packages/core"
+    },
+    {
+      "path": "../../packages/workspace-manager"
+    },
+    {
+      "path": "../../packages/kilo-connector"
+    },
+    {
+      "path": "../../packages/bootstrap-manager"
+    }
   ]
 }

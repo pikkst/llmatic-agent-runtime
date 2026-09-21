@@ -32,6 +32,9 @@
       "path": "./packages/kilo-connector"
     },
     {
+      "path": "./packages/bootstrap-manager"
+    },
+    {
       "path": "./apps/mcp-server"
     },
     {
