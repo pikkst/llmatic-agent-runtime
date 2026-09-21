@@ -199,6 +199,18 @@ export class LlmaticStatusProvider implements vscode.TreeDataProvider<vscode.Tre
         command: "llmatic.openAgentChat",
       },
       {
+        label: "Repository Rules",
+        description: "explicit, approved, inferred and proposed project rules",
+        icon: "law",
+        command: "llmatic.showRepositoryRules",
+      },
+      {
+        label: "Review Rule Proposals",
+        description: "approve or reject learned project rules",
+        icon: "check-all",
+        command: "llmatic.reviewRuleProposals",
+      },
+      {
         label: "Refresh Repository Context",
         description: "re-index repo and recover task / PR / CI state",
         icon: "refresh",
