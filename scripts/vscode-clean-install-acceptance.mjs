@@ -12,6 +12,12 @@ const vsixPath = resolve(repositoryRoot, "artifacts", "llmatic-agent-runtime.vsi
 const extensionPackagePath = resolve(repositoryRoot, "apps", "vscode-extension", "package.json");
 const extensionSourcePath = resolve(repositoryRoot, "apps", "vscode-extension");
 
+const CLI_TIMEOUT_MS = 120_000;
+
+function phase(message) {
+  console.log("[vscode-acceptance] " + message);
+}
+
 function fail(message) {
   throw new Error("VS Code clean-install acceptance failed: " + message);
 }
@@ -22,6 +28,9 @@ function run(command, args, cwd) {
     env: process.env,
     encoding: "utf8",
     shell: process.platform === "win32",
+    timeout: CLI_TIMEOUT_MS,
+    killSignal: "SIGKILL",
+    maxBuffer: 4 * 1024 * 1024,
   });
 
   if (result.error) {
@@ -187,7 +196,9 @@ try {
     const { downloadAndUnzipVSCode, resolveCliArgsFromVSCodeExecutablePath, runTests } =
       await import("@vscode/test-electron");
 
+    phase("Downloading/unpacking VS Code 1.105.0.");
     const vscodeExecutablePath = await downloadAndUnzipVSCode("1.105.0");
+    phase("VS Code 1.105.0 is ready.");
 
     const [cliPath, ...cliBaseArgs] = resolveCliArgsFromVSCodeExecutablePath(vscodeExecutablePath, {
       reuseMachineInstall: true,
@@ -195,12 +206,15 @@ try {
 
     const profileArgs = ["--user-data-dir", userData, "--extensions-dir", extensions];
 
+    phase("Installing candidate VSIX into the isolated extensions directory.");
     run(
       cliPath,
       [...cliBaseArgs, ...profileArgs, "--install-extension", vsixPath, "--force"],
       root,
     );
+    phase("Candidate VSIX installation completed.");
 
+    phase("Verifying the installed extension identity and version.");
     const installed = run(
       cliPath,
       [...cliBaseArgs, ...profileArgs, "--list-extensions", "--show-versions"],
@@ -223,6 +237,7 @@ try {
       );
     }
 
+    phase("Launching the isolated Extension Host and activating the installed extension.");
     await runTests({
       vscodeExecutablePath,
       extensionDevelopmentPath: harness,
@@ -236,6 +251,7 @@ try {
         LLMATIC_EXTENSIONS_DIR: extensions,
       },
     });
+    phase("Extension Host acceptance completed.");
   } finally {
     process.chdir(previousCwd);
   }
