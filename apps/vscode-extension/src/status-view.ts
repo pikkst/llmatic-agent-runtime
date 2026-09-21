@@ -1,5 +1,6 @@
 import * as vscode from "vscode";
 import type { SetupHealth } from "@llmatic/setup-health";
+import type { WorkspaceRecovery } from "@llmatic/workspace-recovery";
 
 interface StatusAction {
   label: string;
@@ -13,13 +14,16 @@ export class LlmaticStatusProvider implements vscode.TreeDataProvider<vscode.Tre
   public readonly onDidChangeTreeData = this.changed.event;
   private health?: SetupHealth;
   private gatewayKeyConfigured = false;
+  private recovery?: WorkspaceRecovery;
 
   public update(
     health: SetupHealth | undefined,
     gatewayKeyConfigured = this.gatewayKeyConfigured,
+    recovery = this.recovery,
   ): void {
     this.health = health;
     this.gatewayKeyConfigured = gatewayKeyConfigured;
+    this.recovery = recovery;
     this.changed.fire(undefined);
     void vscode.commands.executeCommand("setContext", "llmatic.health", health?.status);
     void vscode.commands.executeCommand(
@@ -47,6 +51,66 @@ export class LlmaticStatusProvider implements vscode.TreeDataProvider<vscode.Tre
       health?.issues
         .map((issue) => issue.label + (issue.detail ? ": " + issue.detail : ""))
         .join("\n") || "LLMatic is ready.";
+
+    const recoveryItems: vscode.TreeItem[] = [];
+    if (this.recovery) {
+      const map = new vscode.TreeItem("Repository Map", vscode.TreeItemCollapsibleState.None);
+      map.iconPath = new vscode.ThemeIcon("symbol-structure");
+      map.description =
+        this.recovery.repository.fileCount +
+        " files · " +
+        this.recovery.repository.symbolCount +
+        " symbols · " +
+        this.recovery.repository.importCount +
+        " imports";
+      map.tooltip = "Generated " + this.recovery.repository.generatedAt;
+      recoveryItems.push(map);
+
+      const recovered = new vscode.TreeItem(
+        this.recovery.workflow
+          ? "Workflow " + this.recovery.workflow.taskRef
+          : this.recovery.task
+            ? "Task " + this.recovery.task.key
+            : this.recovery.nextTask
+              ? "Next " + this.recovery.nextTask.key
+              : "Workspace Recovery",
+        vscode.TreeItemCollapsibleState.None,
+      );
+      recovered.iconPath = new vscode.ThemeIcon(
+        this.recovery.pullRequest ? "git-pull-request" : "tasklist",
+      );
+      recovered.description = this.recovery.pullRequest
+        ? "PR #" +
+          this.recovery.pullRequest.pullRequest.number +
+          " · CI " +
+          this.recovery.pullRequest.ciState
+        : this.recovery.workflow
+          ? this.recovery.workflow.state
+          : this.recovery.task
+            ? this.recovery.task.status.name
+            : this.recovery.nextTask
+              ? this.recovery.nextTask.summary
+              : "no active task";
+      recovered.tooltip =
+        this.recovery.recommendation.title + "\n" + this.recovery.recommendation.detail;
+      recovered.command = {
+        command: "llmatic.openAgentChat",
+        title: "Open Agent Chat",
+      };
+      recoveryItems.push(recovered);
+
+      const recommendation = new vscode.TreeItem(
+        "Next: " + this.recovery.recommendation.title,
+        vscode.TreeItemCollapsibleState.None,
+      );
+      recommendation.iconPath = new vscode.ThemeIcon("sparkle");
+      recommendation.description = this.recovery.recommendation.detail;
+      recommendation.command = {
+        command: "llmatic.openAgentChat",
+        title: "Open Agent Chat",
+      };
+      recoveryItems.push(recommendation);
+    }
 
     const actions: StatusAction[] = [
       {
@@ -106,10 +170,16 @@ export class LlmaticStatusProvider implements vscode.TreeDataProvider<vscode.Tre
         command: "llmatic.installUpdate",
       },
       {
-        label: "Run Gateway Agent",
-        description: "kilo-auto/free; guides key setup if needed",
-        icon: "sparkle",
-        command: "llmatic.runAgent",
+        label: "Agent Chat",
+        description: "persistent repo-aware conversation",
+        icon: "comment-discussion",
+        command: "llmatic.openAgentChat",
+      },
+      {
+        label: "Refresh Repository Context",
+        description: "re-index repo and recover task / PR / CI state",
+        icon: "refresh",
+        command: "llmatic.refreshWorkspaceRecovery",
       },
       {
         label: "Review / Fix Loop",
@@ -121,6 +191,7 @@ export class LlmaticStatusProvider implements vscode.TreeDataProvider<vscode.Tre
 
     return [
       statusItem,
+      ...recoveryItems,
       ...actions.map((action) => {
         const item = new vscode.TreeItem(action.label, vscode.TreeItemCollapsibleState.None);
         item.description = action.description;
