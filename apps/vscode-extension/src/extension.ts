@@ -823,6 +823,20 @@ function printReviewReport(output: vscode.OutputChannel, report: CodeReviewRepor
       " non-blocking)",
   );
   output.appendLine(
+    "Review lenses: " + report.lenses.join(", "),
+  );
+  output.appendLine(
+    "Repository constitution: " +
+      report.constitution.activeRuleCount +
+      " active explicit/approved rule(s), " +
+      report.constitution.blockingRuleCount +
+      " blocking rule(s), " +
+      report.constitution.inferredConventionCount +
+      " inferred convention(s), " +
+      report.constitution.proposedRuleCount +
+      " proposed rule(s)",
+  );
+  output.appendLine(
     "Living architecture: " +
       (report.architectureImpact.baselineDetected
         ? report.architectureImpact.unresolvedCount +
@@ -839,11 +853,20 @@ function printReviewReport(output: vscode.OutputChannel, report: CodeReviewRepor
     output.appendLine(
       "[" +
         (finding.severity === "blocking" ? "BLOCKING" : "NON-BLOCKING") +
+        "][" +
+        finding.lens.toUpperCase() +
         "] " +
         finding.title +
         " — " +
         location,
     );
+    if (finding.ruleId) {
+      output.appendLine(
+        "  Rule: " +
+          finding.ruleId +
+          (finding.ruleSource ? " (" + finding.ruleSource + ")" : ""),
+      );
+    }
     output.appendLine("  " + finding.evidence);
     output.appendLine("  Fix: " + finding.recommendation);
   }
@@ -959,6 +982,7 @@ async function runGatewayReview(
           store,
           gateway,
           model,
+          lenses: ["general", "bug_hunter", "security"],
           maxSteps: configuration().get<number>("agentMaxSteps", 20),
           maxReviewRounds: config.workflow.maxFixAttempts,
           allowAdHoc: true,
@@ -998,6 +1022,7 @@ async function runGatewayReview(
         store,
         gateway,
         model,
+        lenses: ["general", "bug_hunter", "security"],
       }),
   );
 
