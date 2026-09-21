@@ -11,6 +11,9 @@
       "path": "./packages/git-adapter"
     },
     {
+      "path": "./packages/repo-intelligence"
+    },
+    {
       "path": "./apps/cli"
     }
   ]
