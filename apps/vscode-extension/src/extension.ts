@@ -23,6 +23,12 @@ import {
 } from "@llmatic/discovery-engine";
 import { KiloGatewayClient } from "@llmatic/gateway-client";
 import {
+  generateProjectPlan,
+  loadCurrentProjectPlan,
+  loadProjectPlanManifest,
+  type ProjectPlanManifest,
+} from "@llmatic/planning-engine";
+import {
   compareSemver,
   parseReleaseManifest,
   type ReleaseManifest,
@@ -1360,10 +1366,192 @@ async function startProjectDiscovery(
   writeDiscoverySummary(output, workspaceDirectory, session);
 
   if (session.status === "ready_for_planning") {
-    await vscode.window.showInformationMessage(
+    const action = await vscode.window.showInformationMessage(
       "Project discovery is complete and ready for planning. No tracked repository files were changed.",
+      "Generate Project Plan",
+    );
+
+    if (action === "Generate Project Plan") {
+      await vscode.commands.executeCommand("llmatic.generatePlan");
+    }
+  }
+}
+
+
+interface PlanQuickPickItem extends vscode.QuickPickItem {
+  relativePath?: string;
+  action?: "reveal";
+}
+
+function writePlanSummary(
+  output: vscode.OutputChannel,
+  manifest: ProjectPlanManifest,
+  planDirectory: string,
+): void {
+  output.clear();
+  output.appendLine("LLMatic Project Plan");
+  output.appendLine("");
+  output.appendLine("Plan: " + manifest.planId);
+  output.appendLine("Status: " + manifest.status);
+  output.appendLine("Artifacts: " + manifest.artifactCount);
+  output.appendLine("Tasks: " + manifest.taskCount);
+  output.appendLine("Private plan directory: " + planDirectory);
+  output.appendLine("Repository files changed: none");
+  output.show(true);
+}
+
+async function generateProjectPlanInUi(
+  context: vscode.ExtensionContext,
+  state: ExtensionState,
+  output: vscode.OutputChannel,
+): Promise<void> {
+  const folder = firstWorkspaceFolder();
+  if (!folder) {
+    await vscode.window.showWarningMessage(
+      "Open the project workspace before generating a project plan.",
+    );
+    return;
+  }
+
+  if (!state.activeWorkspace) {
+    state.activeWorkspace = await attachWorkspace(context, folder);
+  }
+
+  const workspaceDirectory = state.activeWorkspace.directory;
+  const discovery = await loadDiscoverySession(workspaceDirectory);
+
+  if (!discovery || discovery.status !== "ready_for_planning") {
+    const action = await vscode.window.showInformationMessage(
+      "Project discovery must be completed before LLMatic can generate the engineering plan.",
+      "Start / Resume Discovery",
+    );
+
+    if (action === "Start / Resume Discovery") {
+      await vscode.commands.executeCommand("llmatic.startDiscovery");
+    }
+    return;
+  }
+
+  const current = await loadCurrentProjectPlan(workspaceDirectory);
+  if (current) {
+    const action = await vscode.window.showWarningMessage(
+      "A private project-plan draft already exists. Generating again creates a new version and preserves the current draft.",
+      { modal: true },
+      "Generate New Draft",
+      "Review Current",
+    );
+
+    if (action === "Review Current") {
+      await vscode.commands.executeCommand("llmatic.reviewPlan");
+      return;
+    }
+
+    if (action !== "Generate New Draft") return;
+  }
+
+  const result = await vscode.window.withProgress(
+    {
+      location: vscode.ProgressLocation.Notification,
+      title: "LLMatic is generating the private project plan",
+      cancellable: false,
+    },
+    () => generateProjectPlan(workspaceDirectory, discovery),
+  );
+
+  writePlanSummary(output, result.manifest, result.current.planDirectory);
+
+  const action = await vscode.window.showInformationMessage(
+    "Project plan draft generated privately. No tracked repository files were changed.",
+    "Review Plan",
+    "Reveal Plan Folder",
+  );
+
+  if (action === "Review Plan") {
+    await vscode.commands.executeCommand("llmatic.reviewPlan");
+  } else if (action === "Reveal Plan Folder") {
+    await vscode.commands.executeCommand(
+      "revealFileInOS",
+      vscode.Uri.file(result.current.manifestPath),
     );
   }
+}
+
+async function reviewProjectPlanInUi(
+  context: vscode.ExtensionContext,
+  state: ExtensionState,
+  output: vscode.OutputChannel,
+): Promise<void> {
+  const folder = firstWorkspaceFolder();
+  if (!folder) {
+    await vscode.window.showWarningMessage(
+      "Open the project workspace to review its LLMatic plan.",
+    );
+    return;
+  }
+
+  if (!state.activeWorkspace) {
+    state.activeWorkspace = await attachWorkspace(context, folder);
+  }
+
+  const workspaceDirectory = state.activeWorkspace.directory;
+  const current = await loadCurrentProjectPlan(workspaceDirectory);
+  const manifest = current
+    ? await loadProjectPlanManifest(workspaceDirectory, current.planId)
+    : undefined;
+
+  if (!current || !manifest) {
+    const action = await vscode.window.showInformationMessage(
+      "No private project-plan draft exists for this workspace.",
+      "Generate Plan",
+    );
+
+    if (action === "Generate Plan") {
+      await vscode.commands.executeCommand("llmatic.generatePlan");
+    }
+    return;
+  }
+
+  writePlanSummary(output, manifest, current.planDirectory);
+
+  const items: PlanQuickPickItem[] = manifest.artifacts.map((artifact) => ({
+    label: artifact.title,
+    description: artifact.relativePath,
+    detail: artifact.kind === "json" ? "Structured planning artifact" : "Planning document",
+    relativePath: artifact.relativePath,
+  }));
+
+  items.push({
+    label: "$(folder-opened) Reveal plan folder",
+    description: current.planDirectory,
+    action: "reveal",
+  });
+
+  const selected = await vscode.window.showQuickPick(items, {
+    title: "LLMatic Project Plan — " + manifest.planId,
+    placeHolder:
+      "Review a private planning artifact. Approval/materialization is intentionally unavailable until M23.",
+    ignoreFocusOut: true,
+  });
+
+  if (!selected) return;
+
+  if (selected.action === "reveal") {
+    await vscode.commands.executeCommand(
+      "revealFileInOS",
+      vscode.Uri.file(current.manifestPath),
+    );
+    return;
+  }
+
+  if (!selected.relativePath) return;
+
+  const document = await vscode.workspace.openTextDocument(
+    vscode.Uri.file(resolve(current.planDirectory, selected.relativePath)),
+  );
+  await vscode.window.showTextDocument(document, {
+    preview: true,
+    preserveFocus: false,
+  });
 }
 
 async function showProjectDiscovery(
@@ -1476,6 +1664,22 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
         await vscode.window.showErrorMessage("LLMatic discovery: " + message);
+      }
+    }),
+    vscode.commands.registerCommand("llmatic.generatePlan", async () => {
+      try {
+        await generateProjectPlanInUi(context, state, output);
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        await vscode.window.showErrorMessage("LLMatic planning: " + message);
+      }
+    }),
+    vscode.commands.registerCommand("llmatic.reviewPlan", async () => {
+      try {
+        await reviewProjectPlanInUi(context, state, output);
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        await vscode.window.showErrorMessage("LLMatic planning: " + message);
       }
     }),
     vscode.commands.registerCommand("llmatic.getReady", async () => {

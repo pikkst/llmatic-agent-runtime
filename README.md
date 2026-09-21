@@ -4,7 +4,7 @@ Universal local software-engineering runtime for coding agents.
 
 ## Current milestone
 
-M21 — Greenfield Discovery Engine
+M22 — Project Planning Engine
 
 LLMatic now supports:
 
@@ -181,3 +181,40 @@ Every delegated/recommended choice stores its rationale. Discovery state is pers
 Cancelling the wizard pauses discovery without losing answered decisions.
 
 M21 never scaffolds source code, installs packages, creates migrations, or writes planning files into the tracked repository.
+
+
+## Private project planning
+
+After discovery reaches `ready_for_planning`, use:
+
+    LLMatic: Generate Project Plan
+    LLMatic: Review Project Plan
+
+M22 generates a versioned private draft containing:
+
+- product brief
+- requirements
+- user journeys
+- architecture
+- proposed ADRs
+- data model
+- API contracts
+- security model
+- testing strategy
+- observability/operations plan
+- roadmap/phases
+- TASKS.md
+- dependency graph
+- plan manifest
+
+Storage:
+
+    <globalStorage>/workspaces/<workspace-id>/planning/plans/<plan-id>/
+
+The active draft is referenced by:
+
+    <globalStorage>/workspaces/<workspace-id>/planning/current-plan.json
+
+Regeneration creates a new plan version and preserves the previous draft.
+
+M22 still cannot scaffold, install, migrate, push, create a PR, or deploy. M23 adds explicit human approval before any approved plan can become repository state.

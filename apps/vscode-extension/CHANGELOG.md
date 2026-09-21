@@ -85,3 +85,13 @@
 - Discovery progress persists outside the repository.
 - Added New Project Discovery Activity Bar action and status command.
 - No scaffold or tracked repository mutation is available from discovery.
+
+## M22 — Project planning
+
+- Added a versioned private project-planning engine.
+- Generates product brief, requirements, user journeys, architecture, ADRs, data/API/security/testing/operations documents, roadmap, TASKS.md and dependency graph.
+- Plan regeneration preserves older drafts and moves only the private current-plan pointer.
+- Added Generate Project Plan and Review Project Plan VS Code commands.
+- Added MCP plan status/generate/read-artifact tools.
+- Planning remains outside the repository and has no approval/materialization path yet.
+

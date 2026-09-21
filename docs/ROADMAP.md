@@ -4,6 +4,8 @@ This file is the canonical forward milestone plan after M19.
 
 ## M19 — Release Acceptance
 
+Status: completed.
+
 Goal: prove that a tagged candidate contains a valid VS Code extension, verified runtime, valid release manifest and zero-repository-footprint package before GitHub Release publication.
 
 Status: in progress.
@@ -37,7 +39,7 @@ Markdown must be a first-class offline task source and preserve unrelated docume
 
 ## M21 — Greenfield Discovery Engine
 
-Status: in progress.
+Status: completed.
 
 Goal: if the repository/project is empty or the user explicitly starts a new project, planning begins before repository mutation.
 
@@ -72,6 +74,8 @@ Core discovery areas:
 No implementation/scaffold/package install is allowed before approval.
 
 ## M22 — Project Planning Engine
+
+Status: in progress.
 
 Goal: turn approved discovery decisions into an engineering plan.
 
