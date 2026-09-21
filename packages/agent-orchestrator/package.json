@@ -19,6 +19,7 @@
     "@llmatic/workspace-files": "workspace:*",
     "@llmatic/task-router": "workspace:*",
     "@llmatic/task-provider": "workspace:*",
-    "@llmatic/repository-constitution": "workspace:*"
+    "@llmatic/repository-constitution": "workspace:*",
+    "@llmatic/github-adapter": "workspace:*"
   }
 }
