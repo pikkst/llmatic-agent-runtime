@@ -1,3 +1,6 @@
+import { randomUUID } from "node:crypto";
+import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
+import { dirname, resolve } from "node:path";
 import { spawnSync } from "node:child_process";
 import { z } from "zod";
 import {
@@ -36,6 +39,41 @@ import { isWorkspacePathSensitive, readWorkspaceFile } from "@llmatic/workspace-
 
 const MAX_DIFF_CHARS = 64000;
 const MAX_TOOL_RESULT_CHARS = 64000;
+
+function latestReviewPath(root: string, config: AgentConfig): string {
+  return resolve(root, config.runtime.cacheDirectory, "latest-review.json");
+}
+
+async function persistReviewReport(
+  root: string,
+  config: AgentConfig,
+  report: CodeReviewReport,
+): Promise<void> {
+  const path = latestReviewPath(root, config);
+  await mkdir(dirname(path), { recursive: true });
+  const temporary = path + "." + randomUUID() + ".tmp";
+  await writeFile(temporary, JSON.stringify(report, null, 2) + "\n", "utf8");
+
+  try {
+    await rename(temporary, path);
+  } catch (error) {
+    await rm(temporary, { force: true });
+    throw error;
+  }
+}
+
+export async function loadLatestReviewReport(
+  root: string,
+  config: AgentConfig,
+): Promise<CodeReviewReport | undefined> {
+  try {
+    return JSON.parse(await readFile(latestReviewPath(root, config), "utf8")) as CodeReviewReport;
+  } catch (error) {
+    const code = error instanceof Error && "code" in error ? String(error.code) : undefined;
+    if (code === "ENOENT") return undefined;
+    throw error;
+  }
+}
 
 export type ReviewLens = "general" | "bug_hunter" | "security";
 
@@ -540,6 +578,7 @@ export async function runCodeReview(options: CodeReviewOptions): Promise<CodeRev
       model,
       changedFiles,
     };
+    await persistReviewReport(options.root, options.config, report);
     await applyWorkflowReviewResult(options.store, 0);
     return report;
   }
@@ -609,6 +648,7 @@ export async function runCodeReview(options: CodeReviewOptions): Promise<CodeRev
       findingCount: String(report.findings.length),
     },
   });
+  await persistReviewReport(options.root, options.config, report);
   await applyWorkflowReviewResult(options.store, blockingCount);
   return report;
 }
