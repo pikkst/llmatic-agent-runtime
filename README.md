@@ -29,7 +29,7 @@ Every tagged GitHub release also publishes a verified VSIX and release manifest.
 Download the VSIX from the matching GitHub Release, then either use **Extensions → … → Install from VSIX…** or:
 
 ```powershell
-code --install-extension .\llmatic-agent-runtime-0.1.2.vsix
+code --install-extension .\llmatic-agent-runtime-0.2.0.vsix
 ```
 
 ## Requirements
@@ -103,16 +103,57 @@ For an existing repository, start with:
 
 ```text
 LLMatic: Get Ready
+```
+
+LLMatic then recovers the engineering context instead of leaving you at a manual command menu:
+
+```text
+map repository
+  -> detect current branch + working tree
+  -> recover active LLMatic workflow
+  -> inspect open pull request + CI
+  -> detect canonical task source
+  -> recover active task / ranked next-task candidates
+  -> recommend the next engineering action
+  -> open Agent Chat
+```
+
+The repository map records file structure, TypeScript/JavaScript AST symbols and import edges in LLMatic's external workspace cache.
+
+The LLMatic Activity Bar shows the map counts, recovered task/workflow/PR state and the recommended next action. **Agent Chat** keeps a persistent multi-turn conversation and shows model/tool activity while the agent works.
+
+Useful actions:
+
+```text
+LLMatic: Open Agent Chat
+LLMatic: Refresh Repository Context
 LLMatic: Doctor
 ```
 
-LLMatic can then use repository signals, source structure, Git state, local quality commands, configured task sources, and supported tool packs without adding its own runtime state to the repository.
+Runtime state and the repository intelligence cache stay outside tracked repository files.
 
 ## Task sources
 
 LLMatic task workflows do not require Jira.
 
-Detection order:
+By default, task sources are auto-detected. You can explicitly select a canonical source with the VS Code setting `llmatic.taskSource`:
+
+```text
+auto | jira | markdown | github
+```
+
+This matters when a repository contains both `TASKS.md` and a live Jira project.
+
+Jira recovery can optionally be scoped with:
+
+```text
+llmatic.jiraProjectKey
+llmatic.jiraRecoveryJql
+```
+
+With Jira selected, LLMatic retrieves assigned open work in Jira Rank order, filters obvious blocked/dependency-incomplete candidates for deterministic `task next`, and exposes the live candidate set to Agent Chat. The Kilo model can then reason about sequencing against repository, workflow, branch, PR and CI context instead of guessing Jira state.
+
+Auto-detection fallback order remains:
 
 ```text
 TASKS.md / Tasks.md / TODO.md
@@ -154,12 +195,12 @@ task
 Useful commands:
 
 ```text
-LLMatic: Run Gateway Agent
+LLMatic: Open Agent Chat
 LLMatic: Run Code Review
 LLMatic: Run Review / Fix Loop
 ```
 
-Review uses changed-files-first context. Review results are schema-validated before workflow state changes.
+Review uses changed-files-first context. Review results are schema-validated before workflow state changes. When no task workflow is active, Review / Fix Loop can run in ad-hoc existing-repository mode without inventing workflow transitions.
 
 ## Living architecture
 
@@ -225,7 +266,7 @@ Gateway credentials are stored in VS Code SecretStorage.
 
 ## Releases and updates
 
-Semantic tags such as `v0.1.2` run the release pipeline, package the VSIX, verify release metadata and hashes, execute clean-install acceptance, and publish a GitHub Release.
+Semantic tags such as `v0.2.0` run the release pipeline, package the VSIX, verify release metadata and hashes, execute clean-install acceptance, and publish a GitHub Release.
 
 Update commands:
 
@@ -278,7 +319,7 @@ Important acceptance commands:
 ```bash
 pnpm product:acceptance
 pnpm vscode:acceptance
-pnpm release:acceptance v0.1.2 <commit-sha>
+pnpm release:acceptance v0.2.0 <commit-sha>
 ```
 
 The milestone roadmap is maintained in [docs/ROADMAP.md](docs/ROADMAP.md).
