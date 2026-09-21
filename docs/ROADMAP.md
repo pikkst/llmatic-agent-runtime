@@ -173,7 +173,6 @@ Greenfield projects follow:
 
 LLMatic may recommend and explain best-practice choices, but the user controls consequential project decisions.
 
-
 ## M25 — End-to-End Product Acceptance
 
 Status: in progress.

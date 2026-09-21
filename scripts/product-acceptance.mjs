@@ -6,10 +6,7 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import process from "node:process";
 import { analyzeArchitectureImpact } from "../packages/architecture-impact/dist/index.js";
-import {
-  createDefaultConfig,
-  detectRepository,
-} from "../packages/core/dist/index.js";
+import { createDefaultConfig, detectRepository } from "../packages/core/dist/index.js";
 import {
   answerDiscoveryQuestion,
   createDiscoverySession,
@@ -53,11 +50,7 @@ function run(root, command, args, label) {
 }
 
 async function answerAllDiscovery(root, workspace) {
-  let session = await createDiscoverySession(
-    root,
-    workspace,
-    "Build a B2B property analysis SaaS",
-  );
+  let session = await createDiscoverySession(root, workspace, "Build a B2B property analysis SaaS");
 
   const answers = [
     ["product_type", "saas_web"],
@@ -73,15 +66,10 @@ async function answerAllDiscovery(root, workspace) {
   ];
 
   for (const [questionId, value] of answers) {
-    session = await answerDiscoveryQuestion(
-      workspace,
-      session,
-      questionId,
-      {
-        mode: "option",
-        value,
-      },
-    );
+    session = await answerDiscoveryQuestion(workspace, session, questionId, {
+      mode: "option",
+      value,
+    });
   }
 
   if (session.status !== "ready_for_planning") {
@@ -93,20 +81,14 @@ async function answerAllDiscovery(root, workspace) {
 
 async function main() {
   const root = await mkdtemp(join(tmpdir(), "llmatic-product-acceptance-root-"));
-  const workspace = await mkdtemp(
-    join(tmpdir(), "llmatic-product-acceptance-workspace-"),
-  );
+  const workspace = await mkdtemp(join(tmpdir(), "llmatic-product-acceptance-workspace-"));
 
   try {
     run(root, "git", ["init"], "git init");
     run(root, "git", ["config", "user.email", "acceptance@llmatic.test"], "git config email");
     run(root, "git", ["config", "user.name", "LLMatic Acceptance"], "git config name");
 
-    await writeFile(
-      resolve(root, "README.md"),
-      "# Product acceptance fixture\n",
-      "utf8",
-    );
+    await writeFile(resolve(root, "README.md"), "# Product acceptance fixture\n", "utf8");
 
     const session = await answerAllDiscovery(root, workspace);
     const generated = await generateProjectPlan(workspace, session);
@@ -118,10 +100,7 @@ async function main() {
     const approval = await approveCurrentProjectPlan(workspace);
     const approvalStatus = await planApprovalStatus(workspace);
 
-    if (
-      !approvalStatus.verified ||
-      approvalStatus.currentPlanId !== approval.planId
-    ) {
+    if (!approvalStatus.verified || approvalStatus.currentPlanId !== approval.planId) {
       fail("exact plan approval was not verified.");
     }
 
@@ -130,11 +109,7 @@ async function main() {
     config.runtime.stateDirectory = resolve(workspace, "state");
     config.runtime.cacheDirectory = resolve(workspace, "cache");
 
-    const initialized = await initializeApprovedProject(
-      root,
-      workspace,
-      config,
-    );
+    const initialized = await initializeApprovedProject(root, workspace, config);
 
     if (initialized.lifecycle.state !== "READY_FOR_IMPLEMENTATION") {
       fail("initialization did not reach READY_FOR_IMPLEMENTATION.");
@@ -175,9 +150,7 @@ async function main() {
       !drift.unresolvedAreas.includes("api_contract") ||
       !drift.unresolvedAreas.includes("testing")
     ) {
-      fail(
-        "living-architecture gate did not block API drift with missing contract/test evidence.",
-      );
+      fail("living-architecture gate did not block API drift with missing contract/test evidence.");
     }
 
     await writeFile(
@@ -195,10 +168,7 @@ async function main() {
     );
 
     const synchronizedFiles = listChangedFiles(root);
-    const synchronized = await analyzeArchitectureImpact(
-      root,
-      synchronizedFiles,
-    );
+    const synchronized = await analyzeArchitectureImpact(root, synchronizedFiles);
 
     if (synchronized.unresolvedCount !== 0) {
       fail(
@@ -207,20 +177,14 @@ async function main() {
       );
     }
 
-    const taskProvider = await createMarkdownTaskProvider(
-      root,
-      config,
-      "TASKS.md",
-    );
+    const taskProvider = await createMarkdownTaskProvider(root, config, "TASKS.md");
     await taskProvider.transitionTask("PLAN-001", "complete", {
       approved: true,
     });
     const next = await taskProvider.getNextTask();
 
     if (!next || next.key !== "PLAN-002") {
-      fail(
-        "dependency-aware task queue did not advance from PLAN-001 to PLAN-002.",
-      );
+      fail("dependency-aware task queue did not advance from PLAN-001 to PLAN-002.");
     }
 
     console.log("");

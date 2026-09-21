@@ -289,7 +289,6 @@ The gate is enabled only when the repository contains the initialized LLMatic ba
 
 A clear model review is not sufficient when deterministic living-architecture impact remains unresolved. The workflow returns to FIXING until the required synchronization evidence is present.
 
-
 ## Product lifecycle acceptance
 
 The assembled greenfield workflow is executable as one acceptance gate:
