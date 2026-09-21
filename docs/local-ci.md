@@ -42,6 +42,6 @@ For a fresh clone:
 
 GitHub Actions installs dependencies and runs:
 
-    pnpm ci
+    pnpm run ci
 
-Both `pnpm ci` and `pnpm ci:local` execute the same Node-based pipeline. This prevents the local acceptance path from drifting away from hosted CI.
+Both `pnpm run ci` and `pnpm ci:local` execute the same Node-based pipeline. This prevents the local acceptance path from drifting away from hosted CI.

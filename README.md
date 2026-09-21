@@ -43,7 +43,7 @@ Install dependencies:
 
 Validate:
 
-    pnpm ci
+    pnpm run ci
 
 Build:
 
