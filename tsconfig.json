@@ -23,6 +23,9 @@
       "path": "./packages/markdown-task-source"
     },
     {
+      "path": "./packages/task-router"
+    },
+    {
       "path": "./packages/jira-adapter"
     },
     {
