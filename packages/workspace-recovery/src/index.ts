@@ -9,6 +9,11 @@ import {
   loadRepositoryIndex,
   type RepositoryIndex,
 } from "@llmatic/repo-intelligence";
+import {
+  buildRepositoryConstitution,
+  repositoryConstitutionContext,
+  type RepositoryConstitution,
+} from "@llmatic/repository-constitution";
 import type { TaskProvider, TaskRecord } from "@llmatic/task-provider";
 import {
   detectTaskSources,
@@ -51,6 +56,7 @@ export interface WorkspaceRecovery {
   task?: TaskRecord;
   nextTask?: TaskRecord;
   taskCandidates: TaskRecord[];
+  constitution: RepositoryConstitution;
   pullRequest?: PullRequestStatus;
   warnings: string[];
   recommendation: WorkspaceRecoveryRecommendation;
@@ -387,6 +393,9 @@ export async function recoverWorkspace(
     options.rebuildIndex ?? false,
   );
   const repository = indexSummary(index);
+  const constitution = await buildRepositoryConstitution(root, config, {
+    rebuildIndex: false,
+  });
   const git = await getGitStatus(root);
   const workflow = activeWorkflow(await store.loadCurrent());
   const taskSource = await detectTaskSources(root, environment);
@@ -441,6 +450,7 @@ export async function recoverWorkspace(
     task,
     nextTask,
     taskCandidates,
+    constitution,
     pullRequest,
     warnings,
     recommendation,
@@ -483,6 +493,15 @@ export function workspaceRecoveryContext(recovery: WorkspaceRecovery): string {
     recovery.nextTask
       ? "- Next task: " + recovery.nextTask.key + " — " + recovery.nextTask.summary
       : undefined,
+    "- Constitution: " +
+      recovery.constitution.counts.explicitRule +
+      " explicit rules, " +
+      recovery.constitution.counts.approvedRule +
+      " approved rules, " +
+      recovery.constitution.counts.inferredConvention +
+      " inferred conventions, " +
+      recovery.constitution.counts.proposedRule +
+      " proposed rules",
     recovery.taskCandidates.length > 0
       ? "- Task candidates: " +
         recovery.taskCandidates
@@ -511,5 +530,9 @@ export function workspaceRecoveryContext(recovery: WorkspaceRecovery): string {
       recovery.recommendation.detail,
   ].filter((line): line is string => Boolean(line));
 
-  return lines.join("\n");
+  return lines.join("\n") + "\n\n" + repositoryConstitutionContext(recovery.constitution, {
+    includeInferred: true,
+    includeProposed: false,
+    maxRules: 60,
+  });
 }
