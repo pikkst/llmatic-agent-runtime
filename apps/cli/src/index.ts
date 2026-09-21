@@ -142,46 +142,37 @@ program
   )
   .option("-r, --root <path>", "Repository root", process.cwd())
   .option("--approve", "Approve capabilities configured with permission 'ask'")
-  .action(
-    async (capabilityInput: string, options: { root: string; approve?: boolean }) => {
-      const root = resolve(options.root);
-      const capability = capabilityInput as CapabilityName;
-      const allowed: CapabilityName[] = [
-        "format",
-        "lint",
-        "typecheck",
-        "test",
-        "build",
-        "ci",
-      ];
+  .action(async (capabilityInput: string, options: { root: string; approve?: boolean }) => {
+    const root = resolve(options.root);
+    const capability = capabilityInput as CapabilityName;
+    const allowed: CapabilityName[] = ["format", "lint", "typecheck", "test", "build", "ci"];
 
-      if (!allowed.includes(capability)) {
-        throw new Error("Unknown capability: " + capabilityInput + ".");
-      }
+    if (!allowed.includes(capability)) {
+      throw new Error("Unknown capability: " + capabilityInput + ".");
+    }
 
-      const config = await loadAgentConfig(root);
-      const result = await executeCapability(root, config, capability, {
-        approved: options.approve ?? false,
-      });
+    const config = await loadAgentConfig(root);
+    const result = await executeCapability(root, config, capability, {
+      approved: options.approve ?? false,
+    });
 
-      const store = new WorkflowStateStore(root, config);
-      await recordCapabilityCheckpoint(store, result);
+    const store = new WorkflowStateStore(root, config);
+    await recordCapabilityCheckpoint(store, result);
 
-      console.log("");
-      console.log(
-        (result.success ? "PASS" : "FAIL") +
-          ": " +
-          result.capability +
-          " (" +
-          result.durationMs +
-          "ms)",
-      );
+    console.log("");
+    console.log(
+      (result.success ? "PASS" : "FAIL") +
+        ": " +
+        result.capability +
+        " (" +
+        result.durationMs +
+        "ms)",
+    );
 
-      if (!result.success) {
-        process.exitCode = result.exitCode || 1;
-      }
-    },
-  );
+    if (!result.success) {
+      process.exitCode = result.exitCode || 1;
+    }
+  });
 
 const workflow = program.command("workflow").description("Manage persistent workflow state.");
 

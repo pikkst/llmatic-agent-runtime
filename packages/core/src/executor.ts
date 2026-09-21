@@ -66,12 +66,7 @@ export function resolveCapability(
 ): Capability {
   const capability = detection.capabilities.find((candidate) => candidate.name === name);
 
-  if (
-    !capability?.available ||
-    !capability.executable ||
-    !capability.args ||
-    !capability.command
-  ) {
+  if (!capability?.available || !capability.executable || !capability.args || !capability.command) {
     throw new Error("Capability " + name + " is not available in this repository.");
   }
 
