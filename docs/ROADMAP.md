@@ -175,7 +175,7 @@ LLMatic may recommend and explain best-practice choices, but the user controls c
 
 ## M25 — End-to-End Product Acceptance
 
-Status: in progress.
+Status: completed.
 
 Goal: prove the assembled product lifecycle as one executable acceptance path rather than relying only on isolated package tests.
 
