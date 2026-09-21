@@ -18,6 +18,9 @@
     },
     {
       "path": "../../packages/repo-intelligence"
+    },
+    {
+      "path": "../../packages/github-adapter"
     }
   ]
 }

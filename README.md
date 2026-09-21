@@ -2,38 +2,24 @@
 
 Universal local software-engineering runtime for coding agents.
 
-LLMatic Agent Runtime gives coding agents a deterministic, repository-aware capability layer instead of forcing every model to rediscover project-specific commands, tools, repository structure, and quality gates.
+LLMatic Agent Runtime gives coding agents deterministic, repository-aware engineering capabilities while keeping workflow state, permissions, local validation, source intelligence, Git, and GitHub operations outside the model prompt.
 
 ## Current milestone
 
-M6 — Repository Intelligence
+M7 — GitHub Adapter
 
 Implemented:
 
-- repository/package-manager/technology/tool detection
-- structured capability execution
-- persistent workflow state and checkpoints
-- state-aware local validation orchestration
-- agent-neutral tool registry with controlled installers
+- persistent workflow state and audit checkpoints
+- repository detection and capability execution
+- local validation orchestration
+- tool registry and controlled installers
 - protected Git adapter
-- repository file index
-- TypeScript/JavaScript AST symbol index
-- import/re-export graph edges
-- deterministic repository search
-- workflow-aware repository analysis
-
-## Useful commands
-
-    llmatic detect
-    llmatic doctor
-
-    llmatic repo index
-    llmatic repo search WorkflowStateStore
-    llmatic workflow analyze
-
-    llmatic tools list
-    llmatic git status
-    llmatic validate
+- repository file/AST/import intelligence
+- GitHub pull-request creation
+- pull-request and remote-CI status
+- workflow-aware PR/CI transitions
+- protected merge with exact PR head SHA matching
 
 ## Workflow path implemented so far
 
@@ -46,16 +32,37 @@ Implemented:
       -> CODE_REVIEW
       -> READY_TO_PUSH
       -> PUSHED               # llmatic workflow push
+      -> PR_OPEN              # llmatic workflow open-pr
+      -> REMOTE_CI            # llmatic workflow remote-ci
+      -> FINAL_REVIEW
+      -> READY_TO_MERGE
+      -> COMPLETED            # llmatic workflow merge
 
-Later milestones attach GitHub/PR/remote-CI/MCP/task-provider adapters to the remaining states.
+Failed remote CI moves back to FIXING.
+
+## Useful commands
+
+    llmatic repo index
+    llmatic repo search WorkflowStateStore
+
+    llmatic git status
+    llmatic tools list
+
+    llmatic github pr status
+    llmatic github pr create --title "..." --body "..." --approve
+    llmatic github pr merge 123 --approve
+
+    llmatic workflow open-pr --title "..." --body "..." --approve
+    llmatic workflow remote-ci
+    llmatic workflow merge --approve
 
 ## Architecture
 
-Coding agents are clients of the runtime.
+Coding agents remain clients of the runtime.
 
-Kilo Code, Codex, Claude Code, Cline, local LLMs, or other clients should eventually use the same deterministic operations through CLI and MCP interfaces.
+Kilo Code, Codex, Claude Code, Cline, local LLMs, and future MCP clients should invoke the same deterministic operations rather than reimplementing repository-specific engineering process in prompts.
 
-Core owns workflow semantics. Tool installation, Git mutations, and repository intelligence are separate packages that depend on core contracts.
+Core owns state and permission contracts. Tool, Git, repository-intelligence, and GitHub behavior live in separate packages.
 
 ## Development
 
@@ -63,11 +70,6 @@ Requirements:
 
 - Node.js 20+
 - pnpm
-
-Install dependencies:
-
-    corepack enable
-    pnpm install
 
 Validate:
 
@@ -81,11 +83,10 @@ Build:
 
 Next milestones add:
 
-1. GitHub adapter
-2. MCP server
-3. task-provider adapters such as Jira
-4. Docker, Supabase, Python, and local-LLM tool packs
-5. automated code-review and remote-CI orchestration
-6. controlled PR/merge/deploy actions
+1. MCP server
+2. task-provider adapters such as Jira
+3. Docker, Supabase, Python, and local-LLM tool packs
+4. automated code-review orchestration
+5. deployment adapters and release policy gates
 
-See docs/architecture.md, docs/security-model.md, docs/workflow-state.md, docs/orchestration.md, docs/tools.md, docs/git-adapter.md, and docs/repo-intelligence.md.
+See docs/architecture.md, docs/security-model.md, docs/workflow-state.md, docs/orchestration.md, docs/tools.md, docs/git-adapter.md, docs/repo-intelligence.md, and docs/github-adapter.md.

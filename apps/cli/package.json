@@ -11,6 +11,7 @@
     "@llmatic/tool-registry": "workspace:*",
     "commander": "^12.1.0",
     "@llmatic/git-adapter": "workspace:*",
-    "@llmatic/repo-intelligence": "workspace:*"
+    "@llmatic/repo-intelligence": "workspace:*",
+    "@llmatic/github-adapter": "workspace:*"
   }
 }
