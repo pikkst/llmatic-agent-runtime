@@ -187,11 +187,7 @@ try {
 
   for (const forbidden of forbiddenActivationBundleSignals) {
     if (activationBundle.includes(forbidden.signal)) {
-      fail(
-        "packaged extension bundle contains unresolved " +
-          forbidden.detail +
-          ".",
-      );
+      fail("packaged extension bundle contains unresolved " + forbidden.detail + ".");
     }
   }
 
