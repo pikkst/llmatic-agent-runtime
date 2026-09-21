@@ -35,7 +35,7 @@ function assertPermission(permission: "auto" | "ask" | "deny", name: string): vo
   }
 }
 
-function isSensitive(relativePath: string): boolean {
+export function isWorkspacePathSensitive(relativePath: string): boolean {
   const parts = relativePath.replaceAll("\\", "/").split("/");
   if (parts.some((part) => BLOCKED_DIRECTORIES.has(part))) return true;
 
@@ -68,7 +68,7 @@ async function containedExistingPath(
   const actual = await realpath(resolve(absoluteRoot, input));
   const relativePath = containedRelative(absoluteRoot, actual);
 
-  if (isSensitive(relativePath)) {
+  if (isWorkspacePathSensitive(relativePath)) {
     throw new Error("Workspace file is blocked by the direct-agent secret/path policy.");
   }
 
@@ -110,7 +110,7 @@ async function containedNewPath(
   const candidate = resolve(absoluteRoot, input);
   const relativePath = containedRelative(absoluteRoot, candidate);
 
-  if (isSensitive(relativePath)) {
+  if (isWorkspacePathSensitive(relativePath)) {
     throw new Error("Workspace file is blocked by the direct-agent secret/path policy.");
   }
 
