@@ -18,7 +18,8 @@
     "mcp": "node apps/mcp-server/dist/index.js",
     "package:vsix": "pnpm --filter ./apps/vscode-extension package:vsix",
     "release:verify": "node scripts/verify-release-version.mjs",
-    "release:manifest": "node scripts/create-release-manifest.mjs"
+    "release:manifest": "node scripts/create-release-manifest.mjs",
+    "release:acceptance": "node scripts/release-acceptance.mjs"
   },
   "devDependencies": {
     "@types/node": "^22.10.0",

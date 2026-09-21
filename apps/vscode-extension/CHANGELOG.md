@@ -68,3 +68,11 @@
 - Verified VSIX is staged only in versioned VS Code global storage.
 - VS Code installation happens only after a user confirmation.
 - No silent background update installation is performed.
+
+## M19 — Release acceptance
+
+- Added cross-platform release acceptance command.
+- Acceptance opens the VSIX and verifies the packaged activation surface, runtime manifest and runtime bytes.
+- Release publication is now gated by release acceptance.
+- Added manual GitHub Release Acceptance workflow for pre-tag candidate validation.
+- Added clean-install and future upgrade acceptance procedure.

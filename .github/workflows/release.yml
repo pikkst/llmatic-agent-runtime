@@ -27,8 +27,8 @@ jobs:
       - name: Install dependencies
         run: pnpm install --no-frozen-lockfile
 
-      - name: Build release metadata package
-        run: pnpm exec tsc -b packages/release-metadata
+      - name: Build release contract packages
+        run: pnpm exec tsc -b packages/release-metadata packages/update-installer
 
       - name: Verify release version
         run: node scripts/verify-release-version.mjs "$GITHUB_REF_NAME"
@@ -36,8 +36,8 @@ jobs:
       - name: Validate and package VSIX
         run: pnpm run ci
 
-      - name: Create release manifest
-        run: node scripts/create-release-manifest.mjs "$GITHUB_REF_NAME" "$GITHUB_SHA"
+      - name: Run release acceptance
+        run: node scripts/release-acceptance.mjs "$GITHUB_REF_NAME" "$GITHUB_SHA"
 
       - name: Verify release files
         run: |
@@ -46,8 +46,19 @@ jobs:
           sha256sum "artifacts/llmatic-agent-runtime-${GITHUB_REF_NAME#v}.vsix"
           cat artifacts/release-manifest.json
 
+      - name: Upload accepted release candidate
+        uses: actions/upload-artifact@v4
+        with:
+          name: llmatic-agent-runtime-${{ github.ref_name }}-accepted
+          path: |
+            artifacts/llmatic-agent-runtime-${{ github.ref_name }}.vsix
+            artifacts/release-manifest.json
+          if-no-files-found: error
+          retention-days: 30
+
       - name: Publish GitHub Release
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release create "$GITHUB_REF_NAME"             "artifacts/llmatic-agent-runtime-${GITHUB_REF_NAME#v}.vsix"             "artifacts/release-manifest.json"             --repo "$GITHUB_REPOSITORY"             --verify-tag             --generate-notes             --title "LLMatic Agent Runtime $GITHUB_REF_NAME"
+          VERSION="${GITHUB_REF_NAME#v}"
+          gh release create "$GITHUB_REF_NAME"             "artifacts/llmatic-agent-runtime-$VERSION.vsix"             "artifacts/release-manifest.json"             --repo "$GITHUB_REPOSITORY"             --verify-tag             --generate-notes             --title "LLMatic Agent Runtime $GITHUB_REF_NAME"
