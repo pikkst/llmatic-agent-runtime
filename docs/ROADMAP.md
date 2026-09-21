@@ -172,3 +172,32 @@ Greenfield projects follow:
     discovery -> planning -> review -> explicit approval -> initialization -> implementation
 
 LLMatic may recommend and explain best-practice choices, but the user controls consequential project decisions.
+
+
+## M25 — End-to-End Product Acceptance
+
+Status: in progress.
+
+Goal: prove the assembled product lifecycle as one executable acceptance path rather than relying only on isolated package tests.
+
+Canonical acceptance flow:
+
+    empty Git repository
+      -> discovery
+      -> ready_for_planning
+      -> versioned private plan
+      -> exact human approval
+      -> controlled initialization
+      -> READY_FOR_IMPLEMENTATION
+      -> first dependency-unblocked task selected
+      -> implementation drift
+      -> living-architecture gate blocks
+      -> contract/test synchronization
+      -> living-architecture gate clears
+      -> completed first task reveals next dependency-unblocked task
+
+The acceptance gate runs locally and in hosted CI through:
+
+    pnpm product:acceptance
+
+A release candidate is not product-ready if this lifecycle gate fails.

@@ -105,6 +105,7 @@ run("pnpm", ["format:check"], "Formatting verification");
 run("pnpm", ["typecheck"], "TypeScript typecheck");
 run("pnpm", ["test"], "Test suite");
 run("pnpm", ["build"], "Production build");
+run("pnpm", ["product:acceptance"], "Product lifecycle acceptance");
 run("pnpm", ["package:vsix"], "VSIX packaging");
 
 // Smoke-test the compiled CLI so a green TypeScript build is not enough by itself.
