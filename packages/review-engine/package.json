@@ -18,6 +18,7 @@
     "@llmatic/repo-intelligence": "workspace:*",
     "@llmatic/workspace-files": "workspace:*",
     "zod": "^3.24.1",
-    "@llmatic/architecture-impact": "workspace:*"
+    "@llmatic/architecture-impact": "workspace:*",
+    "@llmatic/repository-constitution": "workspace:*"
   }
 }
