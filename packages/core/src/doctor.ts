@@ -86,9 +86,7 @@ export async function runDoctor(inputRoot: string): Promise<DoctorReport> {
     checks.push(check("Package manager", "WARN", "No package manager detected."));
   }
 
-  const availableCapabilities = detection.capabilities.filter(
-    (capability) => capability.available,
-  );
+  const availableCapabilities = detection.capabilities.filter((capability) => capability.available);
   checks.push(
     availableCapabilities.length > 0
       ? check(
