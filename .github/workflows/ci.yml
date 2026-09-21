@@ -48,3 +48,33 @@ jobs:
             artifacts/release-manifest.json
           if-no-files-found: error
           retention-days: 14
+
+  vscode_clean_install:
+    name: VS Code clean-install acceptance
+    needs: validate
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Enable Corepack
+        run: corepack enable
+
+      - name: Install dependencies
+        run: pnpm install --no-frozen-lockfile
+
+      - name: Download accepted VSIX
+        uses: actions/download-artifact@v4
+        with:
+          name: llmatic-agent-runtime-vsix
+          path: artifacts
+
+      - name: Run installed-extension acceptance
+        run: xvfb-run -a pnpm run vscode:acceptance
+

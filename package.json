@@ -20,13 +20,15 @@
     "release:verify": "node scripts/verify-release-version.mjs",
     "release:manifest": "node scripts/create-release-manifest.mjs",
     "release:acceptance": "node scripts/release-acceptance.mjs",
-    "product:acceptance": "node scripts/product-acceptance.mjs"
+    "product:acceptance": "node scripts/product-acceptance.mjs",
+    "vscode:acceptance": "node scripts/vscode-clean-install-acceptance.mjs"
   },
   "devDependencies": {
     "@types/node": "^22.10.0",
     "prettier": "^3.4.2",
     "typescript": "^5.7.2",
-    "vitest": "^2.1.8"
+    "vitest": "^2.1.8",
+    "@vscode/test-electron": "3.1.0"
   },
   "pnpm": {
     "onlyBuiltDependencies": [

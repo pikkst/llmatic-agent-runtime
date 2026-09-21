@@ -4,7 +4,7 @@ Universal local software-engineering runtime for coding agents.
 
 ## Current milestone
 
-M25 — End-to-End Product Acceptance
+M26 — First Real Release & Clean-Install Acceptance
 
 LLMatic now supports:
 
@@ -307,3 +307,22 @@ It creates an isolated temporary Git repository and proves:
 - completing PLAN-001 reveals PLAN-002
 
 The acceptance fixture is deleted after each run and does not mutate the LLMatic repository.
+
+
+## VS Code clean-install acceptance
+
+The packaged VSIX is tested as a real installed production extension, not only as a source bundle:
+
+    pnpm vscode:acceptance
+
+The acceptance test:
+
+- downloads the minimum supported VS Code 1.105.0
+- creates an isolated VS Code user-data/extensions profile
+- installs `artifacts/llmatic-agent-runtime.vsix` through the VS Code CLI
+- requires `ExtensionMode.Production`
+- activates the installed extension
+- verifies critical LLMatic commands
+- verifies the opened repository remains free of `.llmatic` and `llmatic.agent.yaml`
+
+This gate runs in hosted CI and in the tag-driven release workflow before GitHub Release publication.
