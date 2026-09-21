@@ -1,0 +1,17 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "composite": true,
+    "rootDir": "src",
+    "outDir": "dist"
+  },
+  "include": ["src/**/*.ts"],
+  "references": [
+    { "path": "../bootstrap-manager" },
+    { "path": "../core" },
+    { "path": "../discovery-engine" },
+    { "path": "../markdown-task-source" },
+    { "path": "../planning-engine" },
+    { "path": "../task-provider" }
+  ]
+}
