@@ -10,6 +10,10 @@ import {
   transitionWorkflow,
   type RepositoryDetection,
 } from "@llmatic/core";
+import {
+  activeRepositoryRules,
+  buildRepositoryConstitution,
+} from "@llmatic/repository-constitution";
 import type {
   GatewayChatClient,
   GatewayChatRequest,
@@ -119,6 +123,46 @@ describe("review engine", () => {
     expect(result.reviewRounds).toBe(1);
     expect(result.fixRounds).toBe(0);
     expect(await store.loadCurrent()).toBeUndefined();
+  });
+
+  it("proposes but does not activate a repository rule after the same finding repeats three times", async () => {
+    const root = await repository();
+    const config = configFor(root);
+    const store = new WorkflowStateStore(root, config);
+    const finding = JSON.stringify({
+      summary: "Repeated contract gap.",
+      findings: [
+        {
+          severity: "blocking",
+          category: "tests",
+          title: "Missing regression coverage",
+          path: "src/value.ts",
+          line: 1,
+          evidence: "The changed behavior has no regression test.",
+          recommendation: "Behavior changes must include a regression test.",
+        },
+      ],
+    });
+    const gateway = new ScriptedGateway([
+      response(finding),
+      response(finding),
+      response(finding),
+    ]);
+
+    await runCodeReview({ root, config, store, gateway });
+    await runCodeReview({ root, config, store, gateway });
+    await runCodeReview({ root, config, store, gateway });
+
+    const constitution = await buildRepositoryConstitution(root, config);
+    const proposal = constitution.rules.find(
+      (rule) =>
+        rule.kind === "proposed_rule" &&
+        rule.text === "Behavior changes must include a regression test.",
+    );
+
+    expect(proposal).toBeDefined();
+    expect(proposal?.status).toBe("proposed");
+    expect(activeRepositoryRules(constitution).some((rule) => rule.id === proposal?.id)).toBe(false);
   });
 
   it("moves CODE_REVIEW to FIXING for blocking findings", async () => {
