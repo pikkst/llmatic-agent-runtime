@@ -20,7 +20,8 @@
     "@llmatic/task-router": "workspace:*",
     "@llmatic/discovery-engine": "workspace:*",
     "@llmatic/planning-engine": "workspace:*",
-    "@llmatic/project-initializer": "workspace:*"
+    "@llmatic/project-initializer": "workspace:*",
+    "@llmatic/architecture-impact": "workspace:*"
   },
   "devDependencies": {
     "@modelcontextprotocol/client": "2.0.0"

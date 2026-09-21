@@ -73,6 +73,34 @@ describe("living architecture impact", () => {
     expect(synchronized.unresolvedAreas).not.toContain("schema");
   });
 
+  it("requires operations documentation for deployment changes", async () => {
+    const root = await fixture();
+    const report = await analyzeArchitectureImpact(root, [
+      "infra/deploy.ts",
+      "test/deploy.test.ts",
+    ]);
+
+    expect(report.unresolvedAreas).toContain("operations");
+
+    const synchronized = await analyzeArchitectureImpact(root, [
+      "infra/deploy.ts",
+      "docs/planning/OPERATIONS.md",
+      "test/deploy.test.ts",
+    ]);
+
+    expect(synchronized.unresolvedAreas).not.toContain("operations");
+  });
+
+  it("accepts dependency graph evidence for planning decision changes", async () => {
+    const root = await fixture();
+    const report = await analyzeArchitectureImpact(root, [
+      "docs/planning/SECURITY.md",
+      "docs/planning/dependency-graph.json",
+    ]);
+
+    expect(report.unresolvedAreas).not.toContain("task_graph");
+  });
+
   it("requires task graph synchronization when planning decisions change", async () => {
     const root = await fixture();
     const report = await analyzeArchitectureImpact(root, [

@@ -48,6 +48,14 @@ Resolution evidence:
 
 - docs/planning/SECURITY.md
 
+### Operations
+
+Triggered by deployment/infrastructure paths, Docker/Compose, and deployment/release/production workflow changes.
+
+Resolution evidence:
+
+- docs/planning/OPERATIONS.md
+
 ### Testing
 
 Triggered by application source-code changes.
@@ -63,7 +71,8 @@ Triggered when architecture/API/data/security planning documents or ADRs change.
 Resolution evidence:
 
 - TASKS.md
-- or docs/planning/ROADMAP.md
+- docs/planning/ROADMAP.md
+- or docs/planning/dependency-graph.json
 
 ## Review state machine
 
@@ -88,3 +97,12 @@ Each review records:
 with required/unresolved counts and unresolved area names.
 
 This keeps the synchronization gate auditable in persistent workflow state.
+
+
+## MCP inspection
+
+Agents can inspect the deterministic gate before review with:
+
+    llmatic_architecture_impact
+
+This tool is read-only. It reads the Git working-tree path set and returns required/resolved impact areas plus concrete synchronization recommendations.

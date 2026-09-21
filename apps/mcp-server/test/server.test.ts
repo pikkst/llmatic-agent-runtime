@@ -66,6 +66,7 @@ describe("LLMatic MCP server", () => {
       expect(names).toEqual(
         expect.arrayContaining([
           "llmatic_detect",
+          "llmatic_architecture_impact",
           "llmatic_workflow_status",
           "llmatic_workflow_start",
           "llmatic_workflow_transition",

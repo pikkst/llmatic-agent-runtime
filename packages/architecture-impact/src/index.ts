@@ -2,7 +2,13 @@ import { access } from "node:fs/promises";
 import { resolve } from "node:path";
 
 export type ArchitectureImpactArea =
-  "architecture" | "api_contract" | "schema" | "security" | "testing" | "task_graph";
+  | "architecture"
+  | "api_contract"
+  | "schema"
+  | "security"
+  | "testing"
+  | "operations"
+  | "task_graph";
 
 export interface ArchitectureImpactItem {
   area: ArchitectureImpactArea;
@@ -57,6 +63,7 @@ function isPlanningDecision(path: string): boolean {
     path === "docs/planning/API_CONTRACTS.md" ||
     path === "docs/planning/DATA_MODEL.md" ||
     path === "docs/planning/SECURITY.md" ||
+    path === "docs/planning/OPERATIONS.md" ||
     path.startsWith("docs/planning/adr/")
   );
 }
@@ -113,6 +120,19 @@ const RULES: ImpactRule[] = [
       "Update SECURITY.md with the affected trust boundary, authorization rule or policy behavior.",
   },
   {
+    area: "operations",
+    triggers: (path) =>
+      /^(?:Dockerfile|docker-compose\.ya?ml|compose\.ya?ml)$/.test(path) ||
+      /(?:^|\/)(?:deploy|deployment|infra|infrastructure|terraform|k8s|kubernetes|helm)(?:\/|\.|$)/i.test(
+        path,
+      ) ||
+      /^\.github\/workflows\/(?:deploy|release|production|infra)[^/]*\.ya?ml$/i.test(path),
+    resolutionPaths: ["docs/planning/OPERATIONS.md"],
+    resolves: (path) => path === "docs/planning/OPERATIONS.md",
+    recommendation:
+      "Update OPERATIONS.md with the affected deployment, health, rollback, recovery or runtime-operability behavior.",
+  },
+  {
     area: "testing",
     triggers: (path) => isCode(path),
     resolutionPaths: ["test/", "tests/", "__tests__/", "*.test.*", "*.spec.*"],
@@ -123,10 +143,17 @@ const RULES: ImpactRule[] = [
   {
     area: "task_graph",
     triggers: (path) => isPlanningDecision(path),
-    resolutionPaths: ["TASKS.md", "docs/planning/ROADMAP.md"],
-    resolves: (path) => path === "TASKS.md" || path === "docs/planning/ROADMAP.md",
+    resolutionPaths: [
+      "TASKS.md",
+      "docs/planning/ROADMAP.md",
+      "docs/planning/dependency-graph.json",
+    ],
+    resolves: (path) =>
+      path === "TASKS.md" ||
+      path === "docs/planning/ROADMAP.md" ||
+      path === "docs/planning/dependency-graph.json",
     recommendation:
-      "Synchronize TASKS.md or ROADMAP.md when a planning/ADR decision changes implementation scope or dependencies.",
+      "Synchronize TASKS.md, ROADMAP.md or dependency-graph.json when a planning/ADR/operations decision changes implementation scope or dependencies.",
   },
 ];
 
