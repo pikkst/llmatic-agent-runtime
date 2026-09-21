@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.2.0
+
+- Added a persistent LLMatic Agent Chat webview with multi-turn user/assistant history and visible tool activity.
+- Added automatic existing-repository mapping with file, AST symbol and import counts.
+- Added workspace recovery across active workflow state, Git branch/worktree, open pull request, CI state and task sources.
+- Added deterministic next-action recommendations such as continue workflow, fix failing PR, continue local changes, continue active task or start the next unblocked task.
+- Added live agent task tools for canonical Jira, Markdown and GitHub task sources instead of relying only on prompt snapshots.
+- Added Jira recovery queues ordered by Jira Rank with dependency-aware next-task selection.
+- Added configurable canonical task source plus optional Jira project/JQL recovery scope.
+- Added ad-hoc Review / Fix Loop support for existing repositories without an active CODE_REVIEW workflow.
+- Run Gateway Agent now opens Agent Chat rather than a one-shot modal prompt.
+
 ## 0.1.2
 
 - Added a visible Kilo Gateway API key action to the LLMatic Activity Bar.
