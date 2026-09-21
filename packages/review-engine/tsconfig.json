@@ -7,10 +7,23 @@
   },
   "include": ["src/**/*.ts"],
   "references": [
-    { "path": "../core" },
-    { "path": "../gateway-client" },
-    { "path": "../repo-intelligence" },
-    { "path": "../workspace-files" },
-    { "path": "../agent-orchestrator" }
+    {
+      "path": "../architecture-impact"
+    },
+    {
+      "path": "../core"
+    },
+    {
+      "path": "../gateway-client"
+    },
+    {
+      "path": "../repo-intelligence"
+    },
+    {
+      "path": "../workspace-files"
+    },
+    {
+      "path": "../agent-orchestrator"
+    }
   ]
 }

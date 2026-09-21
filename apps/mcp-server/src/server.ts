@@ -1,5 +1,7 @@
+import { spawnSync } from "node:child_process";
 import { resolve } from "node:path";
 import { McpServer } from "@modelcontextprotocol/server";
+import { analyzeArchitectureImpact, architectureImpactSummary } from "@llmatic/architecture-impact";
 import {
   createJiraTaskProviderFromEnvironment,
   selectJiraWorkflowTask,
@@ -75,6 +77,40 @@ function planningWorkspaceDirectory(root: string): string {
   return managedWorkspaceDirectory(root, llmaticHome);
 }
 
+function architectureChangedFiles(root: string): string[] {
+  const result = spawnSync("git", ["status", "--porcelain=v1", "-z", "--untracked-files=all"], {
+    cwd: root,
+    env: process.env,
+    encoding: "utf8",
+    shell: false,
+  });
+
+  if (result.error) throw result.error;
+  if (result.status !== 0) {
+    throw new Error(
+      "Git architecture-impact status failed: " + (result.stderr || result.stdout).trim(),
+    );
+  }
+
+  const records = result.stdout.split("\0").filter(Boolean);
+  const paths: string[] = [];
+
+  for (let index = 0; index < records.length; index += 1) {
+    const record = records[index]!;
+    if (record.length < 4) continue;
+
+    const status = record.slice(0, 2);
+    const path = record.slice(3).replaceAll("\\", "/");
+    if (path) paths.push(path);
+
+    if (status.includes("R") || status.includes("C")) {
+      index += 1;
+    }
+  }
+
+  return [...new Set(paths)].sort();
+}
+
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
@@ -117,6 +153,28 @@ export function createLlmaticMcpServer(): McpServer {
   });
 
   const taskProviderSchema = z.enum(["auto", "markdown", "jira", "github", "manual"]);
+
+  server.registerTool(
+    "llmatic_architecture_impact",
+    {
+      description:
+        "Evaluate working-tree changes against the initialized living-architecture baseline. Read-only; reports unresolved architecture/API/schema/security/testing/operations/task-graph synchronization areas.",
+      inputSchema: z.object({
+        root: z.string().optional(),
+      }),
+    },
+    async ({ root }) =>
+      toolResult(async () => {
+        const projectRoot = runtimeRoot(root);
+        const changedFiles = architectureChangedFiles(projectRoot);
+        const report = await analyzeArchitectureImpact(projectRoot, changedFiles);
+
+        return {
+          ...report,
+          summary: architectureImpactSummary(report),
+        };
+      }),
+  );
 
   server.registerTool(
     "llmatic_task_detect",

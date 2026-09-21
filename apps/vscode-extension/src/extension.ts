@@ -696,14 +696,24 @@ async function confirmAutoFreeDataHandling(
 function printReviewReport(output: vscode.OutputChannel, report: CodeReviewReport): void {
   output.appendLine("Review summary: " + report.summary);
   output.appendLine(
-    "Findings: " +
+    "Code findings: " +
       report.findings.length +
       " (" +
-      report.blockingCount +
+      report.codeBlockingCount +
       " blocking, " +
       report.nonBlockingCount +
       " non-blocking)",
   );
+  output.appendLine(
+    "Living architecture: " +
+      (report.architectureImpact.baselineDetected
+        ? report.architectureImpact.unresolvedCount +
+          " unresolved / " +
+          report.architectureImpact.requiredCount +
+          " required impact area(s)"
+        : "baseline not detected"),
+  );
+  output.appendLine("Total blocking review items: " + report.blockingCount);
   output.appendLine("");
 
   for (const finding of report.findings) {
@@ -718,6 +728,17 @@ function printReviewReport(output: vscode.OutputChannel, report: CodeReviewRepor
     );
     output.appendLine("  " + finding.evidence);
     output.appendLine("  Fix: " + finding.recommendation);
+  }
+
+  for (const impact of report.architectureImpact.impacts) {
+    output.appendLine("[" + (impact.resolved ? "SYNCED" : "BLOCKING-SYNC") + "] " + impact.area);
+    output.appendLine("  Trigger: " + impact.reasons.join(", "));
+    if (impact.changedResolutionPaths.length > 0) {
+      output.appendLine("  Evidence: " + impact.changedResolutionPaths.join(", "));
+    }
+    if (!impact.resolved) {
+      output.appendLine("  Required: " + impact.recommendation);
+    }
   }
 }
 
