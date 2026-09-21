@@ -3,5 +3,6 @@ export * from "./config.js";
 export * from "./detect.js";
 export * from "./doctor.js";
 export * from "./executor.js";
+export * from "./orchestrator.js";
 export * from "./types.js";
 export * from "./workflow.js";
