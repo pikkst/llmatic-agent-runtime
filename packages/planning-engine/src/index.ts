@@ -1162,3 +1162,30 @@ export async function generateProjectPlan(
 
   return { current, manifest, tasks };
 }
+
+
+export async function readProjectPlanArtifact(
+  workspaceDirectory: string,
+  relativePath: string,
+  planId?: string,
+): Promise<string> {
+  const manifest = await loadProjectPlanManifest(workspaceDirectory, planId);
+  if (!manifest) throw new Error("No project plan is available.");
+
+  const artifact = manifest.artifacts.find(
+    (item) => item.relativePath === relativePath,
+  );
+  if (!artifact) {
+    throw new Error("Unknown project plan artifact: " + relativePath + ".");
+  }
+
+  const directory = planDirectory(workspaceDirectory, manifest.planId);
+  const target = resolve(directory, artifact.relativePath);
+  const relative = target.slice(directory.length).replaceAll("\\", "/");
+
+  if (!relative.startsWith("/") || relative.includes("/../")) {
+    throw new Error("Project plan artifact path escapes the plan directory.");
+  }
+
+  return readFile(target, "utf8");
+}
