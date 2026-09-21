@@ -1,13 +1,6 @@
 import { spawnSync } from "node:child_process";
-import type {
-  AgentConfig,
-  WorkflowRun,
-  WorkflowStateStore,
-} from "@llmatic/core";
-import {
-  recordActionCheckpoint,
-  transitionWorkflow,
-} from "@llmatic/core";
+import type { AgentConfig, WorkflowRun, WorkflowStateStore } from "@llmatic/core";
+import { recordActionCheckpoint, transitionWorkflow } from "@llmatic/core";
 import type {
   CreatePullRequestInput,
   GitHubMutationOptions,
@@ -37,11 +30,7 @@ const PR_VIEW_FIELDS = [
 
 const PR_CHECK_FIELDS = ["name", "state", "bucket", "workflow", "link"].join(",");
 
-function defaultRunner(
-  executable: string,
-  args: string[],
-  cwd: string,
-): GitHubProcessResult {
+function defaultRunner(executable: string, args: string[], cwd: string): GitHubProcessResult {
   const result = spawnSync(executable, args, {
     cwd,
     env: process.env,
@@ -72,18 +61,11 @@ function displayCommand(args: string[]): string {
   return ["gh", ...args].join(" ");
 }
 
-function run(
-  root: string,
-  args: string[],
-  runner: GitHubProcessRunner,
-): GitHubProcessResult {
+function run(root: string, args: string[], runner: GitHubProcessRunner): GitHubProcessResult {
   return runner("gh", args, root);
 }
 
-function requireSuccess(
-  result: GitHubProcessResult,
-  args: string[],
-): GitHubProcessResult {
+function requireSuccess(result: GitHubProcessResult, args: string[]): GitHubProcessResult {
   if (result.exitCode !== 0) {
     const detail = (result.stderr || result.stdout).trim();
     throw new Error(
@@ -110,8 +92,7 @@ function assertPermission(
 
   if (permission === "ask" && !approved) {
     throw new Error(
-      permissionName +
-        " requires approval. Re-run with --approve after reviewing the operation.",
+      permissionName + " requires approval. Re-run with --approve after reviewing the operation.",
     );
   }
 }

@@ -696,20 +696,18 @@ workflow
   .option("--method <method>", "Merge method: squash, merge, or rebase", "squash")
   .option("-r, --root <path>", "Repository root", process.cwd())
   .option("--approve", "Approve when mergePullRequest is configured as 'ask'")
-  .action(
-    async (options: { pr?: string; method: string; root: string; approve?: boolean }) => {
-      const root = resolve(options.root);
-      const config = await loadAgentConfig(root);
-      const store = new WorkflowStateStore(root, config);
-      const result = await mergeWorkflowPullRequest(root, config, store, options.pr, {
-        approved: options.approve ?? false,
-        method: options.method,
-      });
+  .action(async (options: { pr?: string; method: string; root: string; approve?: boolean }) => {
+    const root = resolve(options.root);
+    const config = await loadAgentConfig(root);
+    const store = new WorkflowStateStore(root, config);
+    const result = await mergeWorkflowPullRequest(root, config, store, options.pr, {
+      approved: options.approve ?? false,
+      method: options.method,
+    });
 
-      console.log("Merged PR #" + result.merge.pullRequest.number + ".");
-      console.log("State: " + result.workflow.state);
-    },
-  );
+    console.log("Merged PR #" + result.merge.pullRequest.number + ".");
+    console.log("State: " + result.workflow.state);
+  });
 
 workflow
   .command("validate")

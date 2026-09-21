@@ -28,8 +28,5 @@ jobs:
       - name: Install dependencies
         run: pnpm install --no-frozen-lockfile
 
-      - name: Show canonical M7 formatting
-        run: pnpm exec prettier apps/cli/src/index.ts apps/cli/tsconfig.json packages/github-adapter/src/github.ts packages/github-adapter/test/github.test.ts
-
       - name: Validate
         run: pnpm run ci

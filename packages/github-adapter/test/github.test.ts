@@ -77,12 +77,7 @@ describe("github adapter", () => {
     });
 
     await expect(
-      createPullRequest(
-        "/repo",
-        config,
-        { title: "Test PR", body: "" },
-        { runner },
-      ),
+      createPullRequest("/repo", config, { title: "Test PR", body: "" }, { runner }),
     ).rejects.toThrow("requires approval");
   });
 
@@ -323,14 +318,7 @@ describe("github adapter", () => {
     });
 
     expect(direct.method).toBe("squash");
-    expect(calls.at(-1)).toEqual([
-      "pr",
-      "merge",
-      "7",
-      "--squash",
-      "--match-head-commit",
-      "abc123",
-    ]);
+    expect(calls.at(-1)).toEqual(["pr", "merge", "7", "--squash", "--match-head-commit", "abc123"]);
 
     const result = await mergeWorkflowPullRequest(root, config, store, "7", {
       runner,
