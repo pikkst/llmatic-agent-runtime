@@ -14,6 +14,10 @@ import type {
 } from "@llmatic/gateway-client";
 import { createWorkflowBranch, getGitStatus } from "@llmatic/git-adapter";
 import {
+  getFailedPullRequestDiagnostics,
+  getPullRequestStatus,
+} from "@llmatic/github-adapter";
+import {
   detectTaskSources,
   resolveTaskProvider,
   startTaskWorkflow,
@@ -352,6 +356,36 @@ const TOOLS: GatewayTool[] = [
   {
     type: "function",
     function: {
+      name: "pull_request_status",
+      description:
+        "Read the open pull request and CI check state for the current branch or an explicit PR reference.",
+      parameters: {
+        type: "object",
+        properties: {
+          reference: { type: "string" },
+        },
+        additionalProperties: false,
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "pull_request_failed_logs",
+      description:
+        "Read bounded failed GitHub Actions logs for the current branch pull request or an explicit PR reference. This is read-only.",
+      parameters: {
+        type: "object",
+        properties: {
+          reference: { type: "string" },
+        },
+        additionalProperties: false,
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
       name: "git_status",
       description: "Read the current Git branch and staged/unstaged/untracked counts.",
       parameters: {
@@ -587,6 +621,22 @@ async function executeTool(context: ToolExecutionContext, call: GatewayToolCall)
     case "validate_workflow":
       return runLocalValidation(context.root, context.config, context.store);
 
+    case "pull_request_status":
+      return getPullRequestStatus(
+        context.root,
+        typeof args.reference === "string" && args.reference.trim()
+          ? args.reference.trim()
+          : undefined,
+      );
+
+    case "pull_request_failed_logs":
+      return getFailedPullRequestDiagnostics(
+        context.root,
+        typeof args.reference === "string" && args.reference.trim()
+          ? args.reference.trim()
+          : undefined,
+      );
+
     case "git_status":
       return getGitStatus(context.root);
 
@@ -640,6 +690,7 @@ function systemPrompt(root: string): string {
     "Use replace_in_file for existing files and create_file only for genuinely new files.",
     "Never request or expose credentials, .env values, private keys, or files outside the repository.",
     "Do not attempt push, pull request, merge, deploy, package installation, arbitrary shell execution, or database mutation.",
+    "Use pull_request_status and pull_request_failed_logs when recovery says an open PR or remote CI needs attention.",
     "Use run_capability for focused checks.",
     "If an active workflow is IMPLEMENTING or FIXING, call validate_workflow before finalizing.",
     "When validation fails, inspect/fix the code and validate again.",
