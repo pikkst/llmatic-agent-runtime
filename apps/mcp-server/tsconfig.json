@@ -1,0 +1,17 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "composite": true,
+    "rootDir": "src",
+    "outDir": "dist",
+    "types": ["node"]
+  },
+  "include": ["src/**/*.ts"],
+  "references": [
+    { "path": "../../packages/core" },
+    { "path": "../../packages/tool-registry" },
+    { "path": "../../packages/git-adapter" },
+    { "path": "../../packages/repo-intelligence" },
+    { "path": "../../packages/github-adapter" }
+  ]
+}

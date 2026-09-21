@@ -2,91 +2,70 @@
 
 Universal local software-engineering runtime for coding agents.
 
-LLMatic Agent Runtime gives coding agents deterministic, repository-aware engineering capabilities while keeping workflow state, permissions, local validation, source intelligence, Git, and GitHub operations outside the model prompt.
+LLMatic Agent Runtime gives coding agents deterministic, repository-aware engineering capabilities while keeping workflow state, permissions, validation, repository intelligence, Git, GitHub, and tool execution outside the model prompt.
 
 ## Current milestone
 
-M7 — GitHub Adapter
+M8 — MCP Server
 
 Implemented:
 
 - persistent workflow state and audit checkpoints
-- repository detection and capability execution
+- repository/capability detection
 - local validation orchestration
-- tool registry and controlled installers
+- tool registry
 - protected Git adapter
 - repository file/AST/import intelligence
-- GitHub pull-request creation
-- pull-request and remote-CI status
-- workflow-aware PR/CI transitions
-- protected merge with exact PR head SHA matching
+- protected GitHub PR/CI/merge adapter
+- MCP v2 stdio server
+- agent-neutral MCP tools for the implemented workflow
 
-## Workflow path implemented so far
+The MCP server uses `@modelcontextprotocol/server@2.0.0` and Zod v4 schemas.
+
+## Start MCP
+
+    pnpm build
+    pnpm mcp
+
+Optional repository binding:
+
+    LLMATIC_ROOT=/path/to/repository pnpm mcp
+
+Each tool can also receive an explicit `root`.
+
+## MCP permission rule
+
+MCP tools cannot self-approve `ask` permissions.
+
+For unattended automation, explicitly configure the required operation as `auto` in `llmatic.agent.yaml`. Human-driven CLI operations can continue to use `--approve`.
+
+## Workflow
 
     TASK_SELECTED
       -> TASK_VALIDATED
-      -> REPO_ANALYZED        # llmatic workflow analyze
-      -> BRANCH_CREATED       # llmatic workflow branch
+      -> REPO_ANALYZED
+      -> BRANCH_CREATED
       -> IMPLEMENTING
-      -> LOCAL_VALIDATION     # llmatic validate
+      -> LOCAL_VALIDATION
       -> CODE_REVIEW
       -> READY_TO_PUSH
-      -> PUSHED               # llmatic workflow push
-      -> PR_OPEN              # llmatic workflow open-pr
-      -> REMOTE_CI            # llmatic workflow remote-ci
+      -> PUSHED
+      -> PR_OPEN
+      -> REMOTE_CI
       -> FINAL_REVIEW
       -> READY_TO_MERGE
-      -> COMPLETED            # llmatic workflow merge
+      -> COMPLETED
 
-Failed remote CI moves back to FIXING.
-
-## Useful commands
-
-    llmatic repo index
-    llmatic repo search WorkflowStateStore
-
-    llmatic git status
-    llmatic tools list
-
-    llmatic github pr status
-    llmatic github pr create --title "..." --body "..." --approve
-    llmatic github pr merge 123 --approve
-
-    llmatic workflow open-pr --title "..." --body "..." --approve
-    llmatic workflow remote-ci
-    llmatic workflow merge --approve
-
-## Architecture
-
-Coding agents remain clients of the runtime.
-
-Kilo Code, Codex, Claude Code, Cline, local LLMs, and future MCP clients should invoke the same deterministic operations rather than reimplementing repository-specific engineering process in prompts.
-
-Core owns state and permission contracts. Tool, Git, repository-intelligence, and GitHub behavior live in separate packages.
-
-## Development
-
-Requirements:
-
-- Node.js 20+
-- pnpm
-
-Validate:
-
-    pnpm ci:local
-
-Build:
-
-    pnpm build
+The same state machine is now accessible through CLI and MCP.
 
 ## Roadmap
 
 Next milestones add:
 
-1. MCP server
-2. task-provider adapters such as Jira
-3. Docker, Supabase, Python, and local-LLM tool packs
-4. automated code-review orchestration
-5. deployment adapters and release policy gates
+1. task-provider adapters such as Jira
+2. Docker, Supabase, Python, and local-LLM tool packs
+3. automated code-review orchestration
+4. deployment adapters and release policy gates
+5. optional Streamable HTTP MCP serving for remote/multi-client deployments
 
-See docs/architecture.md, docs/security-model.md, docs/workflow-state.md, docs/orchestration.md, docs/tools.md, docs/git-adapter.md, docs/repo-intelligence.md, and docs/github-adapter.md.
+See docs/mcp-server.md and the adapter/runtime documents under docs/.
