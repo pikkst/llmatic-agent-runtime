@@ -145,6 +145,46 @@ describe("gateway coding agent", () => {
     ]);
   });
 
+  it("lets the agent inspect live tasks from the canonical task source", async () => {
+    const root = await mkdtemp(join(tmpdir(), "llmatic-agent-"));
+    temporaryDirectories.push(root);
+    await mkdir(join(root, ".git"));
+    await writeFile(
+      join(root, "TASKS.md"),
+      [
+        "## TASK-001 — First task",
+        "",
+        "Status: Todo",
+        "",
+        "### Acceptance Criteria",
+        "- Works",
+        "",
+      ].join("\n"),
+    );
+
+    const config = configFor(root);
+    const store = new WorkflowStateStore(root, config);
+    const gateway = new ScriptedGateway([
+      response(null, [{ id: "call-task-list", name: "task_list", arguments: {} }]),
+      response("TASK-001 is the next local candidate."),
+    ]);
+
+    const result = await runCodingAgent({
+      root,
+      config,
+      store,
+      gateway,
+      instruction: "What task should I work on next?",
+    });
+
+    expect(result.finalText).toContain("TASK-001");
+    expect(gateway.requests[1]?.messages.at(-1)).toMatchObject({
+      role: "tool",
+      tool_call_id: "call-task-list",
+    });
+    expect(JSON.stringify(gateway.requests[1]?.messages.at(-1))).toContain("TASK-001");
+  });
+
   it("returns tool failures to the model instead of bypassing ask permissions", async () => {
     const root = await mkdtemp(join(tmpdir(), "llmatic-agent-"));
     temporaryDirectories.push(root);
