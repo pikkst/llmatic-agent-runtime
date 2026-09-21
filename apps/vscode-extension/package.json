@@ -168,6 +168,16 @@
         "command": "llmatic.openAgentChat",
         "title": "Open Agent Chat",
         "category": "LLMatic"
+      },
+      {
+        "command": "llmatic.showRepositoryRules",
+        "title": "Show Repository Rules",
+        "category": "LLMatic"
+      },
+      {
+        "command": "llmatic.reviewRuleProposals",
+        "title": "Review Repository Rule Proposals",
+        "category": "LLMatic"
       }
     ],
     "configuration": {
