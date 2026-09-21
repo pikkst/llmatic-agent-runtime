@@ -6,8 +6,5 @@
     "outDir": "dist"
   },
   "include": ["src/**/*.ts"],
-  "references": [
-    { "path": "../core" },
-    { "path": "../task-provider" }
-  ]
+  "references": [{ "path": "../core" }, { "path": "../task-provider" }]
 }

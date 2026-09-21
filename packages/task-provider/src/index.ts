@@ -32,10 +32,7 @@ export interface TaskTransition {
 export interface TaskProvider {
   readonly id: string;
 
-  getTask(
-    reference: string,
-    options?: TaskProviderOperationOptions,
-  ): Promise<TaskRecord>;
+  getTask(reference: string, options?: TaskProviderOperationOptions): Promise<TaskRecord>;
 
   listTransitions(
     reference: string,

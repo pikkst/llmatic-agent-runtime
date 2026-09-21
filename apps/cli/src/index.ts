@@ -712,18 +712,15 @@ workflow
 
 workflow
   .command("sync-jira")
-  .description("Synchronize workflow evidence back to the Jira task without changing workflow state.")
+  .description(
+    "Synchronize workflow evidence back to the Jira task without changing workflow state.",
+  )
   .option("--comment <text>", "Comment to add")
   .option("--transition <transition>", "Transition name or ID")
   .option("-r, --root <path>", "Repository root", process.cwd())
   .option("--approve", "Approve when taskWrite is configured as 'ask'")
   .action(
-    async (options: {
-      comment?: string;
-      transition?: string;
-      root: string;
-      approve?: boolean;
-    }) => {
+    async (options: { comment?: string; transition?: string; root: string; approve?: boolean }) => {
       const root = resolve(options.root);
       const config = await loadAgentConfig(root);
       const store = new WorkflowStateStore(root, config);

@@ -138,9 +138,7 @@ describe("jira adapter", () => {
     });
     const provider = new JiraTaskProvider(configFor("/repo"), connection, transport);
 
-    await expect(provider.addComment("KT-123", "Done")).rejects.toThrow(
-      "requires approval",
-    );
+    await expect(provider.addComment("KT-123", "Done")).rejects.toThrow("requires approval");
   });
 
   it("adds ADF comments and resolves transitions by name", async () => {
@@ -153,9 +151,7 @@ describe("jira adapter", () => {
           status: 200,
           statusText: "OK",
           body: JSON.stringify({
-            transitions: [
-              { id: "31", name: "Done", to: { name: "Done" } },
-            ],
+            transitions: [{ id: "31", name: "Done", to: { name: "Done" } }],
           }),
         };
       }
@@ -240,15 +236,11 @@ describe("jira adapter", () => {
 
     await selectJiraWorkflowTask(
       store,
-      new JiraTaskProvider(
-        config,
-        connection,
-        async () => ({
-          status: 200,
-          statusText: "OK",
-          body: JSON.stringify(issueJson()),
-        }),
-      ),
+      new JiraTaskProvider(config, connection, async () => ({
+        status: 200,
+        statusText: "OK",
+        body: JSON.stringify(issueJson()),
+      })),
       "KT-123",
     );
     await transitionWorkflow(store, "TASK_VALIDATED");

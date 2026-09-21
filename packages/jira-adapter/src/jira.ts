@@ -1,13 +1,5 @@
-import type {
-  AgentConfig,
-  WorkflowRun,
-  WorkflowStateStore,
-} from "@llmatic/core";
-import {
-  recordActionCheckpoint,
-  startWorkflow,
-  transitionWorkflow,
-} from "@llmatic/core";
+import type { AgentConfig, WorkflowRun, WorkflowStateStore } from "@llmatic/core";
+import { recordActionCheckpoint, startWorkflow, transitionWorkflow } from "@llmatic/core";
 import type {
   TaskProvider,
   TaskProviderOperationOptions,
@@ -18,9 +10,7 @@ import type {
 export interface JiraConnectionConfig {
   baseUrl: string;
   siteUrl?: string;
-  auth:
-    | { type: "basic"; email: string; apiToken: string }
-    | { type: "bearer"; token: string };
+  auth: { type: "basic"; email: string; apiToken: string } | { type: "bearer"; token: string };
 }
 
 export interface JiraHttpRequest {
@@ -36,9 +26,7 @@ export interface JiraHttpResponse {
   body: string;
 }
 
-export type JiraHttpTransport = (
-  request: JiraHttpRequest,
-) => Promise<JiraHttpResponse>;
+export type JiraHttpTransport = (request: JiraHttpRequest) => Promise<JiraHttpResponse>;
 
 export interface JiraWorkflowSyncOptions extends TaskProviderOperationOptions {
   comment?: string;
@@ -61,10 +49,7 @@ function permission(
   }
 }
 
-function requireEnvironment(
-  environment: NodeJS.ProcessEnv,
-  name: string,
-): string {
+function requireEnvironment(environment: NodeJS.ProcessEnv, name: string): string {
   const value = environment[name]?.trim();
   if (!value) throw new Error("Missing required environment variable " + name + ".");
   return value;
@@ -103,16 +88,11 @@ function authorizationHeader(connection: JiraConnectionConfig): string {
 
   return (
     "Basic " +
-    Buffer.from(
-      connection.auth.email + ":" + connection.auth.apiToken,
-      "utf8",
-    ).toString("base64")
+    Buffer.from(connection.auth.email + ":" + connection.auth.apiToken, "utf8").toString("base64")
   );
 }
 
-async function defaultTransport(
-  request: JiraHttpRequest,
-): Promise<JiraHttpResponse> {
+async function defaultTransport(request: JiraHttpRequest): Promise<JiraHttpResponse> {
   const response = await fetch(request.url, {
     method: request.method,
     headers: request.headers,
@@ -171,8 +151,7 @@ async function requestJson<T>(
     return JSON.parse(response.body) as T;
   } catch (error) {
     throw new Error(
-      "Jira API returned invalid JSON: " +
-        (error instanceof Error ? error.message : String(error)),
+      "Jira API returned invalid JSON: " + (error instanceof Error ? error.message : String(error)),
     );
   }
 }
@@ -194,18 +173,17 @@ function adfText(value: unknown): string | undefined {
 
     if (Array.isArray(record.content)) {
       for (const child of record.content) visit(child);
-      if (
-        record.type === "paragraph" ||
-        record.type === "heading" ||
-        record.type === "listItem"
-      ) {
+      if (record.type === "paragraph" || record.type === "heading" || record.type === "listItem") {
         parts.push("\n");
       }
     }
   }
 
   visit(value);
-  const text = parts.join("").replace(/\n{3,}/g, "\n\n").trim();
+  const text = parts
+    .join("")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
   return text || undefined;
 }
 
@@ -225,10 +203,7 @@ function commentDocument(text: string) {
   };
 }
 
-function taskFromIssue(
-  connection: JiraConnectionConfig,
-  raw: Record<string, unknown>,
-): TaskRecord {
+function taskFromIssue(connection: JiraConnectionConfig, raw: Record<string, unknown>): TaskRecord {
   const fields = (raw.fields ?? {}) as Record<string, unknown>;
   const status = (fields.status ?? {}) as Record<string, unknown>;
   const statusCategory = (status.statusCategory ?? {}) as Record<string, unknown>;
@@ -244,11 +219,9 @@ function taskFromIssue(
     throw new Error("Jira issue response is missing id, key, summary, or status.");
   }
 
-  const siteUrl = connection.siteUrl ?? (
-    connection.baseUrl.includes(".atlassian.net")
-      ? connection.baseUrl
-      : undefined
-  );
+  const siteUrl =
+    connection.siteUrl ??
+    (connection.baseUrl.includes(".atlassian.net") ? connection.baseUrl : undefined);
 
   return {
     provider: "jira",
@@ -259,26 +232,15 @@ function taskFromIssue(
     status: {
       id: String(status.id ?? ""),
       name: statusName,
-      category:
-        typeof statusCategory.name === "string"
-          ? statusCategory.name
-          : undefined,
+      category: typeof statusCategory.name === "string" ? statusCategory.name : undefined,
     },
-    issueType:
-      typeof issueType.name === "string" ? issueType.name : undefined,
-    priority:
-      typeof priority.name === "string" ? priority.name : undefined,
-    assignee:
-      typeof assignee.displayName === "string"
-        ? assignee.displayName
-        : undefined,
+    issueType: typeof issueType.name === "string" ? issueType.name : undefined,
+    priority: typeof priority.name === "string" ? priority.name : undefined,
+    assignee: typeof assignee.displayName === "string" ? assignee.displayName : undefined,
     labels: Array.isArray(fields.labels)
-      ? fields.labels.filter(
-          (label): label is string => typeof label === "string",
-        )
+      ? fields.labels.filter((label): label is string => typeof label === "string")
       : [],
-    updatedAt:
-      typeof fields.updated === "string" ? fields.updated : undefined,
+    updatedAt: typeof fields.updated === "string" ? fields.updated : undefined,
     webUrl: siteUrl ? siteUrl + "/browse/" + encodeURIComponent(key) : undefined,
   };
 }
@@ -296,11 +258,7 @@ export class JiraTaskProvider implements TaskProvider {
     reference: string,
     options: TaskProviderOperationOptions = {},
   ): Promise<TaskRecord> {
-    permission(
-      this.runtimeConfig.permissions.taskRead,
-      "Task read",
-      options.approved ?? false,
-    );
+    permission(this.runtimeConfig.permissions.taskRead, "Task read", options.approved ?? false);
 
     const issue = await requestJson<Record<string, unknown>>(
       this.connection,
@@ -318,11 +276,7 @@ export class JiraTaskProvider implements TaskProvider {
     reference: string,
     options: TaskProviderOperationOptions = {},
   ): Promise<TaskTransition[]> {
-    permission(
-      this.runtimeConfig.permissions.taskRead,
-      "Task read",
-      options.approved ?? false,
-    );
+    permission(this.runtimeConfig.permissions.taskRead, "Task read", options.approved ?? false);
 
     const result = await requestJson<{
       transitions?: Array<Record<string, unknown>>;
@@ -338,8 +292,7 @@ export class JiraTaskProvider implements TaskProvider {
       return {
         id: String(transition.id ?? ""),
         name: String(transition.name ?? ""),
-        toStatus:
-          typeof target.name === "string" ? target.name : undefined,
+        toStatus: typeof target.name === "string" ? target.name : undefined,
       };
     });
   }
@@ -349,11 +302,7 @@ export class JiraTaskProvider implements TaskProvider {
     text: string,
     options: TaskProviderOperationOptions = {},
   ): Promise<void> {
-    permission(
-      this.runtimeConfig.permissions.taskWrite,
-      "Task write",
-      options.approved ?? false,
-    );
+    permission(this.runtimeConfig.permissions.taskWrite, "Task write", options.approved ?? false);
 
     if (!text.trim()) throw new Error("Jira comment must not be empty.");
 
@@ -371,11 +320,7 @@ export class JiraTaskProvider implements TaskProvider {
     transitionInput: string,
     options: TaskProviderOperationOptions = {},
   ): Promise<TaskTransition> {
-    permission(
-      this.runtimeConfig.permissions.taskWrite,
-      "Task write",
-      options.approved ?? false,
-    );
+    permission(this.runtimeConfig.permissions.taskWrite, "Task write", options.approved ?? false);
 
     const available = await this.listTransitions(reference, {
       approved: options.approved,
@@ -386,8 +331,7 @@ export class JiraTaskProvider implements TaskProvider {
 
     const transition = available.find(
       (candidate) =>
-        candidate.id.toLowerCase() === normalized ||
-        candidate.name.toLowerCase() === normalized,
+        candidate.id.toLowerCase() === normalized || candidate.name.toLowerCase() === normalized,
     );
 
     if (!transition) {
@@ -415,10 +359,7 @@ export function createJiraTaskProviderFromEnvironment(
   runtimeConfig: AgentConfig,
   environment: NodeJS.ProcessEnv = process.env,
 ): JiraTaskProvider {
-  return new JiraTaskProvider(
-    runtimeConfig,
-    jiraConnectionFromEnvironment(environment),
-  );
+  return new JiraTaskProvider(runtimeConfig, jiraConnectionFromEnvironment(environment));
 }
 
 function taskMetadata(task: TaskRecord): Record<string, string> {
