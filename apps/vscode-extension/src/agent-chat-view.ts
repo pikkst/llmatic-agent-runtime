@@ -140,6 +140,13 @@ export class AgentChatViewProvider implements vscode.WebviewViewProvider {
                 }
               : undefined,
             taskSource: this.recovery.taskSource.selected,
+            constitution: {
+              explicitRule: this.recovery.constitution.counts.explicitRule,
+              approvedRule: this.recovery.constitution.counts.approvedRule,
+              inferredConvention: this.recovery.constitution.counts.inferredConvention,
+              proposedRule: this.recovery.constitution.counts.proposedRule,
+              blocking: this.recovery.constitution.counts.blocking,
+            },
             recommendation: this.recovery.recommendation,
             warnings: this.recovery.warnings,
           }
@@ -303,6 +310,19 @@ export class AgentChatViewProvider implements vscode.WebviewViewProvider {
         textRow("Working tree", recovery.git.clean ? "clean" : "has local changes"),
       );
       recoveryElement.appendChild(textRow("Task source", recovery.taskSource));
+      recoveryElement.appendChild(
+        textRow(
+          "Repository rules",
+          recovery.constitution.explicitRule +
+            " explicit · " +
+            recovery.constitution.approvedRule +
+            " approved · " +
+            recovery.constitution.inferredConvention +
+            " inferred · " +
+            recovery.constitution.proposedRule +
+            " proposed",
+        ),
+      );
       recoveryElement.appendChild(
         textRow(
           "Workflow",
