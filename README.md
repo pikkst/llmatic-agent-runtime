@@ -29,7 +29,7 @@ Every tagged GitHub release also publishes a verified VSIX and release manifest.
 Download the VSIX from the matching GitHub Release, then either use **Extensions → … → Install from VSIX…** or:
 
 ```powershell
-code --install-extension .\llmatic-agent-runtime-0.1.1.vsix
+code --install-extension .\llmatic-agent-runtime-0.1.2.vsix
 ```
 
 ## Requirements
@@ -203,6 +203,16 @@ llmatic.agentModel
 
 Before first Auto Free use, LLMatic displays a data-handling warning. Do not send confidential source code to a model/provider whose data-handling terms are unsuitable for the repository.
 
+The Kilo Gateway API key is **not** required for Kilo Code MCP connectivity or LLMatic runtime readiness. It is required only when you use LLMatic's direct Gateway Agent or automated review/fix orchestration.
+
+To configure it, use the visible **Set Kilo Gateway API Key** action in the LLMatic Activity Bar, or run:
+
+```text
+LLMatic: Set Kilo Gateway API Key
+```
+
+The key is entered through a password prompt and stored only in VS Code SecretStorage. If you start a direct agent/review without a key, LLMatic offers this secure setup automatically.
+
 ## Safety boundaries
 
 LLMatic intentionally separates analysis/automation from consequential actions.
@@ -215,7 +225,7 @@ Gateway credentials are stored in VS Code SecretStorage.
 
 ## Releases and updates
 
-Semantic tags such as `v0.1.1` run the release pipeline, package the VSIX, verify release metadata and hashes, execute clean-install acceptance, and publish a GitHub Release.
+Semantic tags such as `v0.1.2` run the release pipeline, package the VSIX, verify release metadata and hashes, execute clean-install acceptance, and publish a GitHub Release.
 
 Update commands:
 
@@ -268,7 +278,7 @@ Important acceptance commands:
 ```bash
 pnpm product:acceptance
 pnpm vscode:acceptance
-pnpm release:acceptance v0.1.1 <commit-sha>
+pnpm release:acceptance v0.1.2 <commit-sha>
 ```
 
 The milestone roadmap is maintained in [docs/ROADMAP.md](docs/ROADMAP.md).
