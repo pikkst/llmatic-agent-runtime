@@ -20,6 +20,9 @@
       "path": "./packages/task-provider"
     },
     {
+      "path": "./packages/markdown-task-source"
+    },
+    {
       "path": "./packages/jira-adapter"
     },
     {
