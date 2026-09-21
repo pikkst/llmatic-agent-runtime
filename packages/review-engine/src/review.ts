@@ -1,6 +1,11 @@
 import { spawnSync } from "node:child_process";
 import { z } from "zod";
 import {
+  analyzeArchitectureImpact,
+  architectureImpactSummary,
+  type ArchitectureImpactReport,
+} from "@llmatic/architecture-impact";
+import {
   recordActionCheckpoint,
   runLocalValidation,
   transitionWorkflow,
@@ -44,8 +49,10 @@ export type ReviewFinding = z.infer<typeof findingSchema>;
 export interface CodeReviewReport {
   summary: string;
   findings: ReviewFinding[];
+  codeBlockingCount: number;
   blockingCount: number;
   nonBlockingCount: number;
+  architectureImpact: ArchitectureImpactReport;
   model: string;
   changedFiles: string[];
 }
@@ -294,11 +301,17 @@ export async function runCodeReview(options: CodeReviewOptions): Promise<CodeRev
   const changedFiles = listChangedFiles(options.root);
 
   if (changedFiles.length === 0) {
+    const architectureImpact = await analyzeArchitectureImpact(
+      options.root,
+      changedFiles,
+    );
     const report: CodeReviewReport = {
       summary: "No changed non-secret files are available for review.",
       findings: [],
+      codeBlockingCount: 0,
       blockingCount: 0,
       nonBlockingCount: 0,
+      architectureImpact,
       model,
       changedFiles,
     };
@@ -365,17 +378,50 @@ export async function runCodeReview(options: CodeReviewOptions): Promise<CodeRev
     }
 
     const parsed = rawReviewSchema.parse(extractJson(assistant.content));
-    const blockingCount = parsed.findings.filter(
+    const codeBlockingCount = parsed.findings.filter(
       (finding) => finding.severity === "blocking",
     ).length;
+    const architectureImpact = await analyzeArchitectureImpact(
+      options.root,
+      changedFiles,
+    );
+    const blockingCount =
+      codeBlockingCount + architectureImpact.unresolvedCount;
+    const impactSummary = architectureImpactSummary(
+      architectureImpact,
+    );
     const report: CodeReviewReport = {
       ...parsed,
+      summary:
+        parsed.summary +
+        (architectureImpact.baselineDetected
+          ? " Living architecture: " + impactSummary
+          : ""),
+      codeBlockingCount,
       blockingCount,
-      nonBlockingCount: parsed.findings.length - blockingCount,
+      nonBlockingCount:
+        parsed.findings.length - codeBlockingCount,
+      architectureImpact,
       model,
       changedFiles,
     };
 
+    await recordActionCheckpoint(options.store, {
+      provider: "architecture-impact",
+      action: "impact.review",
+      success: architectureImpact.unresolvedCount === 0,
+      detail: impactSummary,
+      metadata: {
+        requiredCount: String(
+          architectureImpact.requiredCount,
+        ),
+        unresolvedCount: String(
+          architectureImpact.unresolvedCount,
+        ),
+        unresolvedAreas:
+          architectureImpact.unresolvedAreas.join(","),
+      },
+    });
     await recordActionCheckpoint(options.store, {
       provider: "review-engine",
       action: "review.complete",
@@ -384,6 +430,10 @@ export async function runCodeReview(options: CodeReviewOptions): Promise<CodeRev
       metadata: {
         model,
         blockingCount: String(blockingCount),
+        codeBlockingCount: String(codeBlockingCount),
+        architectureImpactBlockingCount: String(
+          architectureImpact.unresolvedCount,
+        ),
         findingCount: String(report.findings.length),
       },
     });
@@ -395,25 +445,40 @@ export async function runCodeReview(options: CodeReviewOptions): Promise<CodeRev
 }
 
 function blockingFixInstruction(report: CodeReviewReport): string {
+  const findingInstructions = report.findings
+    .filter((finding) => finding.severity === "blocking")
+    .map(
+      (finding, index) =>
+        String(index + 1) +
+        ". " +
+        finding.path +
+        (finding.line ? ":" + finding.line : "") +
+        " — " +
+        finding.title +
+        "\nEvidence: " +
+        finding.evidence +
+        "\nRequired fix: " +
+        finding.recommendation,
+    );
+
+  const impactInstructions = report.architectureImpact.impacts
+    .filter((impact) => !impact.resolved)
+    .map(
+      (impact) =>
+        "Living architecture impact [" +
+        impact.area +
+        "]\nChanged evidence: " +
+        impact.reasons.join(", ") +
+        "\nRequired synchronization: " +
+        impact.recommendation,
+    );
+
   return [
-    "Fix every blocking code-review finding below.",
+    "Resolve every blocking code-review and living-architecture item below.",
     "Do not make unrelated changes.",
-    "After fixes, run the local workflow validation and resolve any failing quality gate.",
-    ...report.findings
-      .filter((finding) => finding.severity === "blocking")
-      .map(
-        (finding, index) =>
-          String(index + 1) +
-          ". " +
-          finding.path +
-          (finding.line ? ":" + finding.line : "") +
-          " — " +
-          finding.title +
-          "\nEvidence: " +
-          finding.evidence +
-          "\nRequired fix: " +
-          finding.recommendation,
-      ),
+    "After fixes, run local workflow validation and resolve any failing quality gate.",
+    ...findingInstructions,
+    ...impactInstructions,
   ].join("\n\n");
 }
 

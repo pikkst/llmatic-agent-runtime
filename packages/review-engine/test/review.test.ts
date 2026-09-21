@@ -146,4 +146,88 @@ describe("review engine", () => {
     expect(report.blockingCount).toBe(0);
     expect((await store.loadCurrent())?.state).toBe("READY_TO_PUSH");
   });
+
+  it("blocks a clear model review when living-architecture evidence is missing", async () => {
+    const root = await repository();
+    await mkdir(join(root, "docs", "planning"), {
+      recursive: true,
+    });
+    await writeFile(
+      join(root, "docs", "planning", "APPROVED_PLAN.md"),
+      "# Approved\n",
+    );
+    await writeFile(join(root, "TASKS.md"), "# Tasks\n");
+
+    const config = configFor(root);
+    const store = new WorkflowStateStore(root, config);
+    await startWorkflow(store, "TASK-702");
+    await moveToCodeReview(store);
+
+    const gateway = new ScriptedGateway([
+      response(
+        JSON.stringify({
+          summary: "No code defects found.",
+          findings: [],
+        }),
+      ),
+    ]);
+
+    const report = await runCodeReview({
+      root,
+      config,
+      store,
+      gateway,
+    });
+
+    expect(report.codeBlockingCount).toBe(0);
+    expect(report.architectureImpact.unresolvedAreas).toContain(
+      "testing",
+    );
+    expect(report.blockingCount).toBe(1);
+    expect((await store.loadCurrent())?.state).toBe("FIXING");
+  });
+
+  it("allows review to advance when living-architecture evidence is synchronized", async () => {
+    const root = await repository();
+    await mkdir(join(root, "docs", "planning"), {
+      recursive: true,
+    });
+    await writeFile(
+      join(root, "docs", "planning", "APPROVED_PLAN.md"),
+      "# Approved\n",
+    );
+    await writeFile(join(root, "TASKS.md"), "# Tasks\n");
+    await writeFile(
+      join(root, "src", "value.test.ts"),
+      "export const covered = true;\n",
+    );
+
+    const config = configFor(root);
+    const store = new WorkflowStateStore(root, config);
+    await startWorkflow(store, "TASK-703");
+    await moveToCodeReview(store);
+
+    const gateway = new ScriptedGateway([
+      response(
+        JSON.stringify({
+          summary: "No code defects found.",
+          findings: [],
+        }),
+      ),
+    ]);
+
+    const report = await runCodeReview({
+      root,
+      config,
+      store,
+      gateway,
+    });
+
+    expect(report.architectureImpact.unresolvedCount).toBe(0);
+    expect(report.blockingCount).toBe(0);
+    expect((await store.loadCurrent())?.state).toBe(
+      "READY_TO_PUSH",
+    );
+  });
+
 });
