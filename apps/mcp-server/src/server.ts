@@ -1,5 +1,11 @@
 import { resolve } from "node:path";
 import { McpServer } from "@modelcontextprotocol/server";
+import {
+  createJiraTaskProviderFromEnvironment,
+  selectJiraWorkflowTask,
+  syncJiraWorkflowTask,
+  validateJiraWorkflowTask,
+} from "@llmatic/jira-adapter";
 import * as z from "zod/v4";
 import {
   WorkflowStateStore,
@@ -80,6 +86,132 @@ export function createLlmaticMcpServer(): McpServer {
     name: "llmatic-agent-runtime",
     version: "0.1.0",
   });
+
+  server.registerTool(
+    "llmatic_jira_get",
+    {
+      description:
+        "Read a Jira Cloud issue using environment-provided credentials and taskRead permission.",
+      inputSchema: z.object({
+        root: z.string().optional(),
+        key: z.string().min(1),
+      }),
+    },
+    async ({ root, key }) =>
+      toolResult(async () => {
+        const context = await runtimeContext(root);
+        const provider = createJiraTaskProviderFromEnvironment(context.config);
+        return provider.getTask(key);
+      }),
+  );
+
+  server.registerTool(
+    "llmatic_jira_transitions",
+    {
+      description: "List transitions currently available for a Jira Cloud issue.",
+      inputSchema: z.object({
+        root: z.string().optional(),
+        key: z.string().min(1),
+      }),
+    },
+    async ({ root, key }) =>
+      toolResult(async () => {
+        const context = await runtimeContext(root);
+        const provider = createJiraTaskProviderFromEnvironment(context.config);
+        return provider.listTransitions(key);
+      }),
+  );
+
+  server.registerTool(
+    "llmatic_jira_comment",
+    {
+      description:
+        "Add a Jira comment through taskWrite permission. MCP does not self-approve ask permissions.",
+      inputSchema: z.object({
+        root: z.string().optional(),
+        key: z.string().min(1),
+        text: z.string().min(1),
+      }),
+    },
+    async ({ root, key, text }) =>
+      toolResult(async () => {
+        const context = await runtimeContext(root);
+        const provider = createJiraTaskProviderFromEnvironment(context.config);
+        await provider.addComment(key, text);
+        return { key, commented: true };
+      }),
+  );
+
+  server.registerTool(
+    "llmatic_jira_transition",
+    {
+      description:
+        "Transition a Jira issue through taskWrite permission. MCP does not self-approve ask permissions.",
+      inputSchema: z.object({
+        root: z.string().optional(),
+        key: z.string().min(1),
+        transition: z.string().min(1),
+      }),
+    },
+    async ({ root, key, transition }) =>
+      toolResult(async () => {
+        const context = await runtimeContext(root);
+        const provider = createJiraTaskProviderFromEnvironment(context.config);
+        return provider.transitionTask(key, transition);
+      }),
+  );
+
+  server.registerTool(
+    "llmatic_workflow_select_jira",
+    {
+      description: "Read a Jira task and start a new workflow in TASK_SELECTED.",
+      inputSchema: z.object({
+        root: z.string().optional(),
+        key: z.string().min(1),
+      }),
+    },
+    async ({ root, key }) =>
+      toolResult(async () => {
+        const context = await runtimeContext(root);
+        const provider = createJiraTaskProviderFromEnvironment(context.config);
+        return selectJiraWorkflowTask(context.store, provider, key);
+      }),
+  );
+
+  server.registerTool(
+    "llmatic_workflow_validate_jira",
+    {
+      description: "Refresh the selected Jira task and advance TASK_SELECTED to TASK_VALIDATED.",
+      inputSchema: z.object({
+        root: z.string().optional(),
+      }),
+    },
+    async ({ root }) =>
+      toolResult(async () => {
+        const context = await runtimeContext(root);
+        const provider = createJiraTaskProviderFromEnvironment(context.config);
+        return validateJiraWorkflowTask(context.store, provider);
+      }),
+  );
+
+  server.registerTool(
+    "llmatic_workflow_sync_jira",
+    {
+      description:
+        "Write a comment and/or transition back to the selected Jira task through taskWrite permission.",
+      inputSchema: z.object({
+        root: z.string().optional(),
+        comment: z.string().min(1).optional(),
+        transition: z.string().min(1).optional(),
+      }),
+    },
+    async ({ root, comment, transition }) =>
+      toolResult(async () => {
+        const context = await runtimeContext(root);
+        const provider = createJiraTaskProviderFromEnvironment(context.config);
+        return syncJiraWorkflowTask(context.store, provider, { comment, transition });
+      }),
+  );
 
   server.registerTool(
     "llmatic_detect",

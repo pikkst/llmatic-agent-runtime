@@ -4,6 +4,13 @@ import { mkdir, writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import { Command } from "commander";
 import {
+  createJiraTaskProviderFromEnvironment,
+  selectJiraWorkflowTask,
+  syncJiraWorkflowTask,
+  validateJiraWorkflowTask,
+} from "@llmatic/jira-adapter";
+import type { TaskRecord, TaskTransition } from "@llmatic/task-provider";
+import {
   createPullRequest,
   createWorkflowPullRequest,
   getPullRequestStatus,
@@ -72,6 +79,20 @@ function printDetection(detection: RepositoryDetection): void {
     const command = capability.command ? " -> " + capability.command : "";
     console.log("  " + marker + " " + capability.name + command);
   }
+}
+
+function printTask(task: TaskRecord): void {
+  console.log(task.key + " — " + task.summary);
+  console.log("Status: " + task.status.name);
+  if (task.issueType) console.log("Type: " + task.issueType);
+  if (task.priority) console.log("Priority: " + task.priority);
+  if (task.assignee) console.log("Assignee: " + task.assignee);
+  if (task.webUrl) console.log("URL: " + task.webUrl);
+}
+
+function printTaskTransition(transition: TaskTransition): void {
+  const target = transition.toStatus ? " -> " + transition.toStatus : "";
+  console.log(transition.id + " " + transition.name + target);
 }
 
 function printPullRequestStatus(status: PullRequestStatus): void {
@@ -275,6 +296,84 @@ program
     if (!result.success) {
       process.exitCode = result.exitCode || 1;
     }
+  });
+
+const jiraCommand = program.command("jira").description("Read and update Jira Cloud tasks.");
+
+jiraCommand
+  .command("get")
+  .description("Read a Jira issue through taskRead permission.")
+  .argument("<key>", "Jira issue key")
+  .option("-r, --root <path>", "Repository root", process.cwd())
+  .option("--approve", "Approve when taskRead is configured as 'ask'")
+  .option("--json", "Print machine-readable JSON")
+  .action(async (key: string, options: { root: string; approve?: boolean; json?: boolean }) => {
+    const root = resolve(options.root);
+    const config = await loadAgentConfig(root);
+    const provider = createJiraTaskProviderFromEnvironment(config);
+    const task = await provider.getTask(key, { approved: options.approve ?? false });
+
+    if (options.json) {
+      console.log(JSON.stringify(task, null, 2));
+      return;
+    }
+
+    printTask(task);
+  });
+
+jiraCommand
+  .command("transitions")
+  .description("List Jira transitions available to the authenticated user.")
+  .argument("<key>", "Jira issue key")
+  .option("-r, --root <path>", "Repository root", process.cwd())
+  .option("--approve", "Approve when taskRead is configured as 'ask'")
+  .option("--json", "Print machine-readable JSON")
+  .action(async (key: string, options: { root: string; approve?: boolean; json?: boolean }) => {
+    const root = resolve(options.root);
+    const config = await loadAgentConfig(root);
+    const provider = createJiraTaskProviderFromEnvironment(config);
+    const transitions = await provider.listTransitions(key, {
+      approved: options.approve ?? false,
+    });
+
+    if (options.json) {
+      console.log(JSON.stringify(transitions, null, 2));
+      return;
+    }
+
+    for (const transition of transitions) printTaskTransition(transition);
+  });
+
+jiraCommand
+  .command("comment")
+  .description("Add a Jira comment through taskWrite permission.")
+  .argument("<key>", "Jira issue key")
+  .requiredOption("--text <text>", "Comment text")
+  .option("-r, --root <path>", "Repository root", process.cwd())
+  .option("--approve", "Approve when taskWrite is configured as 'ask'")
+  .action(async (key: string, options: { text: string; root: string; approve?: boolean }) => {
+    const root = resolve(options.root);
+    const config = await loadAgentConfig(root);
+    const provider = createJiraTaskProviderFromEnvironment(config);
+    await provider.addComment(key, options.text, { approved: options.approve ?? false });
+    console.log("Comment added to " + key + ".");
+  });
+
+jiraCommand
+  .command("transition")
+  .description("Transition a Jira issue by transition name or ID.")
+  .argument("<key>", "Jira issue key")
+  .requiredOption("--to <transition>", "Transition name or transition ID")
+  .option("-r, --root <path>", "Repository root", process.cwd())
+  .option("--approve", "Approve when taskWrite is configured as 'ask'")
+  .action(async (key: string, options: { to: string; root: string; approve?: boolean }) => {
+    const root = resolve(options.root);
+    const config = await loadAgentConfig(root);
+    const provider = createJiraTaskProviderFromEnvironment(config);
+    const transition = await provider.transitionTask(key, options.to, {
+      approved: options.approve ?? false,
+    });
+    console.log("Transitioned " + key + " via " + transition.name + ".");
   });
 
 const githubCommand = program.command("github").description("Run protected GitHub operations.");
@@ -573,6 +672,69 @@ workflow
 
     printWorkflow(run);
   });
+
+workflow
+  .command("select-jira")
+  .description("Select a Jira task and start a workflow in TASK_SELECTED.")
+  .argument("<key>", "Jira issue key")
+  .option("-r, --root <path>", "Repository root", process.cwd())
+  .option("--approve", "Approve when taskRead is configured as 'ask'")
+  .action(async (key: string, options: { root: string; approve?: boolean }) => {
+    const root = resolve(options.root);
+    const config = await loadAgentConfig(root);
+    const store = new WorkflowStateStore(root, config);
+    const provider = createJiraTaskProviderFromEnvironment(config);
+    const result = await selectJiraWorkflowTask(store, provider, key, {
+      approved: options.approve ?? false,
+    });
+
+    printTask(result.task);
+    console.log("State: " + result.workflow.state);
+  });
+
+workflow
+  .command("validate-jira")
+  .description("Refresh and validate the selected Jira task, then advance to TASK_VALIDATED.")
+  .option("-r, --root <path>", "Repository root", process.cwd())
+  .option("--approve", "Approve when taskRead is configured as 'ask'")
+  .action(async (options: { root: string; approve?: boolean }) => {
+    const root = resolve(options.root);
+    const config = await loadAgentConfig(root);
+    const store = new WorkflowStateStore(root, config);
+    const provider = createJiraTaskProviderFromEnvironment(config);
+    const result = await validateJiraWorkflowTask(store, provider, {
+      approved: options.approve ?? false,
+    });
+
+    printTask(result.task);
+    console.log("State: " + result.workflow.state);
+  });
+
+workflow
+  .command("sync-jira")
+  .description(
+    "Synchronize workflow evidence back to the Jira task without changing workflow state.",
+  )
+  .option("--comment <text>", "Comment to add")
+  .option("--transition <transition>", "Transition name or ID")
+  .option("-r, --root <path>", "Repository root", process.cwd())
+  .option("--approve", "Approve when taskWrite is configured as 'ask'")
+  .action(
+    async (options: { comment?: string; transition?: string; root: string; approve?: boolean }) => {
+      const root = resolve(options.root);
+      const config = await loadAgentConfig(root);
+      const store = new WorkflowStateStore(root, config);
+      const provider = createJiraTaskProviderFromEnvironment(config);
+      const result = await syncJiraWorkflowTask(store, provider, {
+        comment: options.comment,
+        transition: options.transition,
+        approved: options.approve ?? false,
+      });
+
+      console.log("Synchronized Jira task " + result.taskRef + ".");
+      if (result.transition) console.log("Transition: " + result.transition.name);
+    },
+  );
 
 workflow
   .command("analyze")

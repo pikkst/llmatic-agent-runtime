@@ -2,48 +2,32 @@
 
 Universal local software-engineering runtime for coding agents.
 
-LLMatic Agent Runtime gives coding agents deterministic, repository-aware engineering capabilities while keeping workflow state, permissions, validation, repository intelligence, Git, GitHub, and tool execution outside the model prompt.
+LLMatic Agent Runtime gives coding agents deterministic, repository-aware engineering capabilities while keeping workflow state, permissions, validation, repository intelligence, Git, GitHub, task providers, and tool execution outside the model prompt.
 
 ## Current milestone
 
-M8 — MCP Server
+M9 — Task Provider + Jira
 
 Implemented:
 
 - persistent workflow state and audit checkpoints
-- repository/capability detection
-- local validation orchestration
-- tool registry
+- capability discovery and local validation
+- controlled tool registry
 - protected Git adapter
-- repository file/AST/import intelligence
+- repository AST/import intelligence
 - protected GitHub PR/CI/merge adapter
 - MCP v2 stdio server
-- agent-neutral MCP tools for the implemented workflow
+- provider-neutral task contract
+- Jira Cloud REST v3 task adapter
+- Jira-backed workflow task selection/validation
+- Jira comment/transition synchronization
 
-The MCP server uses `@modelcontextprotocol/server@2.0.0` and Zod v4 schemas.
+## Jira-first workflow
 
-## Start MCP
-
-    pnpm build
-    pnpm mcp
-
-Optional repository binding:
-
-    LLMATIC_ROOT=/path/to/repository pnpm mcp
-
-Each tool can also receive an explicit `root`.
-
-## MCP permission rule
-
-MCP tools cannot self-approve `ask` permissions.
-
-For unattended automation, explicitly configure the required operation as `auto` in `llmatic.agent.yaml`. Human-driven CLI operations can continue to use `--approve`.
-
-## Workflow
-
-    TASK_SELECTED
-      -> TASK_VALIDATED
-      -> REPO_ANALYZED
+    Jira issue
+      -> TASK_SELECTED       # llmatic workflow select-jira KT-123
+      -> TASK_VALIDATED      # llmatic workflow validate-jira
+      -> REPO_ANALYZED       # llmatic workflow analyze
       -> BRANCH_CREATED
       -> IMPLEMENTING
       -> LOCAL_VALIDATION
@@ -55,17 +39,29 @@ For unattended automation, explicitly configure the required operation as `auto`
       -> FINAL_REVIEW
       -> READY_TO_MERGE
       -> COMPLETED
+      -> Jira sync           # comment / transition
 
-The same state machine is now accessible through CLI and MCP.
+The same primitives are exposed through MCP. MCP never self-approves permissions configured as `ask`.
+
+## Jira credentials
+
+Use environment variables only. See `docs/jira-adapter.md`.
+
+## Development
+
+    corepack enable
+    pnpm install
+    pnpm ci:local
+    pnpm build
 
 ## Roadmap
 
 Next milestones add:
 
-1. task-provider adapters such as Jira
-2. Docker, Supabase, Python, and local-LLM tool packs
-3. automated code-review orchestration
+1. Docker / Supabase / Python / local-LLM tool packs
+2. automated code-review orchestration
+3. richer task-provider mapping and Jira field policy
 4. deployment adapters and release policy gates
-5. optional Streamable HTTP MCP serving for remote/multi-client deployments
+5. optional Streamable HTTP MCP serving
 
-See docs/mcp-server.md and the adapter/runtime documents under docs/.
+See the documents under `docs/`.

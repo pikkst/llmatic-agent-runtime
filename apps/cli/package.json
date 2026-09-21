@@ -12,6 +12,8 @@
     "commander": "^12.1.0",
     "@llmatic/git-adapter": "workspace:*",
     "@llmatic/repo-intelligence": "workspace:*",
-    "@llmatic/github-adapter": "workspace:*"
+    "@llmatic/github-adapter": "workspace:*",
+    "@llmatic/task-provider": "workspace:*",
+    "@llmatic/jira-adapter": "workspace:*"
   }
 }

@@ -8,10 +8,26 @@
   },
   "include": ["src/**/*.ts"],
   "references": [
-    { "path": "../../packages/core" },
-    { "path": "../../packages/tool-registry" },
-    { "path": "../../packages/git-adapter" },
-    { "path": "../../packages/repo-intelligence" },
-    { "path": "../../packages/github-adapter" }
+    {
+      "path": "../../packages/core"
+    },
+    {
+      "path": "../../packages/tool-registry"
+    },
+    {
+      "path": "../../packages/git-adapter"
+    },
+    {
+      "path": "../../packages/repo-intelligence"
+    },
+    {
+      "path": "../../packages/github-adapter"
+    },
+    {
+      "path": "../../packages/task-provider"
+    },
+    {
+      "path": "../../packages/jira-adapter"
+    }
   ]
 }
