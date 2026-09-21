@@ -112,10 +112,18 @@ export async function detectTaskSources(
     },
   ];
 
+  const preferred = environment.LLMATIC_TASK_PROVIDER?.trim().toLowerCase();
+  const preferredCandidate =
+    preferred && preferred !== "auto"
+      ? candidates.find((candidate) => candidate.id === preferred && candidate.available)
+      : undefined;
+
   const selected =
+    preferredCandidate?.id ??
     candidates
       .filter((candidate) => candidate.available)
-      .sort((left, right) => right.priority - left.priority)[0]?.id ?? "manual";
+      .sort((left, right) => right.priority - left.priority)[0]?.id ??
+    "manual";
 
   return {
     selected,
