@@ -28,6 +28,9 @@ jobs:
       - name: Install dependencies
         run: pnpm install --no-frozen-lockfile
 
+      - name: Show canonical M14 formatting
+        run: pnpm exec prettier apps/vscode-extension/tsconfig.json packages/review-engine/src/review.ts packages/review-engine/test/review.test.ts
+
       - name: Validate
         run: pnpm run ci
 
