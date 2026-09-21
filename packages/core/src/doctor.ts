@@ -64,7 +64,11 @@ export async function runDoctor(inputRoot: string): Promise<DoctorReport> {
   checks.push(
     detection.packageJson
       ? check("package.json", "PASS", "Node package metadata detected.")
-      : check("package.json", "WARN", "No package.json detected; Node capabilities are unavailable."),
+      : check(
+          "package.json",
+          "WARN",
+          "No package.json detected; Node capabilities are unavailable.",
+        ),
   );
 
   if (detection.packageManager !== "unknown") {
@@ -82,7 +86,9 @@ export async function runDoctor(inputRoot: string): Promise<DoctorReport> {
     checks.push(check("Package manager", "WARN", "No package manager detected."));
   }
 
-  const availableCapabilities = detection.capabilities.filter((capability) => capability.available);
+  const availableCapabilities = detection.capabilities.filter(
+    (capability) => capability.available,
+  );
   checks.push(
     availableCapabilities.length > 0
       ? check(
