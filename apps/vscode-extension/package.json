@@ -34,7 +34,8 @@
     "@llmatic/discovery-engine": "workspace:*",
     "@llmatic/planning-engine": "workspace:*",
     "@llmatic/project-initializer": "workspace:*",
-    "@llmatic/workspace-recovery": "workspace:*"
+    "@llmatic/workspace-recovery": "workspace:*",
+    "@llmatic/repository-constitution": "workspace:*"
   },
   "devDependencies": {
     "@types/vscode": "1.105.0",
