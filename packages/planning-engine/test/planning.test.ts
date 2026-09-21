@@ -82,6 +82,68 @@ describe("project planning engine", () => {
     });
   });
 
+  it("applies requested changes to a product-specific regenerated plan", async () => {
+    const workspace = await mkdtemp(join(tmpdir(), "llmatic-plan-"));
+    roots.push(workspace);
+
+    const session = discovery("/repo");
+    session.idea =
+      "Build a small personal task management web application where users can create, edit, complete and delete tasks.";
+    session.answers.primary_users = {
+      ...session.answers.primary_users,
+      value: "consumer",
+      label: "Consumers",
+    };
+    session.answers.tenancy = {
+      ...session.answers.tenancy,
+      value: "single_user",
+      label: "Individual accounts",
+    };
+
+    const changeRequest = [
+      "Make the plan concrete for a personal task manager.",
+      "Users must create, view, edit, complete/uncomplete and delete only their own tasks.",
+      "Task fields include title, optional description, completion state and created/updated timestamps.",
+    ].join(" ");
+
+    const result = await generateProjectPlan(workspace, session, { changeRequest });
+    const read = (name: string) => readFile(resolve(result.current.planDirectory, name), "utf8");
+
+    const [brief, requirements, dataModel, api, tasks, graphRaw] = await Promise.all([
+      read("PRODUCT_BRIEF.md"),
+      read("REQUIREMENTS.md"),
+      read("DATA_MODEL.md"),
+      read("API_CONTRACTS.md"),
+      read("TASKS.md"),
+      read("dependency-graph.json"),
+    ]);
+
+    expect(brief).toContain("Requested plan refinements");
+    expect(brief).toContain("personal task manager");
+    expect(requirements).toContain("Task lifecycle");
+    expect(requirements).toContain("owned by that user");
+    expect(dataModel).toContain("## Task fields");
+    expect(dataModel).toContain("ownerUserId");
+    expect(dataModel).toContain("title");
+    expect(dataModel).toContain("description");
+    expect(dataModel).toContain("completed");
+    expect(dataModel).toContain("createdAt");
+    expect(dataModel).toContain("updatedAt");
+    expect(api).toContain("GET    /api/tasks");
+    expect(api).toContain("DELETE /api/tasks/:id");
+    expect(tasks).toContain("Define Task domain model and lifecycle use-cases");
+    expect(tasks).toContain("Implement Task lifecycle end to end");
+
+    const graph = JSON.parse(graphRaw) as {
+      edges: Array<{ from: string; to: string; type: string }>;
+    };
+    expect(graph.edges).toContainEqual({
+      from: "PLAN-031",
+      to: "PLAN-040",
+      type: "blocks",
+    });
+  });
+
   it("does not generate a plan before discovery is ready", async () => {
     const workspace = await mkdtemp(join(tmpdir(), "llmatic-plan-"));
     roots.push(workspace);
