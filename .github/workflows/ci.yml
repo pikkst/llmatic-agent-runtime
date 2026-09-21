@@ -31,11 +31,20 @@ jobs:
       - name: Validate
         run: pnpm run ci
 
-      - name: Upload VSIX
+      - name: Release acceptance
+        shell: bash
+        run: |
+          VERSION="$(node -e "const fs=require('fs'); process.stdout.write(JSON.parse(fs.readFileSync('package.json','utf8')).version)")"
+          node scripts/release-acceptance.mjs "v$VERSION" "$GITHUB_SHA"
+
+      - name: Upload accepted VSIX
         if: success()
         uses: actions/upload-artifact@v4
         with:
           name: llmatic-agent-runtime-vsix
-          path: artifacts/llmatic-agent-runtime.vsix
+          path: |
+            artifacts/llmatic-agent-runtime.vsix
+            artifacts/llmatic-agent-runtime-*.vsix
+            artifacts/release-manifest.json
           if-no-files-found: error
           retention-days: 14
