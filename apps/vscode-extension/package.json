@@ -23,7 +23,9 @@
   "dependencies": {
     "@llmatic/core": "workspace:*",
     "@llmatic/kilo-connector": "workspace:*",
-    "@llmatic/workspace-manager": "workspace:*"
+    "@llmatic/workspace-manager": "workspace:*",
+    "@llmatic/agent-orchestrator": "workspace:*",
+    "@llmatic/gateway-client": "workspace:*"
   },
   "devDependencies": {
     "@types/vscode": "1.105.0",
@@ -63,6 +65,11 @@
         "category": "LLMatic"
       },
       {
+        "command": "llmatic.runAgent",
+        "title": "Run Gateway Agent",
+        "category": "LLMatic"
+      },
+      {
         "command": "llmatic.openWorkspaceData",
         "title": "Reveal Workspace Runtime Data",
         "category": "LLMatic"
@@ -90,6 +97,18 @@
           "type": "string",
           "default": "",
           "description": "Optional absolute path to an alternative LLMatic MCP server entry file."
+        },
+        "llmatic.agentModel": {
+          "type": "string",
+          "default": "kilo-auto/free",
+          "description": "Kilo Gateway model used by the direct LLMatic coding agent. Defaults to Auto Free."
+        },
+        "llmatic.agentMaxSteps": {
+          "type": "number",
+          "default": 20,
+          "minimum": 1,
+          "maximum": 50,
+          "description": "Maximum model/tool rounds for one direct LLMatic agent run."
         }
       }
     }
