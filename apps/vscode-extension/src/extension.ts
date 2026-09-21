@@ -2393,6 +2393,44 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       );
       chatProvider.appendActivity("Repository context refreshed.", true);
     },
+    continueRecommended: async () => {
+      const recommendation = state.recovery?.recommendation;
+      if (!recommendation) {
+        await refreshWorkspaceRecovery(
+          context,
+          state,
+          statusProvider,
+          chatProvider,
+          output,
+          true,
+        );
+      }
+
+      const current = state.recovery?.recommendation;
+      if (!current) {
+        chatProvider.appendAssistant(
+          "I could not resolve a recommended next action for this workspace.",
+        );
+        return;
+      }
+
+      if (current.action === "start_discovery") {
+        await vscode.commands.executeCommand("llmatic.startDiscovery");
+        return;
+      }
+
+      await runAgentChatTurn(
+        context,
+        state,
+        statusProvider,
+        chatProvider,
+        output,
+        "Continue with the recommended next action: " +
+          current.title +
+          ". " +
+          current.detail,
+      );
+    },
   });
 
   context.subscriptions.push(
