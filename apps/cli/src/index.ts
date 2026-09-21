@@ -4,6 +4,13 @@ import { mkdir, writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import { Command } from "commander";
 import {
+  DEFAULT_TOOL_REGISTRY,
+  detectRegisteredTools,
+  installRegisteredTool,
+  parseToolId,
+  type ToolDetection,
+} from "@llmatic/tool-registry";
+import {
   WORKFLOW_STATES,
   WorkflowStateStore,
   createDefaultConfig,
@@ -38,6 +45,14 @@ function printDetection(detection: RepositoryDetection): void {
     const command = capability.command ? " -> " + capability.command : "";
     console.log("  " + marker + " " + capability.name + command);
   }
+}
+
+function printToolStatus(status: ToolDetection): void {
+  const marker = status.installed ? "✓" : "·";
+  const version = status.version ? " " + status.version : "";
+  const installer = status.installerAvailable ? " [auto-install]" : "";
+
+  console.log(marker + " " + status.name + version + installer);
 }
 
 function printWorkflow(run: WorkflowRun): void {
@@ -202,6 +217,45 @@ program
     if (!result.success) {
       process.exitCode = result.exitCode || 1;
     }
+  });
+
+const toolsCommand = program.command("tools").description("Inspect and manage registered tools.");
+
+toolsCommand
+  .command("list")
+  .description("Detect tools known to the runtime.")
+  .option("-r, --root <path>", "Repository root", process.cwd())
+  .option("--json", "Print machine-readable JSON")
+  .action(async (options: { root: string; json?: boolean }) => {
+    const statuses = await detectRegisteredTools(resolve(options.root), DEFAULT_TOOL_REGISTRY);
+
+    if (options.json) {
+      console.log(JSON.stringify(statuses, null, 2));
+      return;
+    }
+
+    console.log("Registered tools:");
+    for (const status of statuses) {
+      printToolStatus(status);
+    }
+  });
+
+toolsCommand
+  .command("install")
+  .description("Install a registered tool through its controlled installer.")
+  .argument("<tool>", "Registered tool id")
+  .option("-r, --root <path>", "Repository root", process.cwd())
+  .option("--approve", "Approve installation when installTools is configured as 'ask'")
+  .action(async (toolInput: string, options: { root: string; approve?: boolean }) => {
+    const root = resolve(options.root);
+    const config = await loadAgentConfig(root);
+    const toolId = parseToolId(toolInput);
+    const result = await installRegisteredTool(root, config, toolId, {
+      approved: options.approve ?? false,
+    });
+
+    console.log(result.changed ? "Tool installation completed." : "Tool already available.");
+    printToolStatus(result.tool);
   });
 
 const workflow = program.command("workflow").description("Manage persistent workflow state.");

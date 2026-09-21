@@ -37,6 +37,18 @@ Quality gates are controlled by runQualityGates. Tests use runTests as a narrowe
 
 A permission configured as ask requires an explicit --approve flag at the CLI boundary.
 
+## Tool installation
+
+Tool installation is controlled by the `installTools` permission.
+
+The tool registry stores installers as structured command steps:
+
+    executable + args
+
+The runtime never treats registry installer metadata as an arbitrary shell script. Tools without a registered automated installer are detection-only and must be installed manually or by a future platform-specific pack.
+
+The first automated installer is pnpm through Corepack. It is still permission-gated and is not executed implicitly by tool detection.
+
 ## Design rule
 
 A coding agent must not silently bypass the runtime permission model by falling back to raw shell commands for an operation that has a registered protected capability.
