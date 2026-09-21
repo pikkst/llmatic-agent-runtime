@@ -17,6 +17,9 @@ describe("VS Code extension activation surface", () => {
     expect(source).toContain('vscode.commands.registerCommand("llmatic.reviewFixLoop"');
     expect(source).toContain('vscode.commands.registerCommand("llmatic.openAgentChat"');
     expect(source).toContain('vscode.commands.registerCommand("llmatic.refreshWorkspaceRecovery"');
+    expect(source).toContain('vscode.commands.registerCommand("llmatic.showRepositoryRules"');
+    expect(source).toContain('vscode.commands.registerCommand("llmatic.reviewRuleProposals"');
+    expect(source).toContain('vscode.commands.registerCommand("llmatic.generatePrDraft"');
     expect(source).toContain('vscode.commands.registerCommand("llmatic.checkForUpdates"');
     expect(source).toContain('vscode.commands.registerCommand("llmatic.installUpdate"');
     expect(source).toContain("loadProjectChangeRequest");
@@ -28,6 +31,10 @@ describe("VS Code extension activation surface", () => {
     expect(source).toContain("workspaceRecoveryContext");
     expect(source).toContain("AgentChatViewProvider");
     expect(source).toContain("runAgentChatTurn");
+    expect(source).toContain("decideRepositoryRuleProposal");
+    expect(source).toContain("buildPullRequestDraft");
+    expect(source).toContain("loadLatestReviewReport");
+    expect(source).toContain('lenses: ["general", "bug_hunter", "security"]');
     expect(source).toContain("allowAdHoc: true");
     expect(source).toContain('"Set API Key"');
     expect(source).toContain("password: true");
@@ -72,6 +79,9 @@ describe("VS Code extension activation surface", () => {
     expect(source).toContain("Refresh context");
     expect(source).toContain("conversationHistory");
     expect(source).toContain("Repository map");
+    expect(source).toContain("Repository rules");
+    expect(source).toContain("Latest review");
+    expect(source).toContain('type: "continue"');
   });
 
 });
