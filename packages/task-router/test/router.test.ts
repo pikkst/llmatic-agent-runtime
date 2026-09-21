@@ -39,6 +39,21 @@ describe("task router", () => {
     expect(detection.selected).toBe("markdown");
   });
 
+  it("honors an explicit Jira task-source preference even when TASKS.md exists", async () => {
+    const root = await mkdtemp(join(tmpdir(), "llmatic-router-"));
+    roots.push(root);
+    await writeFile(join(root, "TASKS.md"), "## TASK-001 — Local\n\nStatus: Todo\n", "utf8");
+
+    const detection = await detectTaskSources(root, {
+      LLMATIC_TASK_PROVIDER: "jira",
+      LLMATIC_JIRA_BASE_URL: "https://example.atlassian.net",
+      LLMATIC_JIRA_EMAIL: "dev@example.test",
+      LLMATIC_JIRA_API_TOKEN: "token",
+    });
+
+    expect(detection.selected).toBe("jira");
+  });
+
   it("uses Jira when no Markdown source exists and Jira is configured", async () => {
     const root = await mkdtemp(join(tmpdir(), "llmatic-router-"));
     roots.push(root);
