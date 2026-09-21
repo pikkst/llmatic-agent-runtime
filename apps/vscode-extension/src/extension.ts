@@ -116,6 +116,19 @@ function configuration() {
   return vscode.workspace.getConfiguration("llmatic");
 }
 
+function taskRecoveryEnvironment(): NodeJS.ProcessEnv {
+  const taskSource = configuration().get<string>("taskSource", "auto").trim() || "auto";
+  const jiraProjectKey = configuration().get<string>("jiraProjectKey", "").trim();
+  const jiraRecoveryJql = configuration().get<string>("jiraRecoveryJql", "").trim();
+
+  return {
+    ...process.env,
+    LLMATIC_TASK_PROVIDER: taskSource,
+    ...(jiraProjectKey ? { LLMATIC_JIRA_PROJECT_KEY: jiraProjectKey } : {}),
+    ...(jiraRecoveryJql ? { LLMATIC_JIRA_RECOVERY_JQL: jiraRecoveryJql } : {}),
+  };
+}
+
 function firstWorkspaceFolder(): vscode.WorkspaceFolder | undefined {
   return vscode.workspace.workspaceFolders?.[0];
 }
@@ -351,19 +364,9 @@ async function refreshWorkspaceRecovery(
     LLMATIC_HOME: context.globalStorageUri.fsPath,
   });
   const store = new WorkflowStateStore(folder.uri.fsPath, config);
-  const taskSource = configuration().get<string>("taskSource", "auto").trim() || "auto";
-  const jiraProjectKey = configuration().get<string>("jiraProjectKey", "").trim();
-  const jiraRecoveryJql = configuration().get<string>("jiraRecoveryJql", "").trim();
-  const recoveryEnvironment: NodeJS.ProcessEnv = {
-    ...process.env,
-    LLMATIC_TASK_PROVIDER: taskSource,
-    ...(jiraProjectKey ? { LLMATIC_JIRA_PROJECT_KEY: jiraProjectKey } : {}),
-    ...(jiraRecoveryJql ? { LLMATIC_JIRA_RECOVERY_JQL: jiraRecoveryJql } : {}),
-  };
-
   const recovery = await recoverWorkspace(folder.uri.fsPath, config, store, {
     rebuildIndex,
-    environment: recoveryEnvironment,
+    environment: taskRecoveryEnvironment(),
   });
 
   state.recovery = recovery;
@@ -1066,6 +1069,7 @@ async function runAgentChatTurn(
       instruction,
       history: chatProvider.conversationHistory(),
       context: state.recovery ? workspaceRecoveryContext(state.recovery) : undefined,
+      environment: taskRecoveryEnvironment(),
       model,
       maxSteps,
       onEvent: (event) => {
