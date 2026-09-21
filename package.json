@@ -14,7 +14,8 @@
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "ci": "node scripts/ci-local.mjs --ci",
-    "ci:local": "node scripts/ci-local.mjs"
+    "ci:local": "node scripts/ci-local.mjs",
+    "mcp": "node apps/mcp-server/dist/index.js"
   },
   "devDependencies": {
     "@types/node": "^22.10.0",

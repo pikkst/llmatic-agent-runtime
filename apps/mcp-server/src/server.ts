@@ -1,0 +1,400 @@
+import { resolve } from "node:path";
+import { McpServer } from "@modelcontextprotocol/server";
+import * as z from "zod/v4";
+import {
+  WorkflowStateStore,
+  detectRepository,
+  executeCapability,
+  loadAgentConfig,
+  normalizeWorkflowState,
+  recordCapabilityCheckpoint,
+  runLocalValidation,
+  startWorkflow,
+  transitionWorkflow,
+  type CapabilityName,
+} from "@llmatic/core";
+import {
+  commitStagedChanges,
+  createWorkflowBranch,
+  getGitStatus,
+  pushWorkflowBranch,
+  stagePaths,
+} from "@llmatic/git-adapter";
+import {
+  createWorkflowPullRequest,
+  getPullRequestStatus,
+  mergeWorkflowPullRequest,
+  refreshWorkflowRemoteCi,
+} from "@llmatic/github-adapter";
+import {
+  analyzeWorkflowRepository,
+  loadRepositoryIndex,
+  searchRepositoryIndex,
+} from "@llmatic/repo-intelligence";
+import {
+  DEFAULT_TOOL_REGISTRY,
+  detectRegisteredTools,
+} from "@llmatic/tool-registry";
+
+const capabilitySchema = z.enum(["format", "lint", "typecheck", "test", "build", "ci"]);
+const workflowStateInputSchema = z.string().min(1);
+
+function runtimeRoot(root?: string): string {
+  return resolve(root ?? process.env.LLMATIC_ROOT ?? process.cwd());
+}
+
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
+async function toolResult<T>(operation: () => Promise<T> | T) {
+  try {
+    const value = await operation();
+    return {
+      content: [
+        {
+          type: "text" as const,
+          text: JSON.stringify(value, null, 2),
+        },
+      ],
+    };
+  } catch (error) {
+    return {
+      isError: true,
+      content: [
+        {
+          type: "text" as const,
+          text: errorMessage(error),
+        },
+      ],
+    };
+  }
+}
+
+async function runtimeContext(rootInput?: string) {
+  const root = runtimeRoot(rootInput);
+  const config = await loadAgentConfig(root);
+  const store = new WorkflowStateStore(root, config);
+  return { root, config, store };
+}
+
+export function createLlmaticMcpServer(): McpServer {
+  const server = new McpServer({
+    name: "llmatic-agent-runtime",
+    version: "0.1.0",
+  });
+
+  server.registerTool(
+    "llmatic_detect",
+    {
+      description: "Detect repository technologies, package manager, and executable capabilities.",
+      inputSchema: z.object({
+        root: z.string().optional(),
+      }),
+    },
+    async ({ root }) => toolResult(() => detectRepository(runtimeRoot(root))),
+  );
+
+  server.registerTool(
+    "llmatic_workflow_status",
+    {
+      description: "Read the current persistent LLMatic workflow state.",
+      inputSchema: z.object({
+        root: z.string().optional(),
+      }),
+    },
+    async ({ root }) =>
+      toolResult(async () => {
+        const context = await runtimeContext(root);
+        return (await context.store.loadCurrent()) ?? null;
+      }),
+  );
+
+  server.registerTool(
+    "llmatic_workflow_start",
+    {
+      description: "Start a new persistent workflow for a task reference.",
+      inputSchema: z.object({
+        root: z.string().optional(),
+        task: z.string().min(1),
+      }),
+    },
+    async ({ root, task }) =>
+      toolResult(async () => {
+        const context = await runtimeContext(root);
+        return startWorkflow(context.store, task);
+      }),
+  );
+
+  server.registerTool(
+    "llmatic_workflow_transition",
+    {
+      description: "Move the active workflow through a valid state-machine transition.",
+      inputSchema: z.object({
+        root: z.string().optional(),
+        state: workflowStateInputSchema,
+      }),
+    },
+    async ({ root, state }) =>
+      toolResult(async () => {
+        const context = await runtimeContext(root);
+        return transitionWorkflow(context.store, normalizeWorkflowState(state));
+      }),
+  );
+
+  server.registerTool(
+    "llmatic_repo_search",
+    {
+      description: "Search the cached repository file, AST symbol, and import index.",
+      inputSchema: z.object({
+        root: z.string().optional(),
+        query: z.string().min(1),
+        limit: z.number().int().positive().max(100).optional(),
+      }),
+    },
+    async ({ root, query, limit }) =>
+      toolResult(async () => {
+        const context = await runtimeContext(root);
+        const index = await loadRepositoryIndex(context.root, context.config);
+        return searchRepositoryIndex(index, query, limit ?? 20);
+      }),
+  );
+
+  server.registerTool(
+    "llmatic_workflow_analyze",
+    {
+      description:
+        "Build repository intelligence and advance TASK_VALIDATED to REPO_ANALYZED. MCP never self-approves repositoryRead=ask.",
+      inputSchema: z.object({
+        root: z.string().optional(),
+      }),
+    },
+    async ({ root }) =>
+      toolResult(async () => {
+        const context = await runtimeContext(root);
+        return analyzeWorkflowRepository(context.root, context.config, context.store);
+      }),
+  );
+
+  server.registerTool(
+    "llmatic_git_status",
+    {
+      description: "Read structured Git branch and working-tree status.",
+      inputSchema: z.object({
+        root: z.string().optional(),
+      }),
+    },
+    async ({ root }) => toolResult(() => getGitStatus(runtimeRoot(root))),
+  );
+
+  server.registerTool(
+    "llmatic_git_stage",
+    {
+      description:
+        "Stage explicit repository paths through repositoryWrite permission. MCP never self-approves ask permissions.",
+      inputSchema: z.object({
+        root: z.string().optional(),
+        paths: z.array(z.string().min(1)).min(1),
+      }),
+    },
+    async ({ root, paths }) =>
+      toolResult(async () => {
+        const context = await runtimeContext(root);
+        await stagePaths(context.root, context.config, paths);
+        return { staged: paths };
+      }),
+  );
+
+  server.registerTool(
+    "llmatic_git_commit",
+    {
+      description:
+        "Commit already staged changes through repositoryWrite permission. Does not stage implicitly.",
+      inputSchema: z.object({
+        root: z.string().optional(),
+        message: z.string().min(1),
+      }),
+    },
+    async ({ root, message }) =>
+      toolResult(async () => {
+        const context = await runtimeContext(root);
+        return commitStagedChanges(context.root, context.config, message);
+      }),
+  );
+
+  server.registerTool(
+    "llmatic_workflow_branch",
+    {
+      description:
+        "Create a workflow branch and advance REPO_ANALYZED to BRANCH_CREATED through repositoryWrite permission.",
+      inputSchema: z.object({
+        root: z.string().optional(),
+        name: z.string().min(1),
+      }),
+    },
+    async ({ root, name }) =>
+      toolResult(async () => {
+        const context = await runtimeContext(root);
+        return createWorkflowBranch(context.root, context.config, context.store, name);
+      }),
+  );
+
+  server.registerTool(
+    "llmatic_run_capability",
+    {
+      description:
+        "Execute a detected repository quality capability and persist its checkpoint. Ask permissions are not self-approved.",
+      inputSchema: z.object({
+        root: z.string().optional(),
+        capability: capabilitySchema,
+      }),
+    },
+    async ({ root, capability }) =>
+      toolResult(async () => {
+        const context = await runtimeContext(root);
+        const result = await executeCapability(
+          context.root,
+          context.config,
+          capability as CapabilityName,
+        );
+        await recordCapabilityCheckpoint(context.store, result);
+        return result;
+      }),
+  );
+
+  server.registerTool(
+    "llmatic_workflow_validate",
+    {
+      description:
+        "Run configured local gates and advance workflow to CODE_REVIEW or FIXING. Ask permissions are not self-approved.",
+      inputSchema: z.object({
+        root: z.string().optional(),
+      }),
+    },
+    async ({ root }) =>
+      toolResult(async () => {
+        const context = await runtimeContext(root);
+        return runLocalValidation(context.root, context.config, context.store);
+      }),
+  );
+
+  server.registerTool(
+    "llmatic_workflow_push",
+    {
+      description:
+        "Push the workflow branch and advance READY_TO_PUSH to PUSHED. Requires gitPush=auto for MCP automation.",
+      inputSchema: z.object({
+        root: z.string().optional(),
+        remote: z.string().min(1).optional(),
+        setUpstream: z.boolean().optional(),
+      }),
+    },
+    async ({ root, remote, setUpstream }) =>
+      toolResult(async () => {
+        const context = await runtimeContext(root);
+        return pushWorkflowBranch(context.root, context.config, context.store, {
+          remote,
+          setUpstream: setUpstream ?? false,
+        });
+      }),
+  );
+
+  server.registerTool(
+    "llmatic_workflow_open_pr",
+    {
+      description:
+        "Create the workflow pull request and advance PUSHED to PR_OPEN. Requires createPullRequest=auto for MCP automation.",
+      inputSchema: z.object({
+        root: z.string().optional(),
+        title: z.string().min(1),
+        body: z.string().optional(),
+        base: z.string().min(1).optional(),
+        head: z.string().min(1).optional(),
+        draft: z.boolean().optional(),
+      }),
+    },
+    async ({ root, title, body, base, head, draft }) =>
+      toolResult(async () => {
+        const context = await runtimeContext(root);
+        return createWorkflowPullRequest(
+          context.root,
+          context.config,
+          context.store,
+          {
+            title,
+            body: body ?? "",
+            base,
+            head,
+            draft: draft ?? false,
+          },
+        );
+      }),
+  );
+
+  server.registerTool(
+    "llmatic_github_pr_status",
+    {
+      description: "Read GitHub pull-request metadata and normalized remote CI checks.",
+      inputSchema: z.object({
+        root: z.string().optional(),
+        ref: z.string().min(1).optional(),
+      }),
+    },
+    async ({ root, ref }) => toolResult(() => getPullRequestStatus(runtimeRoot(root), ref)),
+  );
+
+  server.registerTool(
+    "llmatic_workflow_remote_ci",
+    {
+      description:
+        "Refresh GitHub checks and advance PR_OPEN/REMOTE_CI to FINAL_REVIEW, FIXING, or remain REMOTE_CI.",
+      inputSchema: z.object({
+        root: z.string().optional(),
+        ref: z.string().min(1).optional(),
+      }),
+    },
+    async ({ root, ref }) =>
+      toolResult(async () => {
+        const context = await runtimeContext(root);
+        return refreshWorkflowRemoteCi(context.root, context.store, ref);
+      }),
+  );
+
+  server.registerTool(
+    "llmatic_workflow_merge",
+    {
+      description:
+        "Merge the workflow PR with exact head-SHA protection and advance READY_TO_MERGE to COMPLETED. Requires mergePullRequest=auto for MCP automation.",
+      inputSchema: z.object({
+        root: z.string().optional(),
+        ref: z.string().min(1).optional(),
+        method: z.enum(["squash", "merge", "rebase"]).optional(),
+      }),
+    },
+    async ({ root, ref, method }) =>
+      toolResult(async () => {
+        const context = await runtimeContext(root);
+        return mergeWorkflowPullRequest(
+          context.root,
+          context.config,
+          context.store,
+          ref,
+          { method },
+        );
+      }),
+  );
+
+  server.registerTool(
+    "llmatic_tools_list",
+    {
+      description: "Detect engineering tools known to the LLMatic tool registry without mutating the machine.",
+      inputSchema: z.object({
+        root: z.string().optional(),
+      }),
+    },
+    async ({ root }) =>
+      toolResult(() => detectRegisteredTools(runtimeRoot(root), DEFAULT_TOOL_REGISTRY)),
+  );
+
+  return server;
+}

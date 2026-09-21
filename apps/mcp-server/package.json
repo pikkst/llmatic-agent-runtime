@@ -1,0 +1,21 @@
+{
+  "name": "@llmatic/mcp-server",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "bin": {
+    "llmatic-mcp": "./dist/index.js"
+  },
+  "dependencies": {
+    "@llmatic/core": "workspace:*",
+    "@llmatic/git-adapter": "workspace:*",
+    "@llmatic/github-adapter": "workspace:*",
+    "@llmatic/repo-intelligence": "workspace:*",
+    "@llmatic/tool-registry": "workspace:*",
+    "@modelcontextprotocol/server": "2.0.0",
+    "zod": "4.6.5"
+  },
+  "devDependencies": {
+    "@modelcontextprotocol/client": "2.0.0"
+  }
+}
