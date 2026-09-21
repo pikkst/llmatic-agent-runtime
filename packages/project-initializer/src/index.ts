@@ -150,6 +150,12 @@ export function projectChangeRequestPath(workspaceDirectory: string): string {
   return planningPath(workspaceDirectory, "change-request.json");
 }
 
+export async function loadProjectChangeRequest(
+  workspaceDirectory: string,
+): Promise<PlanChangeRequest | undefined> {
+  return readJson<PlanChangeRequest>(projectChangeRequestPath(workspaceDirectory));
+}
+
 async function readJson<T>(path: string): Promise<T | undefined> {
   try {
     return JSON.parse(await readFile(path, "utf8")) as T;
