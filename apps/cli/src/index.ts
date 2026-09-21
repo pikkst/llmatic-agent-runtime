@@ -144,8 +144,8 @@ program
   .option("--approve", "Approve capabilities configured with permission 'ask'")
   .action(
     async (capabilityInput: string, options: { root: string; approve?: boolean }) => {
-    const root = resolve(options.root);
-    const capability = capabilityInput as CapabilityName;
+      const root = resolve(options.root);
+      const capability = capabilityInput as CapabilityName;
       const allowed: CapabilityName[] = [
         "format",
         "lint",
