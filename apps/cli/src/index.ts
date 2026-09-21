@@ -9,7 +9,19 @@ import {
   syncJiraWorkflowTask,
   validateJiraWorkflowTask,
 } from "@llmatic/jira-adapter";
-import type { TaskRecord, TaskTransition } from "@llmatic/task-provider";
+import {
+  selectWorkflowTask,
+  syncWorkflowTask,
+  validateWorkflowTask,
+  type TaskRecord,
+  type TaskTransition,
+} from "@llmatic/task-provider";
+import {
+  detectTaskSources,
+  resolveTaskProvider,
+  resolveWorkflowTaskProvider,
+  type TaskProviderId,
+} from "@llmatic/task-router";
 import {
   inspectRuntimeTools,
   parseRuntimeToolOperation,
@@ -318,6 +330,302 @@ program
       process.exitCode = result.exitCode || 1;
     }
   });
+
+const taskCommand = program
+  .command("task")
+  .description("Read and update tasks through the detected or selected task provider.");
+
+taskCommand
+  .command("detect")
+  .description("Detect available task sources and show which provider auto mode selects.")
+  .option("-r, --root <path>", "Repository root", process.cwd())
+  .option("--json", "Print machine-readable JSON")
+  .action(async (options: { root: string; json?: boolean }) => {
+    const detection = await detectTaskSources(resolve(options.root));
+
+    if (options.json) {
+      console.log(JSON.stringify(detection, null, 2));
+      return;
+    }
+
+    console.log("Selected: " + detection.selected);
+    for (const candidate of detection.candidates) {
+      console.log(
+        (candidate.available ? "✓" : "·") +
+          " " +
+          candidate.id +
+          " — " +
+          candidate.detail,
+      );
+    }
+  });
+
+taskCommand
+  .command("list")
+  .description("List tasks from a provider that supports enumeration.")
+  .option("-r, --root <path>", "Repository root", process.cwd())
+  .option("--provider <provider>", "Provider: auto, markdown, jira, or manual", "auto")
+  .option("--approve", "Approve when taskRead is configured as 'ask'")
+  .option("--json", "Print machine-readable JSON")
+  .action(
+    async (options: {
+      root: string;
+      provider: TaskProviderId;
+      approve?: boolean;
+      json?: boolean;
+    }) => {
+      const root = resolve(options.root);
+      const config = await loadAgentConfig(root);
+      const provider = await resolveTaskProvider(root, config, options.provider);
+
+      if (!provider.listTasks) {
+        throw new Error("Task provider " + provider.id + " does not support task listing.");
+      }
+
+      const tasks = await provider.listTasks({ approved: options.approve ?? false });
+
+      if (options.json) {
+        console.log(JSON.stringify(tasks, null, 2));
+        return;
+      }
+
+      for (const task of tasks) {
+        printTask(task);
+        console.log("");
+      }
+    },
+  );
+
+taskCommand
+  .command("next")
+  .description("Return the next unblocked task when the provider supports dependency-aware selection.")
+  .option("-r, --root <path>", "Repository root", process.cwd())
+  .option("--provider <provider>", "Provider: auto, markdown, jira, or manual", "auto")
+  .option("--approve", "Approve when taskRead is configured as 'ask'")
+  .option("--json", "Print machine-readable JSON")
+  .action(
+    async (options: {
+      root: string;
+      provider: TaskProviderId;
+      approve?: boolean;
+      json?: boolean;
+    }) => {
+      const root = resolve(options.root);
+      const config = await loadAgentConfig(root);
+      const provider = await resolveTaskProvider(root, config, options.provider);
+
+      if (!provider.getNextTask) {
+        throw new Error(
+          "Task provider " + provider.id + " does not support next-task selection.",
+        );
+      }
+
+      const task = await provider.getNextTask({ approved: options.approve ?? false });
+
+      if (options.json) {
+        console.log(JSON.stringify(task ?? null, null, 2));
+        return;
+      }
+
+      if (!task) {
+        console.log("No unblocked todo task is available.");
+        return;
+      }
+
+      printTask(task);
+    },
+  );
+
+taskCommand
+  .command("get")
+  .description("Read one task through the selected provider.")
+  .argument("<reference>", "Task key/reference")
+  .option("-r, --root <path>", "Repository root", process.cwd())
+  .option("--provider <provider>", "Provider: auto, markdown, jira, or manual", "auto")
+  .option("--approve", "Approve when taskRead is configured as 'ask'")
+  .option("--json", "Print machine-readable JSON")
+  .action(
+    async (
+      reference: string,
+      options: {
+        root: string;
+        provider: TaskProviderId;
+        approve?: boolean;
+        json?: boolean;
+      },
+    ) => {
+      const root = resolve(options.root);
+      const config = await loadAgentConfig(root);
+      const provider = await resolveTaskProvider(root, config, options.provider);
+      const task = await provider.getTask(reference, {
+        approved: options.approve ?? false,
+      });
+
+      if (options.json) {
+        console.log(JSON.stringify(task, null, 2));
+        return;
+      }
+
+      printTask(task);
+    },
+  );
+
+taskCommand
+  .command("start")
+  .description("Select a provider task and start the persistent workflow in TASK_SELECTED.")
+  .argument("<reference>", "Task key/reference")
+  .option("-r, --root <path>", "Repository root", process.cwd())
+  .option("--provider <provider>", "Provider: auto, markdown, jira, or manual", "auto")
+  .option("--approve", "Approve when taskRead is configured as 'ask'")
+  .action(
+    async (
+      reference: string,
+      options: { root: string; provider: TaskProviderId; approve?: boolean },
+    ) => {
+      const root = resolve(options.root);
+      const config = await loadAgentConfig(root);
+      const store = new WorkflowStateStore(root, config);
+      const provider = await resolveTaskProvider(root, config, options.provider);
+      const result = await selectWorkflowTask(store, provider, reference, {
+        approved: options.approve ?? false,
+      });
+
+      printTask(result.task);
+      console.log("");
+      printWorkflow(result.workflow);
+    },
+  );
+
+taskCommand
+  .command("validate")
+  .description("Refresh the workflow task through its original provider and advance to TASK_VALIDATED.")
+  .option("-r, --root <path>", "Repository root", process.cwd())
+  .option("--provider <provider>", "Override provider; default preserves the workflow provider", "auto")
+  .option("--approve", "Approve when taskRead is configured as 'ask'")
+  .action(
+    async (options: { root: string; provider: TaskProviderId; approve?: boolean }) => {
+      const root = resolve(options.root);
+      const config = await loadAgentConfig(root);
+      const store = new WorkflowStateStore(root, config);
+      const provider = await resolveWorkflowTaskProvider(
+        root,
+        config,
+        store,
+        options.provider,
+      );
+      const result = await validateWorkflowTask(store, provider, {
+        approved: options.approve ?? false,
+      });
+
+      printTask(result.task);
+      console.log("");
+      printWorkflow(result.workflow);
+    },
+  );
+
+taskCommand
+  .command("comment")
+  .description("Add a provider-native note/comment to a task.")
+  .argument("<reference>", "Task key/reference")
+  .requiredOption("--text <text>", "Comment/note text")
+  .option("-r, --root <path>", "Repository root", process.cwd())
+  .option("--provider <provider>", "Provider: auto, markdown, jira, or manual", "auto")
+  .option("--approve", "Approve when taskWrite is configured as 'ask'")
+  .action(
+    async (
+      reference: string,
+      options: {
+        text: string;
+        root: string;
+        provider: TaskProviderId;
+        approve?: boolean;
+      },
+    ) => {
+      const root = resolve(options.root);
+      const config = await loadAgentConfig(root);
+      const provider = await resolveTaskProvider(root, config, options.provider);
+      await provider.addComment(reference, options.text, {
+        approved: options.approve ?? false,
+      });
+      console.log("Comment/note added to " + reference + " through " + provider.id + ".");
+    },
+  );
+
+taskCommand
+  .command("transition")
+  .description("Apply a provider-native task transition.")
+  .argument("<reference>", "Task key/reference")
+  .requiredOption("--to <transition>", "Transition name or ID")
+  .option("-r, --root <path>", "Repository root", process.cwd())
+  .option("--provider <provider>", "Provider: auto, markdown, jira, or manual", "auto")
+  .option("--approve", "Approve when taskWrite is configured as 'ask'")
+  .action(
+    async (
+      reference: string,
+      options: {
+        to: string;
+        root: string;
+        provider: TaskProviderId;
+        approve?: boolean;
+      },
+    ) => {
+      const root = resolve(options.root);
+      const config = await loadAgentConfig(root);
+      const provider = await resolveTaskProvider(root, config, options.provider);
+      const transition = await provider.transitionTask(reference, options.to, {
+        approved: options.approve ?? false,
+      });
+      console.log(
+        "Transitioned " +
+          reference +
+          " via " +
+          transition.name +
+          " through " +
+          provider.id +
+          ".",
+      );
+    },
+  );
+
+taskCommand
+  .command("complete")
+  .description("Complete the active workflow task in its original provider, optionally adding evidence.")
+  .option("-r, --root <path>", "Repository root", process.cwd())
+  .option("--provider <provider>", "Override provider; default preserves the workflow provider", "auto")
+  .option("--evidence <text>", "Completion evidence/comment")
+  .option("--approve", "Approve when taskWrite is configured as 'ask'")
+  .action(
+    async (options: {
+      root: string;
+      provider: TaskProviderId;
+      evidence?: string;
+      approve?: boolean;
+    }) => {
+      const root = resolve(options.root);
+      const config = await loadAgentConfig(root);
+      const store = new WorkflowStateStore(root, config);
+      const provider = await resolveWorkflowTaskProvider(
+        root,
+        config,
+        store,
+        options.provider,
+      );
+      const result = await syncWorkflowTask(store, provider, {
+        comment: options.evidence,
+        transition: "complete",
+        approved: options.approve ?? false,
+      });
+
+      console.log(
+        "Synced " +
+          result.taskRef +
+          " through " +
+          provider.id +
+          (result.transition ? " via " + result.transition.name : "") +
+          ".",
+      );
+    },
+  );
 
 const jiraCommand = program.command("jira").description("Read and update Jira Cloud tasks.");
 
