@@ -32,6 +32,7 @@ import {
 import {
   activeRepositoryRules,
   buildRepositoryConstitution,
+  proposeRepositoryRule,
   repositoryConstitutionContext,
   type RepositoryConstitution,
 } from "@llmatic/repository-constitution";
@@ -44,15 +45,118 @@ function latestReviewPath(root: string, config: AgentConfig): string {
   return resolve(root, config.runtime.cacheDirectory, "latest-review.json");
 }
 
-async function persistReviewReport(
+function reviewHistoryPath(root: string, config: AgentConfig): string {
+  return resolve(root, config.runtime.cacheDirectory, "review-history.json");
+}
+
+interface ReviewHistoryFinding {
+  signature: string;
+  category: ReviewFinding["category"];
+  lens: ReviewLens;
+  severity: ReviewFinding["severity"];
+  title: string;
+  recommendation: string;
+  path: string;
+  ruleId?: string;
+}
+
+interface ReviewHistoryEntry {
+  reviewedAt: string;
+  findings: ReviewHistoryFinding[];
+}
+
+interface ReviewHistoryFile {
+  version: 1;
+  reviews: ReviewHistoryEntry[];
+}
+
+function reviewFindingSignature(finding: ReviewFinding): string {
+  return (
+    finding.category +
+    "|" +
+    finding.lens +
+    "|" +
+    finding.title.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim()
+  );
+}
+
+async function readReviewHistory(
+  root: string,
+  config: AgentConfig,
+): Promise<ReviewHistoryFile> {
+  try {
+    const parsed = JSON.parse(
+      await readFile(reviewHistoryPath(root, config), "utf8"),
+    ) as ReviewHistoryFile;
+    return parsed.version === 1 && Array.isArray(parsed.reviews)
+      ? parsed
+      : { version: 1, reviews: [] };
+  } catch {
+    return { version: 1, reviews: [] };
+  }
+}
+
+async function learnFromRepeatedReviewFindings(
   root: string,
   config: AgentConfig,
   report: CodeReviewReport,
-): Promise<void> {
-  const path = latestReviewPath(root, config);
+): Promise<number> {
+  const history = await readReviewHistory(root, config);
+  history.reviews.push({
+    reviewedAt: new Date().toISOString(),
+    findings: report.findings.map((finding) => ({
+      signature: reviewFindingSignature(finding),
+      category: finding.category,
+      lens: finding.lens,
+      severity: finding.severity,
+      title: finding.title,
+      recommendation: finding.recommendation,
+      path: finding.path,
+      ruleId: finding.ruleId,
+    })),
+  });
+  history.reviews = history.reviews.slice(-50);
+  await writeAtomicJson(reviewHistoryPath(root, config), history);
+
+  const counts = new Map<string, number>();
+  for (const review of history.reviews) {
+    const seenInReview = new Set<string>();
+    for (const finding of review.findings) {
+      if (finding.ruleId || seenInReview.has(finding.signature)) continue;
+      seenInReview.add(finding.signature);
+      counts.set(finding.signature, (counts.get(finding.signature) ?? 0) + 1);
+    }
+  }
+
+  let proposed = 0;
+  for (const finding of report.findings) {
+    if (finding.ruleId) continue;
+    const signature = reviewFindingSignature(finding);
+    const count = counts.get(signature) ?? 0;
+    if (count < 3) continue;
+
+    await proposeRepositoryRule(root, config, {
+      text: finding.recommendation,
+      rationale:
+        "Repeated review finding observed in " +
+        count +
+        " separate reviews: " +
+        finding.title,
+      strength: finding.severity === "blocking" ? "blocking" : "advisory",
+      scopes: [finding.category, finding.lens],
+      sourcePath: finding.path,
+      sourceLine: finding.line,
+    });
+    proposed += 1;
+  }
+
+  return proposed;
+}
+
+async function writeAtomicJson(path: string, value: unknown): Promise<void> {
   await mkdir(dirname(path), { recursive: true });
   const temporary = path + "." + randomUUID() + ".tmp";
-  await writeFile(temporary, JSON.stringify(report, null, 2) + "\n", "utf8");
+  await writeFile(temporary, JSON.stringify(value, null, 2) + "\n", "utf8");
 
   try {
     await rename(temporary, path);
@@ -60,6 +164,14 @@ async function persistReviewReport(
     await rm(temporary, { force: true });
     throw error;
   }
+}
+
+async function persistReviewReport(
+  root: string,
+  config: AgentConfig,
+  report: CodeReviewReport,
+): Promise<void> {
+  await writeAtomicJson(latestReviewPath(root, config), report);
 }
 
 export async function loadLatestReviewReport(
@@ -579,6 +691,7 @@ export async function runCodeReview(options: CodeReviewOptions): Promise<CodeRev
       changedFiles,
     };
     await persistReviewReport(options.root, options.config, report);
+    await learnFromRepeatedReviewFindings(options.root, options.config, report);
     await applyWorkflowReviewResult(options.store, 0);
     return report;
   }
@@ -648,7 +761,25 @@ export async function runCodeReview(options: CodeReviewOptions): Promise<CodeRev
       findingCount: String(report.findings.length),
     },
   });
+  const proposedRuleCount = await learnFromRepeatedReviewFindings(
+    options.root,
+    options.config,
+    report,
+  );
   await persistReviewReport(options.root, options.config, report);
+  await recordActionCheckpoint(options.store, {
+    provider: "repository-constitution",
+    action: "rules.learn",
+    success: true,
+    detail:
+      proposedRuleCount > 0
+        ? String(proposedRuleCount) + " repeated review pattern(s) proposed as repository rules."
+        : "No repeated review pattern reached the rule-proposal threshold.",
+    metadata: {
+      proposedRuleCount: String(proposedRuleCount),
+      threshold: "3",
+    },
+  });
   await applyWorkflowReviewResult(options.store, blockingCount);
   return report;
 }
