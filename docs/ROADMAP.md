@@ -10,7 +10,7 @@ Status: in progress.
 
 ## M20 — Universal Task Sources
 
-Status: in progress.
+Status: completed.
 
 Goal: remove Jira as a required workflow assumption.
 
@@ -36,6 +36,8 @@ Expected commands:
 Markdown must be a first-class offline task source and preserve unrelated document content while updating task status/evidence.
 
 ## M21 — Greenfield Discovery Engine
+
+Status: in progress.
 
 Goal: if the repository/project is empty or the user explicitly starts a new project, planning begins before repository mutation.
 

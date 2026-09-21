@@ -76,3 +76,12 @@
 - Release publication is now gated by release acceptance.
 - Added manual GitHub Release Acceptance workflow for pre-tag candidate validation.
 - Added clean-install and future upgrade acceptance procedure.
+
+## M21 — Greenfield discovery
+
+- Added adaptive private project discovery.
+- Added recommended/custom/not-sure/delegate answer paths.
+- Recommendations store explicit rationale.
+- Discovery progress persists outside the repository.
+- Added New Project Discovery Activity Bar action and status command.
+- No scaffold or tracked repository mutation is available from discovery.

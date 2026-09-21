@@ -31,7 +31,8 @@
     "@llmatic/runtime-installer": "workspace:*",
     "@llmatic/setup-health": "workspace:*",
     "@llmatic/release-metadata": "workspace:*",
-    "@llmatic/update-installer": "workspace:*"
+    "@llmatic/update-installer": "workspace:*",
+    "@llmatic/discovery-engine": "workspace:*"
   },
   "devDependencies": {
     "@types/vscode": "1.105.0",
@@ -40,6 +41,16 @@
   },
   "contributes": {
     "commands": [
+      {
+        "command": "llmatic.startDiscovery",
+        "title": "Start Project Discovery",
+        "category": "LLMatic"
+      },
+      {
+        "command": "llmatic.discoveryStatus",
+        "title": "Show Project Discovery",
+        "category": "LLMatic"
+      },
       {
         "command": "llmatic.getReady",
         "title": "Get Ready",
