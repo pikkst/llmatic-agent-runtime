@@ -86,7 +86,10 @@ function parseBlocks(raw: string): TaskBlock[] {
 function toTask(filePath: string, block: TaskBlock): TaskRecord {
   const status = statusName(block.raw);
   const dependenciesText = section(block.raw, ["Dependencies", "Depends on", "Dependency"]);
-  let dependencies = bullets(dependenciesText);
+  let dependencies = bullets(dependenciesText).filter((value) => {
+    const normalized = value.trim().toLowerCase();
+    return !["none", "n/a", "na", "not applicable", "-"].includes(normalized);
+  });
 
   if (dependencies.length === 1 && dependencies[0]!.includes(",")) {
     dependencies = dependencies[0]!
