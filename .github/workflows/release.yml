@@ -7,7 +7,6 @@ on:
 
 permissions:
   contents: write
-  id-token: write
 
 jobs:
   release:
@@ -34,6 +33,11 @@ jobs:
       - name: Verify release version
         run: node scripts/verify-release-version.mjs "$GITHUB_REF_NAME"
 
+      - name: Resolve release metadata
+        id: release_meta
+        shell: bash
+        run: echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+
       - name: Validate and package VSIX
         run: pnpm run ci
 
@@ -56,17 +60,10 @@ jobs:
         with:
           name: llmatic-agent-runtime-${{ github.ref_name }}-accepted
           path: |
-            artifacts/llmatic-agent-runtime-${{ github.ref_name }}.vsix
+            artifacts/llmatic-agent-runtime-${{ steps.release_meta.outputs.version }}.vsix
             artifacts/release-manifest.json
           if-no-files-found: error
           retention-days: 30
-
-      - name: Publish accepted VSIX to VS Code Marketplace
-        if: ${{ vars.VSCODE_MARKETPLACE_PUBLISH == 'true' }}
-        working-directory: apps/vscode-extension
-        run: |
-          VERSION="${GITHUB_REF_NAME#v}"
-          pnpm exec vsce publish --oidc --skip-duplicate --packagePath "../../artifacts/llmatic-agent-runtime-$VERSION.vsix"
 
       - name: Publish GitHub Release
         env:
@@ -74,3 +71,61 @@ jobs:
         run: |
           VERSION="${GITHUB_REF_NAME#v}"
           gh release create "$GITHUB_REF_NAME"             "artifacts/llmatic-agent-runtime-$VERSION.vsix"             "artifacts/release-manifest.json"             --repo "$GITHUB_REPOSITORY"             --verify-tag             --generate-notes             --title "LLMatic Agent Runtime $GITHUB_REF_NAME"
+
+  marketplace_publish:
+    name: Publish VS Code Marketplace
+    if: ${{ vars.VSCODE_MARKETPLACE_PUBLISH == 'true' }}
+    needs: release
+    runs-on: ubuntu-latest
+    environment: marketplace-production
+    permissions:
+      contents: read
+      id-token: write
+    env:
+      AZURE_TENANT_ID: ${{ secrets.VSCODE_MARKETPLACE_AZURE_TENANT_ID }}
+      AZURE_CORE_OUTPUT: none
+
+    steps:
+      - name: Checkout tagged commit
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Enable Corepack
+        run: corepack enable
+
+      - name: Install dependencies
+        run: pnpm install --no-frozen-lockfile
+
+      - name: Download accepted release candidate
+        uses: actions/download-artifact@v4
+        with:
+          name: llmatic-agent-runtime-${{ github.ref_name }}-accepted
+          path: artifacts
+
+      - name: Verify accepted Marketplace candidate
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          test -f "artifacts/llmatic-agent-runtime-$VERSION.vsix"
+          test -f "artifacts/release-manifest.json"
+          sha256sum "artifacts/llmatic-agent-runtime-$VERSION.vsix"
+
+      - name: Login to Microsoft Entra ID
+        uses: azure/login@v3
+        with:
+          client-id: ${{ secrets.VSCODE_MARKETPLACE_AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.VSCODE_MARKETPLACE_AZURE_TENANT_ID }}
+          allow-no-subscriptions: true
+
+      - name: Verify Marketplace publisher authorization
+        working-directory: apps/vscode-extension
+        run: pnpm exec vsce verify-pat eventnexus --azure-credential
+
+      - name: Publish accepted VSIX to VS Code Marketplace
+        working-directory: apps/vscode-extension
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          pnpm exec vsce publish --azure-credential --skip-duplicate --packagePath "../../artifacts/llmatic-agent-runtime-$VERSION.vsix"
