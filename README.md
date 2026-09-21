@@ -160,7 +160,6 @@ Auto-detection order:
 
 Markdown tasks are fully offline and preserve unrelated document content while updating task-local status/notes.
 
-
 ## Greenfield discovery
 
 New or empty projects can start with:

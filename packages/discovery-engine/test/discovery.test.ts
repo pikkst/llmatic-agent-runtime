@@ -14,9 +14,7 @@ import {
 const roots: string[] = [];
 
 afterEach(async () => {
-  await Promise.all(
-    roots.splice(0).map((root) => rm(root, { recursive: true, force: true })),
-  );
+  await Promise.all(roots.splice(0).map((root) => rm(root, { recursive: true, force: true })));
 });
 
 async function fixture() {
@@ -49,12 +47,9 @@ describe("greenfield discovery engine", () => {
     expect(discoverySessionPath(workspace).startsWith(workspace)).toBe(true);
     expect(nextDiscoveryQuestion(session)?.id).toBe("product_type");
 
-    session = await answerDiscoveryQuestion(
-      workspace,
-      session,
-      "product_type",
-      { mode: "delegate" },
-    );
+    session = await answerDiscoveryQuestion(workspace, session, "product_type", {
+      mode: "delegate",
+    });
 
     expect(session.answers.product_type).toMatchObject({
       value: "saas_web",

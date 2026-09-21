@@ -1157,10 +1157,7 @@ function discoveryChoiceItems(question: DiscoveryQuestion): DiscoveryQuickPickIt
       option.id === question.recommendation.optionId
         ? "$(star-full) " + option.label
         : option.label,
-    description:
-      option.id === question.recommendation.optionId
-        ? "Recommended"
-        : undefined,
+    description: option.id === question.recommendation.optionId ? "Recommended" : undefined,
     detail: option.description,
     action: "option",
     value: option.id,
@@ -1309,9 +1306,7 @@ async function startProjectDiscovery(
         {
           label: "$(debug-continue) Resume discovery",
           description:
-            Object.keys(session.answers).length +
-            " decision(s) recorded — " +
-            session.status,
+            Object.keys(session.answers).length + " decision(s) recorded — " + session.status,
           value: "resume",
         },
         {
@@ -1342,22 +1337,14 @@ async function startProjectDiscovery(
 
     if (!idea?.trim()) return;
 
-    session = await createDiscoverySession(
-      folder.uri.fsPath,
-      workspaceDirectory,
-      idea.trim(),
-    );
+    session = await createDiscoverySession(folder.uri.fsPath, workspaceDirectory, idea.trim());
   }
 
   while (session.status === "in_progress") {
     const question = nextDiscoveryQuestion(session);
     if (!question) break;
 
-    const updated = await answerDiscoveryInUi(
-      workspaceDirectory,
-      session,
-      question,
-    );
+    const updated = await answerDiscoveryInUi(workspaceDirectory, session, question);
 
     if (!updated) {
       writeDiscoverySummary(output, workspaceDirectory, session);
@@ -1386,9 +1373,7 @@ async function showProjectDiscovery(
 ): Promise<void> {
   const folder = firstWorkspaceFolder();
   if (!folder) {
-    await vscode.window.showWarningMessage(
-      "Open the project workspace to view discovery state.",
-    );
+    await vscode.window.showWarningMessage("Open the project workspace to view discovery state.");
     return;
   }
 

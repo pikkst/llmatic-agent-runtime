@@ -1,20 +1,10 @@
 import { randomUUID } from "node:crypto";
-import {
-  mkdir,
-  readFile,
-  readdir,
-  rename,
-  rm,
-  writeFile,
-} from "node:fs/promises";
+import { mkdir, readFile, readdir, rename, rm, writeFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 
 export type DiscoveryStatus = "in_progress" | "ready_for_planning";
 export type DiscoveryAnswerSource =
-  | "user_option"
-  | "user_custom"
-  | "recommended_confirmed"
-  | "llmatic_delegated";
+  "user_option" | "user_custom" | "recommended_confirmed" | "llmatic_delegated";
 
 export interface DiscoveryOption {
   id: string;
@@ -78,11 +68,7 @@ function answerValue(answers: AnswerMap, id: string): string | undefined {
   return answers[id]?.value;
 }
 
-function option(
-  id: string,
-  label: string,
-  description: string,
-): DiscoveryOption {
+function option(id: string, label: string, description: string): DiscoveryOption {
   return { id, label, description };
 }
 
@@ -94,8 +80,16 @@ const QUESTIONS: QuestionDefinition[] = [
     customAllowed: true,
     options: [
       option("saas_web", "SaaS web application", "Browser-based product for external customers."),
-      option("internal_tool", "Internal business tool", "Application for one organization or team."),
-      option("public_portal", "Public information portal", "Primarily public/read-oriented web experience."),
+      option(
+        "internal_tool",
+        "Internal business tool",
+        "Application for one organization or team.",
+      ),
+      option(
+        "public_portal",
+        "Public information portal",
+        "Primarily public/read-oriented web experience.",
+      ),
       option("api_service", "API / backend service", "Service consumed mainly by other systems."),
       option("desktop", "Desktop application", "Installed desktop product."),
       option("cli", "CLI / developer tool", "Terminal-first software."),
@@ -112,7 +106,8 @@ const QUESTIONS: QuestionDefinition[] = [
       if (/\b(api|backend|service)\b/.test(text) && !/\b(web|ui|frontend)\b/.test(text)) {
         return {
           optionId: "api_service",
-          rationale: "The idea emphasizes an API/backend service rather than a user-facing web application.",
+          rationale:
+            "The idea emphasizes an API/backend service rather than a user-facing web application.",
         };
       }
       return {
@@ -127,9 +122,21 @@ const QUESTIONS: QuestionDefinition[] = [
     title: "Delivery target",
     prompt: "What level of product maturity are you targeting first?",
     options: [
-      option("prototype", "Prototype", "Optimize for learning; disposable decisions are acceptable."),
-      option("mvp", "MVP", "Production-capable foundation with deliberately limited product scope."),
-      option("production", "Production system", "Stricter reliability, security, observability and operational requirements."),
+      option(
+        "prototype",
+        "Prototype",
+        "Optimize for learning; disposable decisions are acceptable.",
+      ),
+      option(
+        "mvp",
+        "MVP",
+        "Production-capable foundation with deliberately limited product scope.",
+      ),
+      option(
+        "production",
+        "Production system",
+        "Stricter reliability, security, observability and operational requirements.",
+      ),
     ],
     recommend: () => ({
       optionId: "mvp",
@@ -146,8 +153,16 @@ const QUESTIONS: QuestionDefinition[] = [
       option("business", "Business customers", "External B2B users or customer organizations."),
       option("consumer", "Consumers", "Individual external users."),
       option("internal", "Internal staff", "Employees or one organization's team."),
-      option("developers", "Developers / API consumers", "Technical users consuming APIs or tooling."),
-      option("admins", "Administrators / operators", "Operations or administration is the primary workflow."),
+      option(
+        "developers",
+        "Developers / API consumers",
+        "Technical users consuming APIs or tooling.",
+      ),
+      option(
+        "admins",
+        "Administrators / operators",
+        "Operations or administration is the primary workflow.",
+      ),
     ],
     recommend: (answers) => {
       const type = answerValue(answers, "product_type");
@@ -165,7 +180,8 @@ const QUESTIONS: QuestionDefinition[] = [
       }
       return {
         optionId: "business",
-        rationale: "B2B users provide a strong default model for permissions, organizations and auditability.",
+        rationale:
+          "B2B users provide a strong default model for permissions, organizations and auditability.",
       };
     },
   },
@@ -176,24 +192,35 @@ const QUESTIONS: QuestionDefinition[] = [
     options: [
       option("fullstack_web", "Full-stack web", "Web UI plus backend/API."),
       option("api_backend", "Backend/API only", "No first-party product UI initially."),
-      option("frontend_only", "Frontend only", "Static/client-side application using external APIs."),
+      option(
+        "frontend_only",
+        "Frontend only",
+        "Static/client-side application using external APIs.",
+      ),
       option("desktop_app", "Desktop application", "Desktop runtime and UI."),
       option("cli_app", "CLI application", "Terminal entrypoint and local/runtime integrations."),
     ],
     recommend: (answers) => {
       const type = answerValue(answers, "product_type");
       if (type === "api_service") {
-        return { optionId: "api_backend", rationale: "The chosen product type is API/backend service." };
+        return {
+          optionId: "api_backend",
+          rationale: "The chosen product type is API/backend service.",
+        };
       }
       if (type === "cli") {
         return { optionId: "cli_app", rationale: "The chosen product type is CLI/developer tool." };
       }
       if (type === "desktop") {
-        return { optionId: "desktop_app", rationale: "The chosen product type is a desktop application." };
+        return {
+          optionId: "desktop_app",
+          rationale: "The chosen product type is a desktop application.",
+        };
       }
       return {
         optionId: "fullstack_web",
-        rationale: "A full-stack web split keeps UI and API contracts explicit while remaining straightforward to deploy.",
+        rationale:
+          "A full-stack web split keeps UI and API contracts explicit while remaining straightforward to deploy.",
       };
     },
   },
@@ -206,17 +233,26 @@ const QUESTIONS: QuestionDefinition[] = [
       !["cli_app", "frontend_only"].includes(answerValue(answers, "application_shape") ?? ""),
     options: [
       option("none", "No authentication", "Public or machine-network-controlled product."),
-      option("email_oauth", "Email + OAuth", "Conventional customer login plus social/identity provider OAuth."),
+      option(
+        "email_oauth",
+        "Email + OAuth",
+        "Conventional customer login plus social/identity provider OAuth.",
+      ),
       option("passwordless", "Passwordless", "Magic link/passkey-first user authentication."),
       option("enterprise_sso", "Enterprise SSO", "Organization-managed identity and SSO."),
-      option("internal_identity", "Internal identity only", "Restricted company/internal identity provider."),
+      option(
+        "internal_identity",
+        "Internal identity only",
+        "Restricted company/internal identity provider.",
+      ),
     ],
     recommend: (answers) => {
       const users = answerValue(answers, "primary_users");
       if (users === "internal") {
         return {
           optionId: "internal_identity",
-          rationale: "Internal staff products should normally rely on the organization's identity boundary.",
+          rationale:
+            "Internal staff products should normally rely on the organization's identity boundary.",
         };
       }
       if (users === "developers" && answerValue(answers, "product_type") === "api_service") {
@@ -228,7 +264,8 @@ const QUESTIONS: QuestionDefinition[] = [
       }
       return {
         optionId: "email_oauth",
-        rationale: "Email plus OAuth is a mature default with low onboarding friction and broad provider support.",
+        rationale:
+          "Email plus OAuth is a mature default with low onboarding friction and broad provider support.",
       };
     },
   },
@@ -241,8 +278,16 @@ const QUESTIONS: QuestionDefinition[] = [
       !["cli", "internal_tool"].includes(answerValue(answers, "product_type") ?? ""),
     options: [
       option("single_user", "Individual accounts", "Resources belong directly to one user."),
-      option("organizations", "Organizations / workspaces", "Users belong to tenant organizations/workspaces."),
-      option("single_tenant", "Single tenant deployment", "One customer/organization per deployment."),
+      option(
+        "organizations",
+        "Organizations / workspaces",
+        "Users belong to tenant organizations/workspaces.",
+      ),
+      option(
+        "single_tenant",
+        "Single tenant deployment",
+        "One customer/organization per deployment.",
+      ),
     ],
     recommend: (answers) => ({
       optionId:
@@ -262,9 +307,21 @@ const QUESTIONS: QuestionDefinition[] = [
       answerValue(answers, "product_type") !== "cli" ||
       answerValue(answers, "maturity") !== "prototype",
     options: [
-      option("postgresql", "PostgreSQL", "Relational transactional database with mature migration tooling."),
-      option("managed_postgres", "Managed PostgreSQL", "PostgreSQL with managed hosting/platform services."),
-      option("document_db", "Document database", "Document-oriented storage where aggregate documents dominate."),
+      option(
+        "postgresql",
+        "PostgreSQL",
+        "Relational transactional database with mature migration tooling.",
+      ),
+      option(
+        "managed_postgres",
+        "Managed PostgreSQL",
+        "PostgreSQL with managed hosting/platform services.",
+      ),
+      option(
+        "document_db",
+        "Document database",
+        "Document-oriented storage where aggregate documents dominate.",
+      ),
       option("local_sqlite", "SQLite", "Local/small deployment relational database."),
       option("none", "No primary database", "Stateless or externally persisted system."),
     ],
@@ -289,7 +346,8 @@ const QUESTIONS: QuestionDefinition[] = [
 
       return {
         optionId: "postgresql",
-        rationale: "PostgreSQL is the safest general-purpose default for structured application data.",
+        rationale:
+          "PostgreSQL is the safest general-purpose default for structured application data.",
       };
     },
   },
@@ -299,8 +357,16 @@ const QUESTIONS: QuestionDefinition[] = [
     prompt: "What deployment model should the initial architecture optimize for?",
     customAllowed: true,
     options: [
-      option("managed_cloud", "Managed cloud", "Managed application/database services with minimal operations overhead."),
-      option("docker", "Self-hosted Docker", "Portable container deployment without Kubernetes complexity."),
+      option(
+        "managed_cloud",
+        "Managed cloud",
+        "Managed application/database services with minimal operations overhead.",
+      ),
+      option(
+        "docker",
+        "Self-hosted Docker",
+        "Portable container deployment without Kubernetes complexity.",
+      ),
       option("serverless", "Serverless / edge", "Function/edge-first deployment."),
       option("kubernetes", "Kubernetes", "Cluster orchestration and platform operations."),
       option("local_only", "Local only", "No hosted production environment."),
@@ -309,7 +375,8 @@ const QUESTIONS: QuestionDefinition[] = [
       if (answerValue(answers, "product_type") === "cli") {
         return {
           optionId: "local_only",
-          rationale: "A CLI product should default to local execution unless a hosted control plane is required.",
+          rationale:
+            "A CLI product should default to local execution unless a hosted control plane is required.",
         };
       }
 
@@ -335,7 +402,11 @@ const QUESTIONS: QuestionDefinition[] = [
     options: [
       option("prototype", "Prototype checks", "Fast smoke tests and minimal quality gates."),
       option("balanced", "Balanced", "Unit + integration tests and E2E for critical flows."),
-      option("strict", "Strict production", "Unit/integration/E2E plus stronger reliability and contract gates."),
+      option(
+        "strict",
+        "Strict production",
+        "Unit/integration/E2E plus stronger reliability and contract gates.",
+      ),
     ],
     recommend: (answers) => ({
       optionId: answerValue(answers, "maturity") === "production" ? "strict" : "balanced",
@@ -351,9 +422,21 @@ const QUESTIONS: QuestionDefinition[] = [
     prompt: "What security/compliance posture should planning assume?",
     customAllowed: true,
     options: [
-      option("standard", "Standard application security", "Least privilege, secure defaults, audit-sensitive design."),
-      option("elevated", "Elevated", "Sensitive business/personal data with stronger audit and access controls."),
-      option("regulated", "Regulated/compliance-heavy", "Formal regulatory/security controls are expected."),
+      option(
+        "standard",
+        "Standard application security",
+        "Least privilege, secure defaults, audit-sensitive design.",
+      ),
+      option(
+        "elevated",
+        "Elevated",
+        "Sensitive business/personal data with stronger audit and access controls.",
+      ),
+      option(
+        "regulated",
+        "Regulated/compliance-heavy",
+        "Formal regulatory/security controls are expected.",
+      ),
       option("internal", "Internal-only", "Restricted internal network/identity boundary."),
     ],
     recommend: (answers) => ({
@@ -473,9 +556,7 @@ function materializeQuestion(
   };
 }
 
-export function nextDiscoveryQuestion(
-  session: DiscoverySession,
-): DiscoveryQuestion | undefined {
+export function nextDiscoveryQuestion(session: DiscoverySession): DiscoveryQuestion | undefined {
   const definition = QUESTIONS.find((question) => {
     if (session.answers[question.id]) return false;
     return question.when ? question.when(session.answers) : true;
@@ -527,8 +608,7 @@ export async function answerDiscoveryQuestion(
 
     value = selected.id;
     label = selected.label;
-    rationale =
-      input.mode === "option" ? undefined : question.recommendation.rationale;
+    rationale = input.mode === "option" ? undefined : question.recommendation.rationale;
     source =
       input.mode === "delegate"
         ? "llmatic_delegated"
@@ -554,21 +634,14 @@ export async function answerDiscoveryQuestion(
     },
   };
 
-  updated.status = nextDiscoveryQuestion(updated)
-    ? "in_progress"
-    : "ready_for_planning";
+  updated.status = nextDiscoveryQuestion(updated) ? "in_progress" : "ready_for_planning";
 
   await saveDiscoverySession(workspaceDirectory, updated);
   return updated;
 }
 
 export function discoverySummary(session: DiscoverySession): string {
-  const lines = [
-    "Idea: " + session.idea,
-    "Status: " + session.status,
-    "",
-    "Decisions:",
-  ];
+  const lines = ["Idea: " + session.idea, "Status: " + session.status, "", "Decisions:"];
 
   for (const question of QUESTIONS) {
     const answer = session.answers[question.id];
