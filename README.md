@@ -4,7 +4,7 @@ Universal local software-engineering runtime for coding agents.
 
 ## Current milestone
 
-M14 — Automated Review / Fix Loop
+M15 — Runtime Lifecycle & Repair
 
 LLMatic now supports:
 
@@ -30,10 +30,21 @@ The model is configurable through llmatic.agentModel.
 The carried-forward bootstrap flow from PR #13 is available as:
 
     LLMatic: Bootstrap Workspace
+    LLMatic: Repair Runtime
 
 It derives tool requirements from repository signals, offers only registry-backed controlled installers, reconciles Kilo MCP, and leaves tracked repository files untouched.
 
 See docs/bootstrap-remediation.md.
+
+## Runtime lifecycle
+
+The bundled MCP server is SHA-256 verified and installed into versioned VS Code global storage. Kilo MCP points to that stable runtime path.
+
+Repair command:
+
+    LLMatic: Repair Runtime
+
+See docs/runtime-lifecycle.md.
 
 ## VS Code commands
 

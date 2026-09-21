@@ -32,3 +32,11 @@
 - Bootstrap derives required/recommended/optional tools from repository signals.
 - Automatic remediation remains restricted to Tool Registry installers and explicit user approval.
 - Bootstrap preserves the zero-repository-footprint boundary.
+
+## M15 — Runtime lifecycle and repair
+
+- Bundled MCP runtime now ships with a SHA-256 manifest.
+- Runtime is installed into versioned VS Code global storage rather than referenced from the extension install directory.
+- Kilo MCP points to the verified installed runtime.
+- Doctor validates runtime integrity.
+- Added `LLMatic: Repair Runtime` to restore corrupted/stale runtime bytes and reconcile Kilo MCP.
