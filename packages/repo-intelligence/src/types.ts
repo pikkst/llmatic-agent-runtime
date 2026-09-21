@@ -1,21 +1,8 @@
 export type RepositoryLanguage =
-  | "typescript"
-  | "javascript"
-  | "json"
-  | "markdown"
-  | "yaml"
-  | "sql"
-  | "python"
-  | "other";
+  "typescript" | "javascript" | "json" | "markdown" | "yaml" | "sql" | "python" | "other";
 
 export type RepositorySymbolKind =
-  | "function"
-  | "class"
-  | "interface"
-  | "type"
-  | "enum"
-  | "variable"
-  | "method";
+  "function" | "class" | "interface" | "type" | "enum" | "variable" | "method";
 
 export interface RepositoryFileEntry {
   path: string;

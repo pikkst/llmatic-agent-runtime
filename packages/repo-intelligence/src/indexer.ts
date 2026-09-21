@@ -27,16 +27,7 @@ const IGNORED_DIRECTORIES = new Set([
   "target",
 ]);
 
-const SOURCE_EXTENSIONS = new Set([
-  ".ts",
-  ".tsx",
-  ".mts",
-  ".cts",
-  ".js",
-  ".jsx",
-  ".mjs",
-  ".cjs",
-]);
+const SOURCE_EXTENSIONS = new Set([".ts", ".tsx", ".mts", ".cts", ".js", ".jsx", ".mjs", ".cjs"]);
 
 const MAX_SOURCE_BYTES = 2 * 1024 * 1024;
 
@@ -83,9 +74,7 @@ function scriptKindFor(extension: string): ts.ScriptKind {
 function isExported(node: ts.Node): boolean {
   return Boolean(
     ts.canHaveModifiers(node) &&
-      ts
-        .getModifiers(node)
-        ?.some((modifier) => modifier.kind === ts.SyntaxKind.ExportKeyword),
+    ts.getModifiers(node)?.some((modifier) => modifier.kind === ts.SyntaxKind.ExportKeyword),
   );
 }
 
@@ -427,11 +416,7 @@ export function searchRepositoryIndex(
     hits.push({
       kind: "symbol",
       path: symbol.path,
-      label:
-        symbol.kind +
-        " " +
-        (symbol.container ? symbol.container + "." : "") +
-        symbol.name,
+      label: symbol.kind + " " + (symbol.container ? symbol.container + "." : "") + symbol.name,
       line: symbol.line,
       score: score + 20,
     });

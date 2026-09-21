@@ -47,19 +47,22 @@ async function createRepository(): Promise<string> {
     join(root, "src", "service.ts"),
     [
       'import type { AgentConfig } from "@llmatic/core";',
-      'export interface ServiceOptions { enabled: boolean }',
-      'export class ExampleService {',
+      "export interface ServiceOptions { enabled: boolean }",
+      "export class ExampleService {",
       '  public run(): string { return "ok"; }',
-      '}',
-      'export function createService(config: AgentConfig): ExampleService {',
-      '  void config;',
-      '  return new ExampleService();',
-      '}',
+      "}",
+      "export function createService(config: AgentConfig): ExampleService {",
+      "  void config;",
+      "  return new ExampleService();",
+      "}",
       "",
     ].join("\n"),
   );
   await writeFile(join(root, "README.md"), "# Fixture\n");
-  await writeFile(join(root, "node_modules", "ignored", "index.ts"), "export const ignored = true;\n");
+  await writeFile(
+    join(root, "node_modules", "ignored", "index.ts"),
+    "export const ignored = true;\n",
+  );
 
   return root;
 }
