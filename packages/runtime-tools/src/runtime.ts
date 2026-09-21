@@ -158,7 +158,7 @@ function sanitizeSupabaseOutput(value: string): string {
         return line.replace(/=.*/, "=[REDACTED]");
       }
 
-      return line.replace(/:\/\/([^:@/\s]+):([^@/\s]+)@/g, "://$1:[REDACTED]@");
+      return line.replace(/:\/\/([^:@/\s]+):([^@/\s]+)@/g, "://[REDACTED]@");
     })
     .join("\n")
     .trim();

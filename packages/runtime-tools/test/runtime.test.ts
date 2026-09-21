@@ -112,8 +112,9 @@ describe("runtime tool packs", () => {
       { pack: "supabase", operation: "status" },
       { runner },
     );
-    expect(status.stdout).toContain("postgres:[REDACTED]@127.0.0.1");
-    expect(status.stdout).toContain("service_role key: [REDACTED]");
+    expect(status.stdout).toContain("[REDACTED]");
+    expect(status.stdout).not.toContain("postgres:postgres@");
+    expect(status.stdout).not.toContain("secret-value");
 
     await runRuntimeToolOperation(
       root,
