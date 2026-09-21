@@ -28,6 +28,15 @@ jobs:
       - name: Install dependencies
         run: pnpm install --no-frozen-lockfile
 
+      - name: Show canonical M19 formatting
+        run: |
+          echo "__BEGIN_README__"
+          pnpm exec prettier README.md
+          echo "__END_README__"
+          echo "__BEGIN_RELEASE_ACCEPTANCE__"
+          pnpm exec prettier scripts/release-acceptance.mjs
+          echo "__END_RELEASE_ACCEPTANCE__"
+
       - name: Validate
         run: pnpm run ci
 
