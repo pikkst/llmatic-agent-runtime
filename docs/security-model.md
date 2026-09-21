@@ -54,3 +54,13 @@ The first automated installer is pnpm through Corepack. It is still permission-g
 A coding agent must not silently bypass the runtime permission model by falling back to raw shell commands for an operation that has a registered protected capability.
 
 Enforcement becomes stronger as orchestration and MCP layers are added.
+
+## GitHub pull requests
+
+GitHub mutations use the local GitHub CLI through structured arguments with shell execution disabled.
+
+Pull-request creation is controlled by `createPullRequest`.
+
+Pull-request merge is controlled by `mergePullRequest`.
+
+Workflow merge resolves the current pull request head SHA immediately before merge and passes it through `gh pr merge --match-head-commit`. This prevents a stale approval or review state from silently merging a newer head commit.

@@ -54,6 +54,7 @@ const actionCheckpointSchema = checkpointBaseSchema.extend({
   command: z.string().optional(),
   success: z.boolean(),
   detail: z.string().optional(),
+  metadata: z.record(z.string()).optional(),
 });
 
 export const workflowCheckpointSchema = z.discriminatedUnion("kind", [
@@ -81,6 +82,7 @@ export interface ActionCheckpointInput {
   command?: string;
   success: boolean;
   detail?: string;
+  metadata?: Record<string, string>;
 }
 
 const transitions: Record<WorkflowState, readonly WorkflowState[]> = {
@@ -267,6 +269,7 @@ export async function recordActionCheckpoint(
         command: input.command,
         success: input.success,
         detail: input.detail,
+        metadata: input.metadata,
       },
     ],
   };

@@ -4,6 +4,15 @@ import { mkdir, writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import { Command } from "commander";
 import {
+  createPullRequest,
+  createWorkflowPullRequest,
+  getPullRequestStatus,
+  mergePullRequest,
+  mergeWorkflowPullRequest,
+  refreshWorkflowRemoteCi,
+  type PullRequestStatus,
+} from "@llmatic/github-adapter";
+import {
   analyzeWorkflowRepository,
   buildRepositoryIndex,
   loadRepositoryIndex,
@@ -63,6 +72,16 @@ function printDetection(detection: RepositoryDetection): void {
     const command = capability.command ? " -> " + capability.command : "";
     console.log("  " + marker + " " + capability.name + command);
   }
+}
+
+function printPullRequestStatus(status: PullRequestStatus): void {
+  console.log("PR: #" + status.pullRequest.number + " " + status.pullRequest.url);
+  console.log("State: " + status.pullRequest.state);
+  console.log("Draft: " + (status.pullRequest.isDraft ? "yes" : "no"));
+  console.log("Mergeable: " + status.pullRequest.mergeable);
+  console.log("Merge state: " + status.pullRequest.mergeStateStatus);
+  console.log("CI: " + status.ciState);
+  console.log("Checks: " + status.checks.length);
 }
 
 function printRepositoryIndex(index: RepositoryIndex): void {
@@ -257,6 +276,88 @@ program
       process.exitCode = result.exitCode || 1;
     }
   });
+
+const githubCommand = program.command("github").description("Run protected GitHub operations.");
+const githubPrCommand = githubCommand.command("pr").description("Work with GitHub pull requests.");
+
+githubPrCommand
+  .command("status")
+  .description("Show pull-request metadata and CI checks.")
+  .argument("[ref]", "Pull-request number, URL, or branch")
+  .option("-r, --root <path>", "Repository root", process.cwd())
+  .option("--json", "Print machine-readable JSON")
+  .action(async (ref: string | undefined, options: { root: string; json?: boolean }) => {
+    const status = await getPullRequestStatus(resolve(options.root), ref);
+
+    if (options.json) {
+      console.log(JSON.stringify(status, null, 2));
+      return;
+    }
+
+    printPullRequestStatus(status);
+  });
+
+githubPrCommand
+  .command("create")
+  .description("Create a pull request through the createPullRequest permission gate.")
+  .requiredOption("--title <title>", "Pull-request title")
+  .option("--body <body>", "Pull-request body", "")
+  .option("--base <branch>", "Base branch")
+  .option("--head <branch>", "Head branch")
+  .option("--draft", "Create a draft pull request")
+  .option("-r, --root <path>", "Repository root", process.cwd())
+  .option("--approve", "Approve when createPullRequest is configured as 'ask'")
+  .action(
+    async (options: {
+      title: string;
+      body: string;
+      base?: string;
+      head?: string;
+      draft?: boolean;
+      root: string;
+      approve?: boolean;
+    }) => {
+      const root = resolve(options.root);
+      const config = await loadAgentConfig(root);
+      const pullRequest = await createPullRequest(
+        root,
+        config,
+        {
+          title: options.title,
+          body: options.body,
+          base: options.base,
+          head: options.head,
+          draft: options.draft ?? false,
+        },
+        { approved: options.approve ?? false },
+      );
+
+      console.log("Created PR #" + pullRequest.number + ": " + pullRequest.url);
+    },
+  );
+
+githubPrCommand
+  .command("merge")
+  .description("Merge a pull request through the mergePullRequest permission gate.")
+  .argument("[ref]", "Pull-request number, URL, or branch")
+  .option("--method <method>", "Merge method: squash, merge, or rebase", "squash")
+  .option("-r, --root <path>", "Repository root", process.cwd())
+  .option("--approve", "Approve when mergePullRequest is configured as 'ask'")
+  .action(
+    async (
+      ref: string | undefined,
+      options: { method: string; root: string; approve?: boolean },
+    ) => {
+      const root = resolve(options.root);
+      const config = await loadAgentConfig(root);
+      const result = await mergePullRequest(root, config, ref, {
+        approved: options.approve ?? false,
+        method: options.method,
+      });
+
+      console.log("Merged PR #" + result.pullRequest.number + " using " + result.method + ".");
+    },
+  );
 
 const repoCommand = program.command("repo").description("Build and query repository intelligence.");
 
@@ -527,6 +628,85 @@ workflow
       });
 
       console.log("Pushed " + result.push.branch + " to " + result.push.remote + ".");
+      console.log("State: " + result.workflow.state);
+    },
+  );
+
+workflow
+  .command("open-pr")
+  .description("Create the workflow pull request and advance PUSHED -> PR_OPEN.")
+  .requiredOption("--title <title>", "Pull-request title")
+  .option("--body <body>", "Pull-request body", "")
+  .option("--base <branch>", "Base branch")
+  .option("--head <branch>", "Head branch")
+  .option("--draft", "Create a draft pull request")
+  .option("-r, --root <path>", "Repository root", process.cwd())
+  .option("--approve", "Approve when createPullRequest is configured as 'ask'")
+  .action(
+    async (options: {
+      title: string;
+      body: string;
+      base?: string;
+      head?: string;
+      draft?: boolean;
+      root: string;
+      approve?: boolean;
+    }) => {
+      const root = resolve(options.root);
+      const config = await loadAgentConfig(root);
+      const store = new WorkflowStateStore(root, config);
+      const result = await createWorkflowPullRequest(
+        root,
+        config,
+        store,
+        {
+          title: options.title,
+          body: options.body,
+          base: options.base,
+          head: options.head,
+          draft: options.draft ?? false,
+        },
+        { approved: options.approve ?? false },
+      );
+
+      console.log("Created PR #" + result.pullRequest.number + ": " + result.pullRequest.url);
+      console.log("State: " + result.workflow.state);
+    },
+  );
+
+workflow
+  .command("remote-ci")
+  .description("Refresh GitHub PR checks and advance workflow state from the result.")
+  .option("--pr <ref>", "Pull-request number, URL, or branch")
+  .option("-r, --root <path>", "Repository root", process.cwd())
+  .action(async (options: { pr?: string; root: string }) => {
+    const root = resolve(options.root);
+    const config = await loadAgentConfig(root);
+    const store = new WorkflowStateStore(root, config);
+    const result = await refreshWorkflowRemoteCi(root, store, options.pr);
+
+    printPullRequestStatus(result.status);
+    console.log("State: " + result.workflow.state);
+  });
+
+workflow
+  .command("merge")
+  .description("Merge the workflow pull request and advance READY_TO_MERGE -> COMPLETED.")
+  .option("--pr <ref>", "Pull-request number, URL, or branch")
+  .option("--method <method>", "Merge method: squash, merge, or rebase", "squash")
+  .option("-r, --root <path>", "Repository root", process.cwd())
+  .option("--approve", "Approve when mergePullRequest is configured as 'ask'")
+  .action(
+    async (options: { pr?: string; method: string; root: string; approve?: boolean }) => {
+      const root = resolve(options.root);
+      const config = await loadAgentConfig(root);
+      const store = new WorkflowStateStore(root, config);
+      const result = await mergeWorkflowPullRequest(root, config, store, options.pr, {
+        approved: options.approve ?? false,
+        method: options.method,
+      });
+
+      console.log("Merged PR #" + result.merge.pullRequest.number + ".");
       console.log("State: " + result.workflow.state);
     },
   );

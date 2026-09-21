@@ -1,0 +1,342 @@
+import { mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { afterEach, describe, expect, it } from "vitest";
+import {
+  WorkflowStateStore,
+  createDefaultConfig,
+  startWorkflow,
+  transitionWorkflow,
+  type RepositoryDetection,
+} from "@llmatic/core";
+import {
+  createPullRequest,
+  createWorkflowPullRequest,
+  getPullRequestStatus,
+  mergePullRequest,
+  mergeWorkflowPullRequest,
+  refreshWorkflowRemoteCi,
+} from "../src/github.js";
+import type { GitHubProcessRunner } from "../src/types.js";
+
+const temporaryDirectories: string[] = [];
+
+afterEach(async () => {
+  await Promise.all(
+    temporaryDirectories.splice(0).map((directory) => rm(directory, { recursive: true })),
+  );
+});
+
+function configFor(root: string) {
+  const detection: RepositoryDetection = {
+    root,
+    git: true,
+    packageJson: true,
+    packageManager: "pnpm",
+    technologies: [],
+    capabilities: [],
+  };
+
+  return createDefaultConfig(detection);
+}
+
+function pullRequestJson(overrides: Record<string, unknown> = {}): string {
+  return JSON.stringify({
+    number: 7,
+    url: "https://github.com/example/repo/pull/7",
+    state: "OPEN",
+    isDraft: false,
+    mergeable: "MERGEABLE",
+    mergeStateStatus: "CLEAN",
+    reviewDecision: "APPROVED",
+    headRefName: "feature/task",
+    headRefOid: "abc123",
+    baseRefName: "main",
+    ...overrides,
+  });
+}
+
+async function moveToPushed(store: WorkflowStateStore): Promise<void> {
+  await transitionWorkflow(store, "TASK_VALIDATED");
+  await transitionWorkflow(store, "REPO_ANALYZED");
+  await transitionWorkflow(store, "BRANCH_CREATED");
+  await transitionWorkflow(store, "IMPLEMENTING");
+  await transitionWorkflow(store, "LOCAL_VALIDATION");
+  await transitionWorkflow(store, "CODE_REVIEW");
+  await transitionWorkflow(store, "READY_TO_PUSH");
+  await transitionWorkflow(store, "PUSHED");
+}
+
+describe("github adapter", () => {
+  it("requires approval for default pull-request creation", async () => {
+    const config = configFor("/repo");
+    const runner: GitHubProcessRunner = () => ({
+      exitCode: 0,
+      stdout: "",
+      stderr: "",
+    });
+
+    await expect(
+      createPullRequest(
+        "/repo",
+        config,
+        { title: "Test PR", body: "" },
+        { runner },
+      ),
+    ).rejects.toThrow("requires approval");
+  });
+
+  it("creates a pull request with structured gh arguments", async () => {
+    const config = configFor("/repo");
+    const calls: string[][] = [];
+    const runner: GitHubProcessRunner = (_executable, args) => {
+      calls.push(args);
+
+      if (args[1] === "create") {
+        return {
+          exitCode: 0,
+          stdout: "https://github.com/example/repo/pull/7\n",
+          stderr: "",
+        };
+      }
+
+      return { exitCode: 0, stdout: pullRequestJson(), stderr: "" };
+    };
+
+    const pullRequest = await createPullRequest(
+      "/repo",
+      config,
+      {
+        title: "Test PR",
+        body: "Body",
+        base: "main",
+        head: "feature/task",
+      },
+      { approved: true, runner },
+    );
+
+    expect(pullRequest.number).toBe(7);
+    expect(calls[0]).toEqual([
+      "pr",
+      "create",
+      "--title",
+      "Test PR",
+      "--body",
+      "Body",
+      "--base",
+      "main",
+      "--head",
+      "feature/task",
+    ]);
+  });
+
+  it("maps pending check exit code 8 into remote CI status", async () => {
+    const runner: GitHubProcessRunner = (_executable, args) => {
+      if (args[1] === "view") {
+        return { exitCode: 0, stdout: pullRequestJson(), stderr: "" };
+      }
+
+      return {
+        exitCode: 8,
+        stdout: JSON.stringify([
+          {
+            name: "CI",
+            state: "IN_PROGRESS",
+            bucket: "pending",
+            workflow: "CI",
+            link: "https://example.test/run",
+          },
+        ]),
+        stderr: "",
+      };
+    };
+
+    const status = await getPullRequestStatus("/repo", "7", runner);
+
+    expect(status.ciState).toBe("pending");
+    expect(status.checks).toHaveLength(1);
+  });
+
+  it("creates the workflow PR before moving PUSHED to PR_OPEN", async () => {
+    const root = await mkdtemp(join(tmpdir(), "llmatic-github-"));
+    temporaryDirectories.push(root);
+
+    const config = configFor(root);
+    config.permissions.createPullRequest = "auto";
+    const store = new WorkflowStateStore(root, config);
+    await startWorkflow(store, "TASK-400");
+    await moveToPushed(store);
+
+    const runner: GitHubProcessRunner = (_executable, args) => {
+      if (args[1] === "create") {
+        return {
+          exitCode: 0,
+          stdout: "https://github.com/example/repo/pull/7\n",
+          stderr: "",
+        };
+      }
+
+      return { exitCode: 0, stdout: pullRequestJson(), stderr: "" };
+    };
+
+    const result = await createWorkflowPullRequest(
+      root,
+      config,
+      store,
+      { title: "TASK-400", body: "" },
+      { runner },
+    );
+
+    expect(result.workflow.state).toBe("PR_OPEN");
+    expect(
+      result.workflow.checkpoints.find(
+        (checkpoint) =>
+          checkpoint.kind === "ACTION" &&
+          checkpoint.provider === "github" &&
+          checkpoint.action === "pr.create",
+      ),
+    ).toMatchObject({
+      success: true,
+      metadata: {
+        prNumber: "7",
+        headRefOid: "abc123",
+      },
+    });
+  });
+
+  it("advances passing remote CI from PR_OPEN to FINAL_REVIEW", async () => {
+    const root = await mkdtemp(join(tmpdir(), "llmatic-github-"));
+    temporaryDirectories.push(root);
+
+    const config = configFor(root);
+    config.permissions.createPullRequest = "auto";
+    const store = new WorkflowStateStore(root, config);
+    await startWorkflow(store, "TASK-401");
+    await moveToPushed(store);
+
+    const runner: GitHubProcessRunner = (_executable, args) => {
+      if (args[1] === "create") {
+        return {
+          exitCode: 0,
+          stdout: "https://github.com/example/repo/pull/7\n",
+          stderr: "",
+        };
+      }
+
+      if (args[1] === "checks") {
+        return {
+          exitCode: 0,
+          stdout: JSON.stringify([
+            {
+              name: "CI",
+              state: "SUCCESS",
+              bucket: "pass",
+              workflow: "CI",
+              link: "https://example.test/run",
+            },
+          ]),
+          stderr: "",
+        };
+      }
+
+      return { exitCode: 0, stdout: pullRequestJson(), stderr: "" };
+    };
+
+    await createWorkflowPullRequest(
+      root,
+      config,
+      store,
+      { title: "TASK-401", body: "" },
+      { runner },
+    );
+
+    const result = await refreshWorkflowRemoteCi(root, store, undefined, runner);
+
+    expect(result.status.ciState).toBe("passing");
+    expect(result.workflow.state).toBe("FINAL_REVIEW");
+  });
+
+  it("moves failing remote CI to FIXING", async () => {
+    const root = await mkdtemp(join(tmpdir(), "llmatic-github-"));
+    temporaryDirectories.push(root);
+
+    const config = configFor(root);
+    const store = new WorkflowStateStore(root, config);
+    await startWorkflow(store, "TASK-402");
+    await moveToPushed(store);
+    await transitionWorkflow(store, "PR_OPEN");
+    await transitionWorkflow(store, "REMOTE_CI");
+
+    const runner: GitHubProcessRunner = (_executable, args) => {
+      if (args[1] === "checks") {
+        return {
+          exitCode: 1,
+          stdout: JSON.stringify([
+            {
+              name: "CI",
+              state: "FAILURE",
+              bucket: "fail",
+              workflow: "CI",
+              link: "https://example.test/run",
+            },
+          ]),
+          stderr: "",
+        };
+      }
+
+      return { exitCode: 0, stdout: pullRequestJson(), stderr: "" };
+    };
+
+    const result = await refreshWorkflowRemoteCi(root, store, "7", runner);
+
+    expect(result.workflow.state).toBe("FIXING");
+  });
+
+  it("merges with exact head SHA protection and completes the workflow", async () => {
+    const root = await mkdtemp(join(tmpdir(), "llmatic-github-"));
+    temporaryDirectories.push(root);
+
+    const config = configFor(root);
+    config.permissions.mergePullRequest = "auto";
+    const store = new WorkflowStateStore(root, config);
+    await startWorkflow(store, "TASK-403");
+    await moveToPushed(store);
+    await transitionWorkflow(store, "PR_OPEN");
+    await transitionWorkflow(store, "REMOTE_CI");
+    await transitionWorkflow(store, "FINAL_REVIEW");
+    await transitionWorkflow(store, "READY_TO_MERGE");
+
+    const calls: string[][] = [];
+    const runner: GitHubProcessRunner = (_executable, args) => {
+      calls.push(args);
+
+      if (args[1] === "merge") {
+        return { exitCode: 0, stdout: "", stderr: "" };
+      }
+
+      return { exitCode: 0, stdout: pullRequestJson(), stderr: "" };
+    };
+
+    const direct = await mergePullRequest(root, config, "7", {
+      runner,
+      method: "squash",
+    });
+
+    expect(direct.method).toBe("squash");
+    expect(calls.at(-1)).toEqual([
+      "pr",
+      "merge",
+      "7",
+      "--squash",
+      "--match-head-commit",
+      "abc123",
+    ]);
+
+    const result = await mergeWorkflowPullRequest(root, config, store, "7", {
+      runner,
+      method: "squash",
+    });
+
+    expect(result.workflow.state).toBe("COMPLETED");
+  });
+});
