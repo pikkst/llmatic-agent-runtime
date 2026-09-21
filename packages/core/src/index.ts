@@ -6,3 +6,4 @@ export * from "./executor.js";
 export * from "./orchestrator.js";
 export * from "./types.js";
 export * from "./workflow.js";
+export * from "./workspace.js";

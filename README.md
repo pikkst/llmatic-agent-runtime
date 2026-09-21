@@ -2,54 +2,46 @@
 
 Universal local software-engineering runtime for coding agents.
 
-LLMatic Agent Runtime gives coding agents deterministic, repository-aware engineering capabilities while keeping workflow state, permissions, validation, repository intelligence, Git, GitHub, task providers, and local tool execution outside the model prompt.
-
 ## Current milestone
 
-M10 — Runtime Tool Packs
+M11 — VS Code Extension + Zero-Repo Workspace
 
-Implemented:
+The runtime can now be integrated at editor/user level instead of being installed into every repository.
 
-- persistent workflow state and audit checkpoints
-- repository/capability detection and local CI
-- protected Git and GitHub adapters
-- repository AST/import intelligence
-- MCP v2 stdio server
-- provider-neutral task layer and Jira adapter
-- Docker local lifecycle pack
-- Supabase local-development pack
-- Python/uv execution pack
-- Ollama local-model pack
-- whitelist-only runtime execution with permission gates
+### VS Code integration
 
-## Runtime tools
+- auto-attaches opened repositories
+- stores config/state/cache outside the repository
+- uses deterministic workspace identities
+- keeps local fallback artifacts in `.git/info/exclude`, not tracked `.gitignore`
+- detects Kilo Code
+- registers LLMatic as a global Kilo MCP server
+- preserves existing Kilo JSONC comments/settings
+- bundles the MCP runtime with the extension
+- stores a Kilo Gateway API key only in VS Code SecretStorage
+- exposes a READY/status-bar indicator
 
-Inspect:
+### Runtime configuration lookup
 
-    llmatic runtime inspect
+Config precedence:
 
-Examples:
+1. `LLMATIC_CONFIG_PATH`
+2. repository `llmatic.agent.yaml` (optional shared team policy)
+3. `LLMATIC_HOME/workspaces/<workspace-id>/llmatic.agent.yaml`
 
-    llmatic runtime run docker status
-    llmatic runtime run docker up --approve
+This means repositories can remain completely free of LLMatic runtime files.
 
-    llmatic runtime run supabase status
-    llmatic runtime run supabase db-reset-local --approve
+### Existing runtime
 
-    llmatic runtime run python run-script --script scripts/check.py --approve
+The extension sits on top of the existing CLI/MCP runtime:
 
-    llmatic runtime run ollama list
-    llmatic runtime run ollama run --model qwen3:8b --prompt "Review this change" --approve
-
-See `docs/runtime-tool-packs.md` for the safety boundary.
-
-## Safety model
-
-There is no arbitrary shell execution API.
-
-Runtime packs construct fixed executable/argument arrays from whitelisted operations. Dangerous remote database/deployment operations are not part of M10.
-
-MCP never self-approves an `ask` permission.
+- Jira task provider
+- repository intelligence
+- local CI
+- Git/GitHub workflow
+- Docker/Supabase/Python/Ollama tool packs
+- persistent workflow/checkpoints
+- protected permission model
 
 ## Development
 
@@ -58,14 +50,17 @@ MCP never self-approves an `ask` permission.
     pnpm ci:local
     pnpm build
 
-## Roadmap
+The build produces:
 
-Next milestones add:
+    apps/vscode-extension/dist/extension.cjs
+    apps/vscode-extension/dist/runtime/mcp-server.mjs
 
-1. automated code-review orchestration
-2. richer installer/bootstrap plans for runtime dependencies
-3. richer Jira field/status policies
-4. controlled deployment/release adapters
-5. optional Streamable HTTP MCP serving
+## Next milestones
 
-See the documents under `docs/`.
+1. runtime bootstrap/installer UX and VSIX packaging
+2. richer Kilo connector health/reload flow
+3. agent orchestrator using securely stored Gateway credentials
+4. automated review/fix loop
+5. Marketplace publishing and update channel
+
+See `docs/vscode-extension.md` and the runtime documents under `docs/`.

@@ -1,0 +1,91 @@
+{
+  "name": "@llmatic/vscode-extension",
+  "displayName": "LLMatic Agent Runtime",
+  "description": "Attach LLMatic Agent Runtime to local repositories without adding runtime state to the repository.",
+  "version": "0.1.0",
+  "private": true,
+  "publisher": "eventnexus",
+  "type": "module",
+  "engines": {
+    "vscode": "^1.105.0"
+  },
+  "categories": [
+    "AI",
+    "Other"
+  ],
+  "activationEvents": [
+    "onStartupFinished"
+  ],
+  "main": "./dist/extension.cjs",
+  "scripts": {
+    "bundle": "node scripts/bundle.mjs"
+  },
+  "dependencies": {
+    "@llmatic/core": "workspace:*",
+    "@llmatic/kilo-connector": "workspace:*",
+    "@llmatic/workspace-manager": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/vscode": "1.138.0",
+    "esbuild": "0.28.2"
+  },
+  "contributes": {
+    "commands": [
+      {
+        "command": "llmatic.attachWorkspace",
+        "title": "Attach Workspace",
+        "category": "LLMatic"
+      },
+      {
+        "command": "llmatic.connectKilo",
+        "title": "Connect Kilo Code Globally",
+        "category": "LLMatic"
+      },
+      {
+        "command": "llmatic.showStatus",
+        "title": "Show Status",
+        "category": "LLMatic"
+      },
+      {
+        "command": "llmatic.setKiloGatewayApiKey",
+        "title": "Set Kilo Gateway API Key",
+        "category": "LLMatic"
+      },
+      {
+        "command": "llmatic.clearKiloGatewayApiKey",
+        "title": "Clear Kilo Gateway API Key",
+        "category": "LLMatic"
+      },
+      {
+        "command": "llmatic.openWorkspaceData",
+        "title": "Reveal Workspace Runtime Data",
+        "category": "LLMatic"
+      }
+    ],
+    "configuration": {
+      "title": "LLMatic Agent Runtime",
+      "properties": {
+        "llmatic.autoAttachWorkspace": {
+          "type": "boolean",
+          "default": true,
+          "description": "Automatically attach opened repository workspaces to LLMatic."
+        },
+        "llmatic.autoConnectKilo": {
+          "type": "boolean",
+          "default": true,
+          "description": "Automatically register the global LLMatic MCP server when Kilo Code is installed."
+        },
+        "llmatic.nodeCommand": {
+          "type": "string",
+          "default": "node",
+          "description": "Node.js executable used by Kilo Code to launch the bundled LLMatic MCP server."
+        },
+        "llmatic.runtimeMcpPath": {
+          "type": "string",
+          "default": "",
+          "description": "Optional absolute path to an alternative LLMatic MCP server entry file."
+        }
+      }
+    }
+  }
+}

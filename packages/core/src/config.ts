@@ -1,8 +1,9 @@
-import { readFile } from "node:fs/promises";
+import { access, readFile } from "node:fs/promises";
 import { basename, resolve } from "node:path";
 import { parse, stringify } from "yaml";
 import { z } from "zod";
 import type { RepositoryDetection } from "./types.js";
+import { managedWorkspaceConfigPath } from "./workspace.js";
 
 const permissionSchema = z.enum(["auto", "ask", "deny"]);
 
@@ -88,8 +89,39 @@ export function parseConfig(raw: string): AgentConfig {
   return agentConfigSchema.parse(parse(raw));
 }
 
-export async function loadAgentConfig(root: string): Promise<AgentConfig> {
-  const configPath = resolve(root, "llmatic.agent.yaml");
+async function pathExists(path: string): Promise<boolean> {
+  try {
+    await access(path);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+export async function resolveAgentConfigPath(
+  root: string,
+  environment: NodeJS.ProcessEnv = process.env,
+): Promise<string> {
+  const explicitPath = environment.LLMATIC_CONFIG_PATH?.trim();
+  if (explicitPath) return resolve(explicitPath);
+
+  const repositoryPath = resolve(root, "llmatic.agent.yaml");
+  if (await pathExists(repositoryPath)) return repositoryPath;
+
+  const llmaticHome = environment.LLMATIC_HOME?.trim();
+  if (llmaticHome) {
+    const managedPath = managedWorkspaceConfigPath(root, llmaticHome);
+    if (await pathExists(managedPath)) return managedPath;
+  }
+
+  return repositoryPath;
+}
+
+export async function loadAgentConfig(
+  root: string,
+  environment: NodeJS.ProcessEnv = process.env,
+): Promise<AgentConfig> {
+  const configPath = await resolveAgentConfigPath(root, environment);
 
   try {
     const raw = await readFile(configPath, "utf8");
@@ -98,7 +130,9 @@ export async function loadAgentConfig(root: string): Promise<AgentConfig> {
     const code = error instanceof Error && "code" in error ? String(error.code) : undefined;
 
     if (code === "ENOENT") {
-      throw new Error("llmatic.agent.yaml was not found. Run llmatic init first.");
+      throw new Error(
+        "LLMatic config was not found. Run llmatic init or attach the workspace through the LLMatic VS Code extension.",
+      );
     }
 
     throw error;
