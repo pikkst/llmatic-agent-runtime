@@ -4,7 +4,7 @@ Universal local software-engineering runtime for coding agents.
 
 ## Current milestone
 
-M18 — Verified Self-Update
+M19 — Release Acceptance
 
 LLMatic now supports:
 
@@ -90,6 +90,16 @@ The verified VSIX is staged under VS Code global storage, never inside the opene
 
 A regression test also verifies that the VS Code `activate()` entrypoint and critical command registrations remain present.
 
+## Release acceptance
+
+Before a tagged GitHub Release can publish, M19 now opens the candidate VSIX and verifies the packaged extension activation surface, release manifest, runtime hash/size and zero-repository-footprint boundary.
+
+Local command:
+
+    pnpm release:acceptance v0.1.0 <commit-sha>
+
+See docs/release-acceptance.md.
+
 ## Safety
 
 The reviewer is read-only and receives changed-files-first context. Sensitive paths are filtered.
@@ -120,3 +130,7 @@ Gateway credentials remain in VS Code SecretStorage.
 - direct Kilo Gateway coding agent
 
 See docs/review-fix-loop.md.
+
+## Roadmap
+
+The canonical milestone roadmap is maintained in `docs/ROADMAP.md`.

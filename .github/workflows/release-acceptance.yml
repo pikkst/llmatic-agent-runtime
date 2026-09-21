@@ -1,20 +1,22 @@
-name: CI
+name: Release Acceptance
 
 on:
-  pull_request:
-  push:
-    branches:
-      - main
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Candidate semantic tag (for example v0.1.0)"
+        required: true
+        default: "v0.1.0"
 
 permissions:
   contents: read
 
 jobs:
-  validate:
+  acceptance:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout
+      - name: Checkout candidate commit
         uses: actions/checkout@v4
 
       - name: Set up Node.js
@@ -28,20 +30,19 @@ jobs:
       - name: Install dependencies
         run: pnpm install --no-frozen-lockfile
 
-      - name: Validate
+      - name: Build release contract packages
+        run: pnpm exec tsc -b packages/release-metadata packages/update-installer
+
+      - name: Validate and package candidate
         run: pnpm run ci
 
-      - name: Release acceptance
-        shell: bash
-        run: |
-          VERSION="$(node -e "const fs=require('fs'); process.stdout.write(JSON.parse(fs.readFileSync('package.json','utf8')).version)")"
-          node scripts/release-acceptance.mjs "v$VERSION" "$GITHUB_SHA"
+      - name: Run release acceptance
+        run: node scripts/release-acceptance.mjs "${{ inputs.tag }}" "$GITHUB_SHA"
 
-      - name: Upload accepted VSIX
-        if: success()
+      - name: Upload accepted candidate
         uses: actions/upload-artifact@v4
         with:
-          name: llmatic-agent-runtime-vsix
+          name: llmatic-release-acceptance-${{ inputs.tag }}
           path: |
             artifacts/llmatic-agent-runtime.vsix
             artifacts/llmatic-agent-runtime-*.vsix
