@@ -60,6 +60,9 @@
     },
     {
       "path": "../../packages/workspace-recovery"
+    },
+    {
+      "path": "../../packages/repository-constitution"
     }
   ]
 }
