@@ -208,6 +208,27 @@
           "type": "string",
           "default": "pikkst/llmatic-agent-runtime",
           "description": "GitHub owner/repository used by LLMatic update checks."
+        },
+        "llmatic.taskSource": {
+          "type": "string",
+          "enum": [
+            "auto",
+            "jira",
+            "markdown",
+            "github"
+          ],
+          "default": "auto",
+          "description": "Canonical task source for workspace recovery. Auto uses detected sources; choose Jira to prefer Jira even when TASKS.md exists."
+        },
+        "llmatic.jiraProjectKey": {
+          "type": "string",
+          "default": "",
+          "description": "Optional Jira project key used to scope automatic recovery and next-task ordering."
+        },
+        "llmatic.jiraRecoveryJql": {
+          "type": "string",
+          "default": "",
+          "description": "Optional advanced Jira JQL override for recovery candidates. When empty, LLMatic uses assigned open work ordered by Jira Rank."
         }
       }
     },
