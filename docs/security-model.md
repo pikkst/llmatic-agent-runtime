@@ -13,6 +13,7 @@ Each sensitive capability is configured as one of:
 The initial configuration distinguishes:
 
 - repository read/write
+- local quality-gate execution
 - test execution
 - Docker
 - tool installation
@@ -24,8 +25,20 @@ The initial configuration distinguishes:
 
 Production deployment is denied by default.
 
+## Capability execution
+
+Repository quality gates are executed through detected structured process definitions:
+
+    executable + args
+
+The runtime does not execute the display-only command string.
+
+Quality gates are controlled by runQualityGates. Tests use runTests as a narrower permission.
+
+A permission configured as ask requires an explicit --approve flag at the CLI boundary.
+
 ## Design rule
 
 A coding agent must not silently bypass the runtime permission model by falling back to raw shell commands for an operation that has a registered protected capability.
 
-Enforcement of this rule will be added as orchestration and MCP layers are implemented.
+Enforcement becomes stronger as orchestration and MCP layers are added.

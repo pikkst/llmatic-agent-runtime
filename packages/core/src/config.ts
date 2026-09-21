@@ -1,4 +1,5 @@
-import { basename } from "node:path";
+import { readFile } from "node:fs/promises";
+import { basename, resolve } from "node:path";
 import { parse, stringify } from "yaml";
 import { z } from "zod";
 import type { RepositoryDetection } from "./types.js";
@@ -18,6 +19,7 @@ export const agentConfigSchema = z.object({
     repositoryRead: permissionSchema,
     repositoryWrite: permissionSchema,
     runTests: permissionSchema,
+    runQualityGates: permissionSchema.default("auto"),
     docker: permissionSchema,
     installTools: permissionSchema,
     gitPush: permissionSchema,
@@ -56,6 +58,7 @@ export function createDefaultConfig(detection: RepositoryDetection): AgentConfig
       repositoryRead: "auto",
       repositoryWrite: "auto",
       runTests: "auto",
+      runQualityGates: "auto",
       docker: "ask",
       installTools: "ask",
       gitPush: "ask",
@@ -77,4 +80,21 @@ export function serializeConfig(config: AgentConfig): string {
 
 export function parseConfig(raw: string): AgentConfig {
   return agentConfigSchema.parse(parse(raw));
+}
+
+export async function loadAgentConfig(root: string): Promise<AgentConfig> {
+  const configPath = resolve(root, "llmatic.agent.yaml");
+
+  try {
+    const raw = await readFile(configPath, "utf8");
+    return parseConfig(raw);
+  } catch (error) {
+    const code = error instanceof Error && "code" in error ? String(error.code) : undefined;
+
+    if (code === "ENOENT") {
+      throw new Error("llmatic.agent.yaml was not found. Run llmatic init first.");
+    }
+
+    throw error;
+  }
 }

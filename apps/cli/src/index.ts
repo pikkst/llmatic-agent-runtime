@@ -4,11 +4,21 @@ import { mkdir, writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import { Command } from "commander";
 import {
+  WORKFLOW_STATES,
+  WorkflowStateStore,
   createDefaultConfig,
   detectRepository,
+  executeCapability,
+  loadAgentConfig,
+  normalizeWorkflowState,
+  recordCapabilityCheckpoint,
   runDoctor,
   serializeConfig,
+  startWorkflow,
+  transitionWorkflow,
+  type CapabilityName,
   type RepositoryDetection,
+  type WorkflowRun,
 } from "@llmatic/core";
 
 const program = new Command();
@@ -27,6 +37,19 @@ function printDetection(detection: RepositoryDetection): void {
     const command = capability.command ? " -> " + capability.command : "";
     console.log("  " + marker + " " + capability.name + command);
   }
+}
+
+function printWorkflow(run: WorkflowRun): void {
+  console.log("Workflow: " + run.runId);
+  console.log("Task: " + run.taskRef);
+  console.log("State: " + run.state);
+  console.log("Updated: " + run.updatedAt);
+  console.log("Checkpoints: " + run.checkpoints.length);
+}
+
+async function workflowStore(root: string): Promise<WorkflowStateStore> {
+  const config = await loadAgentConfig(root);
+  return new WorkflowStateStore(root, config);
 }
 
 program
@@ -107,6 +130,118 @@ program
 
     if (!report.ready) {
       process.exitCode = 1;
+    }
+  });
+
+program
+  .command("run")
+  .description("Execute a detected repository capability.")
+  .argument(
+    "<capability>",
+    "Capability: " + ["format", "lint", "typecheck", "test", "build", "ci"].join(", "),
+  )
+  .option("-r, --root <path>", "Repository root", process.cwd())
+  .option("--approve", "Approve capabilities configured with permission 'ask'")
+  .action(async (capabilityInput: string, options: { root: string; approve?: boolean }) => {
+    const root = resolve(options.root);
+    const capability = capabilityInput as CapabilityName;
+    const allowed: CapabilityName[] = ["format", "lint", "typecheck", "test", "build", "ci"];
+
+    if (!allowed.includes(capability)) {
+      throw new Error("Unknown capability: " + capabilityInput + ".");
+    }
+
+    const config = await loadAgentConfig(root);
+    const result = await executeCapability(root, config, capability, {
+      approved: options.approve ?? false,
+    });
+
+    const store = new WorkflowStateStore(root, config);
+    await recordCapabilityCheckpoint(store, result);
+
+    console.log("");
+    console.log(
+      (result.success ? "PASS" : "FAIL") +
+        ": " +
+        result.capability +
+        " (" +
+        result.durationMs +
+        "ms)",
+    );
+
+    if (!result.success) {
+      process.exitCode = result.exitCode || 1;
+    }
+  });
+
+const workflow = program.command("workflow").description("Manage persistent workflow state.");
+
+workflow
+  .command("start")
+  .description("Start a new workflow run.")
+  .requiredOption("--task <reference>", "Task or work-item reference")
+  .option("-r, --root <path>", "Repository root", process.cwd())
+  .action(async (options: { task: string; root: string }) => {
+    const root = resolve(options.root);
+    const store = await workflowStore(root);
+    const run = await startWorkflow(store, options.task);
+    printWorkflow(run);
+  });
+
+workflow
+  .command("status")
+  .description("Show the active workflow state.")
+  .option("-r, --root <path>", "Repository root", process.cwd())
+  .option("--json", "Print machine-readable JSON")
+  .action(async (options: { root: string; json?: boolean }) => {
+    const root = resolve(options.root);
+    const store = await workflowStore(root);
+    const run = await store.loadCurrent();
+
+    if (!run) {
+      console.log(options.json ? "null" : "No workflow is active.");
+      return;
+    }
+
+    if (options.json) {
+      console.log(JSON.stringify(run, null, 2));
+      return;
+    }
+
+    printWorkflow(run);
+  });
+
+workflow
+  .command("transition")
+  .description("Move the active workflow to a valid next state.")
+  .argument("<state>", "Target state: " + WORKFLOW_STATES.join(", "))
+  .option("-r, --root <path>", "Repository root", process.cwd())
+  .action(async (stateInput: string, options: { root: string }) => {
+    const root = resolve(options.root);
+    const store = await workflowStore(root);
+    const state = normalizeWorkflowState(stateInput);
+    const run = await transitionWorkflow(store, state);
+    printWorkflow(run);
+  });
+
+program
+  .command("status")
+  .description("Alias for workflow status.")
+  .option("-r, --root <path>", "Repository root", process.cwd())
+  .option("--json", "Print machine-readable JSON")
+  .action(async (options: { root: string; json?: boolean }) => {
+    const root = resolve(options.root);
+    const store = await workflowStore(root);
+    const run = await store.loadCurrent();
+
+    if (!run) {
+      console.log(options.json ? "null" : "No workflow is active.");
+      return;
+    }
+
+    console.log(options.json ? JSON.stringify(run, null, 2) : "");
+    if (!options.json) {
+      printWorkflow(run);
     }
   });
 

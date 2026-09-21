@@ -6,6 +6,9 @@ export interface Capability {
   name: CapabilityName;
   available: boolean;
   command?: string;
+  executable?: string;
+  args?: string[];
+  script?: string;
   source?: string;
 }
 
@@ -30,4 +33,14 @@ export interface DoctorReport {
   root: string;
   checks: DoctorCheck[];
   ready: boolean;
+}
+
+export interface CapabilityExecutionResult {
+  capability: CapabilityName;
+  command: string;
+  startedAt: string;
+  finishedAt: string;
+  durationMs: number;
+  exitCode: number;
+  success: boolean;
 }
