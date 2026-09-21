@@ -26,10 +26,19 @@
       "path": "./packages/runtime-tools"
     },
     {
+      "path": "./packages/workspace-manager"
+    },
+    {
+      "path": "./packages/kilo-connector"
+    },
+    {
       "path": "./apps/mcp-server"
     },
     {
       "path": "./apps/cli"
+    },
+    {
+      "path": "./apps/vscode-extension"
     }
   ]
 }
