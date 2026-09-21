@@ -518,7 +518,7 @@ export async function runCodeReview(options: CodeReviewOptions): Promise<CodeRev
   const constitution = await buildRepositoryConstitution(options.root, options.config, {
     rebuildIndex: false,
   });
-  const lenses = [...new Set(options.lenses ?? ["general", "bug_hunter", "security"])] as ReviewLens[];
+  const lenses = [...new Set(options.lenses ?? ["general"])] as ReviewLens[];
 
   if (changedFiles.length === 0) {
     const architectureImpact = await analyzeArchitectureImpact(options.root, changedFiles);
