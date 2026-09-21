@@ -169,7 +169,11 @@ describe("jira adapter", () => {
   });
 
   it("selects the first Jira-ranked todo whose linked dependencies are done", async () => {
-    const blocked = issueJson("KT-201");
+    const blocked = issueJson("KT-201") as ReturnType<typeof issueJson> & {
+      fields: ReturnType<typeof issueJson>["fields"] & {
+        issuelinks?: Array<Record<string, unknown>>;
+      };
+    };
     blocked.fields.status = {
       id: "1",
       name: "To Do",
