@@ -40,7 +40,7 @@ describe("bootstrap manager", () => {
         scripts: { test: "vitest run" },
       }),
     );
-    await writeFile(join(root, "supabase", "config.toml"), "project_id = \"demo\"\n");
+    await writeFile(join(root, "supabase", "config.toml"), 'project_id = "demo"\n');
     await writeFile(join(root, "scripts", "check.py"), "print('ok')\n");
 
     const report = await inspectBootstrap(root, configFor(root));
