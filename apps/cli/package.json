@@ -9,6 +9,7 @@
   "dependencies": {
     "@llmatic/core": "workspace:*",
     "@llmatic/tool-registry": "workspace:*",
-    "commander": "^12.1.0"
+    "commander": "^12.1.0",
+    "@llmatic/git-adapter": "workspace:*"
   }
 }

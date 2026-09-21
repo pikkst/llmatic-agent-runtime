@@ -1,8 +1,17 @@
 {
   "files": [],
   "references": [
-    { "path": "./packages/core" },
-    { "path": "./packages/tool-registry" },
-    { "path": "./apps/cli" }
+    {
+      "path": "./packages/core"
+    },
+    {
+      "path": "./packages/tool-registry"
+    },
+    {
+      "path": "./packages/git-adapter"
+    },
+    {
+      "path": "./apps/cli"
+    }
   ]
 }

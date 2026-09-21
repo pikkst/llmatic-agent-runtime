@@ -4,6 +4,16 @@ import { mkdir, writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import { Command } from "commander";
 import {
+  commitStagedChanges,
+  createBranch,
+  createWorkflowBranch,
+  getGitStatus,
+  pushCurrentBranch,
+  pushWorkflowBranch,
+  stagePaths,
+  type GitStatus,
+} from "@llmatic/git-adapter";
+import {
   DEFAULT_TOOL_REGISTRY,
   detectRegisteredTools,
   installRegisteredTool,
@@ -45,6 +55,14 @@ function printDetection(detection: RepositoryDetection): void {
     const command = capability.command ? " -> " + capability.command : "";
     console.log("  " + marker + " " + capability.name + command);
   }
+}
+
+function printGitStatus(status: GitStatus): void {
+  console.log("Branch: " + (status.branch ?? "(detached)"));
+  console.log("Clean: " + (status.clean ? "yes" : "no"));
+  console.log("Staged: " + status.stagedCount);
+  console.log("Unstaged: " + status.unstagedCount);
+  console.log("Untracked: " + status.untrackedCount);
 }
 
 function printToolStatus(status: ToolDetection): void {
@@ -219,6 +237,98 @@ program
     }
   });
 
+const gitCommand = program.command("git").description("Run protected Git operations.");
+
+gitCommand
+  .command("status")
+  .description("Show repository Git status.")
+  .option("-r, --root <path>", "Repository root", process.cwd())
+  .option("--json", "Print machine-readable JSON")
+  .action(async (options: { root: string; json?: boolean }) => {
+    const status = await getGitStatus(resolve(options.root));
+
+    if (options.json) {
+      console.log(JSON.stringify(status, null, 2));
+      return;
+    }
+
+    printGitStatus(status);
+  });
+
+gitCommand
+  .command("branch")
+  .description("Create a branch through the repositoryWrite permission gate.")
+  .argument("<name>", "Branch name")
+  .option("-r, --root <path>", "Repository root", process.cwd())
+  .option("--approve", "Approve when repositoryWrite is configured as 'ask'")
+  .action(async (name: string, options: { root: string; approve?: boolean }) => {
+    const root = resolve(options.root);
+    const config = await loadAgentConfig(root);
+    const result = await createBranch(root, config, name, {
+      approved: options.approve ?? false,
+    });
+
+    console.log("Created branch: " + result.branch);
+  });
+
+gitCommand
+  .command("stage")
+  .description("Stage explicit repository paths.")
+  .argument("<paths...>", "Paths to stage")
+  .option("-r, --root <path>", "Repository root", process.cwd())
+  .option("--approve", "Approve when repositoryWrite is configured as 'ask'")
+  .action(async (paths: string[], options: { root: string; approve?: boolean }) => {
+    const root = resolve(options.root);
+    const config = await loadAgentConfig(root);
+    await stagePaths(root, config, paths, {
+      approved: options.approve ?? false,
+    });
+
+    console.log("Staged paths: " + paths.join(", "));
+  });
+
+gitCommand
+  .command("commit")
+  .description("Commit already staged changes.")
+  .requiredOption("-m, --message <message>", "Commit message")
+  .option("-r, --root <path>", "Repository root", process.cwd())
+  .option("--approve", "Approve when repositoryWrite is configured as 'ask'")
+  .action(async (options: { message: string; root: string; approve?: boolean }) => {
+    const root = resolve(options.root);
+    const config = await loadAgentConfig(root);
+    const result = await commitStagedChanges(root, config, options.message, {
+      approved: options.approve ?? false,
+    });
+
+    console.log("Commit: " + result.commitSha);
+  });
+
+gitCommand
+  .command("push")
+  .description("Push the current branch through the gitPush permission gate.")
+  .option("-r, --root <path>", "Repository root", process.cwd())
+  .option("--remote <remote>", "Git remote", "origin")
+  .option("--set-upstream", "Set upstream for the current branch")
+  .option("--approve", "Approve when gitPush is configured as 'ask'")
+  .action(
+    async (options: {
+      root: string;
+      remote: string;
+      setUpstream?: boolean;
+      approve?: boolean;
+    }) => {
+      const root = resolve(options.root);
+      const config = await loadAgentConfig(root);
+      const result = await pushCurrentBranch(root, config, {
+        remote: options.remote,
+        setUpstream: options.setUpstream ?? false,
+        approved: options.approve ?? false,
+      });
+
+      console.log("Pushed " + result.branch + " to " + result.remote + ".");
+    },
+  );
+
 const toolsCommand = program.command("tools").description("Inspect and manage registered tools.");
 
 toolsCommand
@@ -294,6 +404,52 @@ workflow
 
     printWorkflow(run);
   });
+
+workflow
+  .command("branch")
+  .description("Create the workflow branch and advance REPO_ANALYZED -> BRANCH_CREATED.")
+  .argument("<name>", "Branch name")
+  .option("-r, --root <path>", "Repository root", process.cwd())
+  .option("--approve", "Approve when repositoryWrite is configured as 'ask'")
+  .action(async (name: string, options: { root: string; approve?: boolean }) => {
+    const root = resolve(options.root);
+    const config = await loadAgentConfig(root);
+    const store = new WorkflowStateStore(root, config);
+    const result = await createWorkflowBranch(root, config, store, name, {
+      approved: options.approve ?? false,
+    });
+
+    console.log("Created branch: " + result.branch);
+    console.log("State: " + result.workflow.state);
+  });
+
+workflow
+  .command("push")
+  .description("Push the workflow branch and advance READY_TO_PUSH -> PUSHED.")
+  .option("-r, --root <path>", "Repository root", process.cwd())
+  .option("--remote <remote>", "Git remote", "origin")
+  .option("--set-upstream", "Set upstream for the current branch")
+  .option("--approve", "Approve when gitPush is configured as 'ask'")
+  .action(
+    async (options: {
+      root: string;
+      remote: string;
+      setUpstream?: boolean;
+      approve?: boolean;
+    }) => {
+      const root = resolve(options.root);
+      const config = await loadAgentConfig(root);
+      const store = new WorkflowStateStore(root, config);
+      const result = await pushWorkflowBranch(root, config, store, {
+        remote: options.remote,
+        setUpstream: options.setUpstream ?? false,
+        approved: options.approve ?? false,
+      });
+
+      console.log("Pushed " + result.push.branch + " to " + result.push.remote + ".");
+      console.log("State: " + result.workflow.state);
+    },
+  );
 
 workflow
   .command("validate")

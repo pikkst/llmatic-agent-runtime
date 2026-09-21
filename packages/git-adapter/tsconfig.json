@@ -6,9 +6,5 @@
     "outDir": "dist"
   },
   "include": ["src/**/*.ts"],
-  "references": [
-    { "path": "../../packages/core" },
-    { "path": "../../packages/tool-registry" },
-    { "path": "../../packages/git-adapter" }
-  ]
+  "references": [{ "path": "../core" }]
 }

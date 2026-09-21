@@ -47,9 +47,19 @@ const capabilityCheckpointSchema = checkpointBaseSchema.extend({
   durationMs: z.number().nonnegative(),
 });
 
+const actionCheckpointSchema = checkpointBaseSchema.extend({
+  kind: z.literal("ACTION"),
+  provider: z.string().min(1),
+  action: z.string().min(1),
+  command: z.string().optional(),
+  success: z.boolean(),
+  detail: z.string().optional(),
+});
+
 export const workflowCheckpointSchema = z.discriminatedUnion("kind", [
   stateCheckpointSchema,
   capabilityCheckpointSchema,
+  actionCheckpointSchema,
 ]);
 
 export const workflowRunSchema = z.object({
@@ -64,6 +74,14 @@ export const workflowRunSchema = z.object({
 
 export type WorkflowCheckpoint = z.infer<typeof workflowCheckpointSchema>;
 export type WorkflowRun = z.infer<typeof workflowRunSchema>;
+
+export interface ActionCheckpointInput {
+  provider: string;
+  action: string;
+  command?: string;
+  success: boolean;
+  detail?: string;
+}
 
 const transitions: Record<WorkflowState, readonly WorkflowState[]> = {
   TASK_SELECTED: ["TASK_VALIDATED", "FAILED"],
@@ -216,6 +234,39 @@ export async function transitionWorkflow(
         timestamp: now,
         from: current.state,
         to: nextState,
+      },
+    ],
+  };
+
+  await store.save(updated);
+  return updated;
+}
+
+export async function recordActionCheckpoint(
+  store: WorkflowStateStore,
+  input: ActionCheckpointInput,
+): Promise<WorkflowRun | undefined> {
+  const current = await store.loadCurrent();
+
+  if (!current) {
+    return undefined;
+  }
+
+  const now = new Date().toISOString();
+  const updated: WorkflowRun = {
+    ...current,
+    updatedAt: now,
+    checkpoints: [
+      ...current.checkpoints,
+      {
+        id: randomUUID(),
+        kind: "ACTION",
+        timestamp: now,
+        provider: input.provider,
+        action: input.action,
+        command: input.command,
+        success: input.success,
+        detail: input.detail,
       },
     ],
   };
