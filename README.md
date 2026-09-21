@@ -4,7 +4,7 @@ Universal local software-engineering runtime for coding agents.
 
 ## Current milestone
 
-M17 — Release & Update Pipeline
+M18 — Verified Self-Update
 
 LLMatic now supports:
 
@@ -67,9 +67,10 @@ The same state is visible in the status bar and the LLMatic Activity Bar view.
 
 Semantic version tags (`vX.Y.Z`) run the full validation/VSIX pipeline and publish a GitHub Release containing a versioned VSIX and `release-manifest.json` with SHA-256 metadata.
 
-Update command:
+Update commands:
 
     LLMatic: Check for Updates
+    LLMatic: Install Latest Update
 
 See docs/release-update.md.
 
@@ -81,7 +82,16 @@ See docs/release-update.md.
     LLMatic: Run Code Review
     LLMatic: Run Review / Fix Loop
 
+## Verified self-update
+
+An update is installed only after validating release identity, downloading the exact declared VSIX, checking its byte size and SHA-256, and receiving explicit user confirmation.
+
+The verified VSIX is staged under VS Code global storage, never inside the opened repository.
+
+A regression test also verifies that the VS Code `activate()` entrypoint and critical command registrations remain present.
+
 ## Safety
+
 
 The reviewer is read-only and receives changed-files-first context. Sensitive paths are filtered.
 

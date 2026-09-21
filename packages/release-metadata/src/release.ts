@@ -1,3 +1,5 @@
+import { basename } from "node:path";
+
 export interface ReleaseManifest {
   schemaVersion: 1;
   version: string;
@@ -88,7 +90,13 @@ export function parseReleaseManifest(value: unknown): ReleaseManifest {
     commit,
     repository,
     vsix: {
-      file: string(vsix.file, "vsix.file"),
+      file: (() => {
+        const file = string(vsix.file, "vsix.file");
+        if (basename(file) !== file || !file.endsWith(".vsix")) {
+          throw new Error("vsix.file must be a plain .vsix file name.");
+        }
+        return file;
+      })(),
       sha256: vsixSha.toLowerCase(),
       size: integer(vsix.size, "vsix.size"),
     },

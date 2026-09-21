@@ -58,6 +58,12 @@ export class LlmaticStatusProvider implements vscode.TreeDataProvider<vscode.Tre
         command: "llmatic.checkForUpdates",
       },
       {
+        label: "Install Latest Update",
+        description: "download, hash-verify, then install VSIX",
+        icon: "cloud-download",
+        command: "llmatic.installUpdate",
+      },
+      {
         label: "Run Gateway Agent",
         description: "kilo-auto/free by default",
         icon: "sparkle",
