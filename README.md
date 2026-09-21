@@ -65,7 +65,6 @@ The same state is visible in the status bar and the LLMatic Activity Bar view.
 
 ## VS Code commands
 
-
     LLMatic: Bootstrap Workspace
     LLMatic: Run Gateway Agent
     LLMatic: Run Code Review

@@ -32,11 +32,7 @@ describe("setup health", () => {
 
     expect(health.status).toBe("NEEDS_SETUP");
     expect(health.issues.map((issue) => issue.code)).toEqual(
-      expect.arrayContaining([
-        "workspace_unattached",
-        "required_tools_missing",
-        "kilo_missing",
-      ]),
+      expect.arrayContaining(["workspace_unattached", "required_tools_missing", "kilo_missing"]),
     );
   });
 
@@ -50,11 +46,7 @@ describe("setup health", () => {
 
     expect(health.status).toBe("NEEDS_REPAIR");
     expect(health.issues.map((issue) => issue.code)).toEqual(
-      expect.arrayContaining([
-        "runtime_unhealthy",
-        "required_tools_missing",
-        "kilo_mcp_stale",
-      ]),
+      expect.arrayContaining(["runtime_unhealthy", "required_tools_missing", "kilo_mcp_stale"]),
     );
   });
 
