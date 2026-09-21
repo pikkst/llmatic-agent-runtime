@@ -16,6 +16,8 @@
     "@llmatic/gateway-client": "workspace:*",
     "@llmatic/git-adapter": "workspace:*",
     "@llmatic/repo-intelligence": "workspace:*",
-    "@llmatic/workspace-files": "workspace:*"
+    "@llmatic/workspace-files": "workspace:*",
+    "@llmatic/task-router": "workspace:*",
+    "@llmatic/task-provider": "workspace:*"
   }
 }
