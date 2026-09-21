@@ -319,8 +319,7 @@ export function createLlmaticMcpServer(): McpServer {
     async ({ root }) =>
       toolResult(async () => {
         const projectRoot = runtimeRoot(root);
-        const workspaceDirectory =
-          planningWorkspaceDirectory(projectRoot);
+        const workspaceDirectory = planningWorkspaceDirectory(projectRoot);
         return planApprovalStatus(workspaceDirectory);
       }),
   );

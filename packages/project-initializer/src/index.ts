@@ -1,24 +1,12 @@
 import { createHash, randomUUID } from "node:crypto";
-import {
-  access,
-  mkdir,
-  readFile,
-  readdir,
-  rename,
-  rm,
-  writeFile,
-} from "node:fs/promises";
+import { access, mkdir, readFile, readdir, rename, rm, writeFile } from "node:fs/promises";
 import { dirname, isAbsolute, relative, resolve } from "node:path";
 import {
   inspectBootstrap,
   remediateBootstrap,
   type BootstrapReport,
 } from "@llmatic/bootstrap-manager";
-import {
-  WorkflowStateStore,
-  type AgentConfig,
-  type WorkflowRun,
-} from "@llmatic/core";
+import { WorkflowStateStore, type AgentConfig, type WorkflowRun } from "@llmatic/core";
 import {
   discoverySessionPath,
   loadDiscoverySession,
@@ -166,10 +154,7 @@ async function readJson<T>(path: string): Promise<T | undefined> {
   try {
     return JSON.parse(await readFile(path, "utf8")) as T;
   } catch (error) {
-    const code =
-      error instanceof Error && "code" in error
-        ? String(error.code)
-        : undefined;
+    const code = error instanceof Error && "code" in error ? String(error.code) : undefined;
     if (code === "ENOENT") return undefined;
     throw error;
   }
@@ -222,10 +207,7 @@ async function lifecycleForPlan(
   const existing = await loadProjectLifecycle(workspaceDirectory);
   if (existing?.planId === planId) return existing;
 
-  return saveLifecycle(
-    workspaceDirectory,
-    createPlanReviewLifecycle(planId),
-  );
+  return saveLifecycle(workspaceDirectory, createPlanReviewLifecycle(planId));
 }
 
 async function transitionLifecycle(
@@ -264,9 +246,7 @@ function safePlanArtifactPath(
 
   if (!rel || rel.startsWith("..") || isAbsolute(rel)) {
     throw new Error(
-      "Project-plan artifact escapes its private plan directory: " +
-        relativePath +
-        ".",
+      "Project-plan artifact escapes its private plan directory: " + relativePath + ".",
     );
   }
 
@@ -277,23 +257,16 @@ export async function calculateProjectPlanDigest(
   workspaceDirectory: string,
   planId?: string,
 ): Promise<string> {
-  const current = planId
-    ? undefined
-    : await loadCurrentProjectPlan(workspaceDirectory);
+  const current = planId ? undefined : await loadCurrentProjectPlan(workspaceDirectory);
   const selectedPlanId = planId ?? current?.planId;
 
   if (!selectedPlanId) {
     throw new Error("No project plan is available for approval.");
   }
 
-  const manifest = await loadProjectPlanManifest(
-    workspaceDirectory,
-    selectedPlanId,
-  );
+  const manifest = await loadProjectPlanManifest(workspaceDirectory, selectedPlanId);
   if (!manifest) {
-    throw new Error(
-      "Project plan " + selectedPlanId + " does not have a manifest.",
-    );
+    throw new Error("Project plan " + selectedPlanId + " does not have a manifest.");
   }
 
   const hash = createHash("sha256");
@@ -303,11 +276,7 @@ export async function calculateProjectPlanDigest(
   ].sort();
 
   for (const relativePath of paths) {
-    const path = safePlanArtifactPath(
-      workspaceDirectory,
-      selectedPlanId,
-      relativePath,
-    );
+    const path = safePlanArtifactPath(workspaceDirectory, selectedPlanId, relativePath);
     const bytes = await readFile(path);
     hash.update(relativePath, "utf8");
     hash.update("\0", "utf8");
@@ -318,18 +287,12 @@ export async function calculateProjectPlanDigest(
   return hash.digest("hex");
 }
 
-export async function calculateDiscoveryDigest(
-  workspaceDirectory: string,
-): Promise<string> {
-  const bytes = await readFile(
-    discoverySessionPath(workspaceDirectory),
-  );
+export async function calculateDiscoveryDigest(workspaceDirectory: string): Promise<string> {
+  const bytes = await readFile(discoverySessionPath(workspaceDirectory));
   return createHash("sha256").update(bytes).digest("hex");
 }
 
-export async function planApprovalStatus(
-  workspaceDirectory: string,
-): Promise<PlanApprovalStatus> {
+export async function planApprovalStatus(workspaceDirectory: string): Promise<PlanApprovalStatus> {
   const current = await loadCurrentProjectPlan(workspaceDirectory);
   const approval = await loadProjectApproval(workspaceDirectory);
   const lifecycle = await loadProjectLifecycle(workspaceDirectory);
@@ -343,12 +306,8 @@ export async function planApprovalStatus(
     };
   }
 
-  const currentDigest = await calculateProjectPlanDigest(
-    workspaceDirectory,
-    current.planId,
-  );
-  const currentDiscoveryDigest =
-    await calculateDiscoveryDigest(workspaceDirectory);
+  const currentDigest = await calculateProjectPlanDigest(workspaceDirectory, current.planId);
+  const currentDiscoveryDigest = await calculateDiscoveryDigest(workspaceDirectory);
 
   if (!approval) {
     return {
@@ -385,8 +344,7 @@ export async function planApprovalStatus(
       currentDigest,
       currentDiscoveryDigest,
       verified: false,
-      reason:
-        "The approved plan bytes changed after approval; re-approval is required.",
+      reason: "The approved plan bytes changed after approval; re-approval is required.",
       lifecycle,
     };
   }
@@ -419,25 +377,16 @@ export async function approveCurrentProjectPlan(
 ): Promise<ProjectApproval> {
   const current = await loadCurrentProjectPlan(workspaceDirectory);
   if (!current) {
-    throw new Error(
-      "Generate a project plan before approving initialization.",
-    );
+    throw new Error("Generate a project plan before approving initialization.");
   }
 
-  const manifest = await loadProjectPlanManifest(
-    workspaceDirectory,
-    current.planId,
-  );
+  const manifest = await loadProjectPlanManifest(workspaceDirectory, current.planId);
   if (!manifest) {
     throw new Error("The current project plan manifest is missing.");
   }
 
-  const digest = await calculateProjectPlanDigest(
-    workspaceDirectory,
-    current.planId,
-  );
-  const discoveryDigest =
-    await calculateDiscoveryDigest(workspaceDirectory);
+  const digest = await calculateProjectPlanDigest(workspaceDirectory, current.planId);
+  const discoveryDigest = await calculateDiscoveryDigest(workspaceDirectory);
   const now = new Date().toISOString();
   const approval: ProjectApproval = {
     version: 1,
@@ -457,10 +406,7 @@ export async function approveCurrentProjectPlan(
     force: true,
   });
 
-  let lifecycle = await lifecycleForPlan(
-    workspaceDirectory,
-    current.planId,
-  );
+  let lifecycle = await lifecycleForPlan(workspaceDirectory, current.planId);
   lifecycle = await transitionLifecycle(
     workspaceDirectory,
     lifecycle,
@@ -482,10 +428,7 @@ export async function invalidateProjectApproval(
   const current = await loadCurrentProjectPlan(workspaceDirectory);
   if (!current) return undefined;
 
-  let lifecycle = await lifecycleForPlan(
-    workspaceDirectory,
-    current.planId,
-  );
+  let lifecycle = await lifecycleForPlan(workspaceDirectory, current.planId);
   lifecycle = await transitionLifecycle(
     workspaceDirectory,
     lifecycle,
@@ -522,10 +465,7 @@ export async function requestProjectPlanChanges(
     projectChangeRequestPath(workspaceDirectory),
     JSON.stringify(request, null, 2) + "\n",
   );
-  await invalidateProjectApproval(
-    workspaceDirectory,
-    "User requested plan changes.",
-  );
+  await invalidateProjectApproval(workspaceDirectory, "User requested plan changes.");
 
   return request;
 }
@@ -549,8 +489,7 @@ async function assertGreenfieldRepository(root: string): Promise<void> {
 }
 
 function scaffoldPaths(session: DiscoverySession): string[] {
-  const shape =
-    session.answers.application_shape?.value ?? "fullstack_web";
+  const shape = session.answers.application_shape?.value ?? "fullstack_web";
 
   if (shape === "fullstack_web") {
     return [
@@ -570,10 +509,7 @@ function scaffoldPaths(session: DiscoverySession): string[] {
   }
 
   if (shape === "frontend_only") {
-    return [
-      "apps/web/src/.gitkeep",
-      "packages/contracts/src/.gitkeep",
-    ];
+    return ["apps/web/src/.gitkeep", "packages/contracts/src/.gitkeep"];
   }
 
   if (shape === "desktop_app") {
@@ -587,10 +523,7 @@ function scaffoldPaths(session: DiscoverySession): string[] {
   return ["src/.gitkeep"];
 }
 
-function repositoryTargetForArtifact(
-  root: string,
-  relativePath: string,
-): string {
+function repositoryTargetForArtifact(root: string, relativePath: string): string {
   if (relativePath === "TASKS.md") {
     return resolve(root, "TASKS.md");
   }
@@ -647,11 +580,7 @@ async function materializationFiles(
   files.set(
     resolve(root, "docs", "planning", "plan-manifest.json"),
     await readFile(
-      safePlanArtifactPath(
-        workspaceDirectory,
-        manifest.planId,
-        "plan-manifest.json",
-      ),
+      safePlanArtifactPath(workspaceDirectory, manifest.planId, "plan-manifest.json"),
       "utf8",
     ),
   );
@@ -672,17 +601,11 @@ async function materializationFiles(
   );
 
   if (!(await exists(resolve(root, "README.md")))) {
-    files.set(
-      resolve(root, "README.md"),
-      projectReadme(session),
-    );
+    files.set(resolve(root, "README.md"), projectReadme(session));
   }
 
   if (!(await exists(resolve(root, ".gitignore")))) {
-    files.set(
-      resolve(root, ".gitignore"),
-      projectGitignore(),
-    );
+    files.set(resolve(root, ".gitignore"), projectGitignore());
   }
 
   for (const relativePath of scaffoldPaths(session)) {
@@ -692,9 +615,7 @@ async function materializationFiles(
   return files;
 }
 
-async function preflightTargets(
-  files: Map<string, string>,
-): Promise<void> {
+async function preflightTargets(files: Map<string, string>): Promise<void> {
   const collisions: string[] = [];
 
   for (const path of files.keys()) {
@@ -703,17 +624,12 @@ async function preflightTargets(
 
   if (collisions.length > 0) {
     throw new Error(
-      "Project initialization refuses to overwrite existing files: " +
-        collisions.join(", ") +
-        ".",
+      "Project initialization refuses to overwrite existing files: " + collisions.join(", ") + ".",
     );
   }
 }
 
-async function rollbackCreatedFiles(
-  root: string,
-  createdFiles: readonly string[],
-): Promise<void> {
+async function rollbackCreatedFiles(root: string, createdFiles: readonly string[]): Promise<void> {
   for (const path of [...createdFiles].reverse()) {
     await rm(path, { force: true });
   }
@@ -737,21 +653,13 @@ async function verifyMaterializedPlan(
       manifest.planId,
       artifact.relativePath,
     );
-    const targetPath = repositoryTargetForArtifact(
-      root,
-      artifact.relativePath,
-    );
+    const targetPath = repositoryTargetForArtifact(root, artifact.relativePath);
 
-    const [expected, actual] = await Promise.all([
-      readFile(sourcePath),
-      readFile(targetPath),
-    ]);
+    const [expected, actual] = await Promise.all([readFile(sourcePath), readFile(targetPath)]);
 
     if (!expected.equals(actual)) {
       throw new Error(
-        "Materialized plan artifact does not match approved source: " +
-          artifact.relativePath +
-          ".",
+        "Materialized plan artifact does not match approved source: " + artifact.relativePath + ".",
       );
     }
   }
@@ -763,23 +671,12 @@ async function ensureRequiredBootstrapTools(
 ): Promise<BootstrapReport> {
   let report = await inspectBootstrap(root, config);
   const installableRequired = report.requirements
-    .filter(
-      (item) =>
-        item.level === "required" &&
-        !item.installed &&
-        item.installerAvailable,
-    )
+    .filter((item) => item.level === "required" && !item.installed && item.installerAvailable)
     .map((item) => item.id);
 
   if (installableRequired.length > 0) {
-    report = (
-      await remediateBootstrap(
-        root,
-        config,
-        installableRequired,
-        { approved: true },
-      )
-    ).report;
+    report = (await remediateBootstrap(root, config, installableRequired, { approved: true }))
+      .report;
   }
 
   const missing = report.requirements.filter(
@@ -804,22 +701,14 @@ export async function initializeApprovedProject(
 ): Promise<ProjectInitializationResult> {
   const status = await planApprovalStatus(workspaceDirectory);
 
-  if (
-    !status.verified ||
-    !status.approval ||
-    !status.currentPlanId ||
-    !status.currentDigest
-  ) {
+  if (!status.verified || !status.approval || !status.currentPlanId || !status.currentDigest) {
     throw new Error(
       "Project initialization requires an exact verified human approval. " +
         (status.reason ?? "Approval is invalid."),
     );
   }
 
-  const manifest = await loadProjectPlanManifest(
-    workspaceDirectory,
-    status.currentPlanId,
-  );
+  const manifest = await loadProjectPlanManifest(workspaceDirectory, status.currentPlanId);
   if (!manifest) {
     throw new Error("The approved project plan manifest is missing.");
   }
@@ -833,22 +722,13 @@ export async function initializeApprovedProject(
     session.sessionId !== manifest.discoverySessionId ||
     session.sessionId !== status.approval.discoverySessionId
   ) {
-    throw new Error(
-      "Discovery, plan and approval identity do not match.",
-    );
+    throw new Error("Discovery, plan and approval identity do not match.");
   }
 
   await assertGreenfieldRepository(root);
 
-  let lifecycle = await lifecycleForPlan(
-    workspaceDirectory,
-    manifest.planId,
-  );
-  lifecycle = await transitionLifecycle(
-    workspaceDirectory,
-    lifecycle,
-    "PROJECT_INITIALIZING",
-  );
+  let lifecycle = await lifecycleForPlan(workspaceDirectory, manifest.planId);
+  lifecycle = await transitionLifecycle(workspaceDirectory, lifecycle, "PROJECT_INITIALIZING");
 
   const files = await materializationFiles(
     root,
@@ -867,50 +747,27 @@ export async function initializeApprovedProject(
       createdFiles.push(path);
     }
 
-    lifecycle = await transitionLifecycle(
-      workspaceDirectory,
-      lifecycle,
-      "FOUNDATION_VALIDATION",
-    );
+    lifecycle = await transitionLifecycle(workspaceDirectory, lifecycle, "FOUNDATION_VALIDATION");
 
-    await verifyMaterializedPlan(
-      root,
-      workspaceDirectory,
-      manifest,
-    );
+    await verifyMaterializedPlan(root, workspaceDirectory, manifest);
 
-    const bootstrap = await ensureRequiredBootstrapTools(
-      root,
-      config,
-    );
+    const bootstrap = await ensureRequiredBootstrapTools(root, config);
 
-    const provider = await createMarkdownTaskProvider(
-      root,
-      config,
-      "TASKS.md",
-    );
+    const provider = await createMarkdownTaskProvider(root, config, "TASKS.md");
     const nextTask = await provider.getNextTask();
 
     if (!nextTask) {
-      throw new Error(
-        "The approved task graph has no unblocked Todo task after materialization.",
-      );
+      throw new Error("The approved task graph has no unblocked Todo task after materialization.");
     }
 
     const store = new WorkflowStateStore(root, config);
-    const selected = await selectWorkflowTask(
-      store,
-      provider,
-      nextTask.key,
-    );
+    const selected = await selectWorkflowTask(store, provider, nextTask.key);
 
     lifecycle = await transitionLifecycle(
       workspaceDirectory,
       lifecycle,
       "READY_FOR_IMPLEMENTATION",
-      "Foundation validated; selected first unblocked task " +
-        nextTask.key +
-        ".",
+      "Foundation validated; selected first unblocked task " + nextTask.key + ".",
     );
 
     return {

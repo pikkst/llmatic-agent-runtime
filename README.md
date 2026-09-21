@@ -218,7 +218,6 @@ Regeneration creates a new plan version and preserves the previous draft.
 
 M22 still cannot scaffold, install, migrate, push, create a PR, or deploy. M23 adds explicit human approval before any approved plan can become repository state.
 
-
 ## Approval and initialization
 
 M23 keeps repository mutation blocked until the user explicitly approves the exact current plan.

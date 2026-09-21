@@ -1591,14 +1591,8 @@ async function showProjectDiscovery(
   writeDiscoverySummary(output, state.activeWorkspace.directory, session);
 }
 
-
 interface PlanReviewAction extends vscode.QuickPickItem {
-  action:
-    | "artifacts"
-    | "edit"
-    | "regenerate"
-    | "changes"
-    | "approve";
+  action: "artifacts" | "edit" | "regenerate" | "changes" | "approve";
 }
 
 async function ensurePlanningWorkspace(
@@ -1640,9 +1634,7 @@ async function editProjectDecisionsInUi(
 
   const answered = answeredDiscoveryQuestions(session);
   if (answered.length === 0) {
-    await vscode.window.showInformationMessage(
-      "No discovery decisions have been answered yet.",
-    );
+    await vscode.window.showInformationMessage("No discovery decisions have been answered yet.");
     return;
   }
 
@@ -1650,15 +1642,12 @@ async function editProjectDecisionsInUi(
     answered.map((item) => ({
       label: item.title,
       description: item.answer.label,
-      detail:
-        item.answer.source +
-        (item.answer.rationale ? " — " + item.answer.rationale : ""),
+      detail: item.answer.source + (item.answer.rationale ? " — " + item.answer.rationale : ""),
       questionId: item.id,
     })),
     {
       title: "LLMatic — Edit Project Decisions",
-      placeHolder:
-        "Changing this decision clears it and all dependent later decisions.",
+      placeHolder: "Changing this decision clears it and all dependent later decisions.",
       ignoreFocusOut: true,
     },
   );
@@ -1675,15 +1664,8 @@ async function editProjectDecisionsInUi(
 
   if (confirmation !== "Edit Decision") return;
 
-  await invalidateProjectApproval(
-    workspace.directory,
-    "Discovery decisions reopened by the user.",
-  );
-  await reopenDiscoveryAt(
-    workspace.directory,
-    session,
-    selected.questionId,
-  );
+  await invalidateProjectApproval(workspace.directory, "Discovery decisions reopened by the user.");
+  await reopenDiscoveryAt(workspace.directory, session, selected.questionId);
 
   await startProjectDiscovery(context, state, output, true);
 }
@@ -1698,19 +1680,14 @@ async function requestProjectPlanChangesInUi(
     title: "LLMatic — Request Project Plan Changes",
     prompt:
       "Describe the change you want recorded before approval. Structural decisions should use Edit Project Decisions.",
-    placeHolder:
-      "Example: Keep the MVP single-region and defer audit export to a later phase.",
+    placeHolder: "Example: Keep the MVP single-region and defer audit export to a later phase.",
     ignoreFocusOut: true,
-    validateInput: (value) =>
-      value.trim() ? undefined : "Describe the requested plan change.",
+    validateInput: (value) => (value.trim() ? undefined : "Describe the requested plan change."),
   });
 
   if (!text?.trim()) return;
 
-  await requestProjectPlanChanges(
-    workspace.directory,
-    text.trim(),
-  );
+  await requestProjectPlanChanges(workspace.directory, text.trim());
 
   await vscode.window.showInformationMessage(
     "Plan change request saved privately and any previous approval invalidated. Review/edit decisions and generate a new draft before approval.",
@@ -1723,17 +1700,11 @@ async function approveAndInitializeProjectInUi(
   state: ExtensionState,
   output: vscode.OutputChannel,
 ): Promise<void> {
-  const { folder, workspace } = await ensurePlanningWorkspace(
-    context,
-    state,
-  );
+  const { folder, workspace } = await ensurePlanningWorkspace(context, state);
 
   const current = await loadCurrentProjectPlan(workspace.directory);
   const manifest = current
-    ? await loadProjectPlanManifest(
-        workspace.directory,
-        current.planId,
-      )
+    ? await loadProjectPlanManifest(workspace.directory, current.planId)
     : undefined;
 
   if (!current || !manifest) {
@@ -1745,9 +1716,7 @@ async function approveAndInitializeProjectInUi(
   }
 
   const status = await planApprovalStatus(workspace.directory);
-  const digest =
-    status.currentDigest ??
-    "Digest unavailable until the plan can be verified.";
+  const digest = status.currentDigest ?? "Digest unavailable until the plan can be verified.";
 
   const confirmation = await vscode.window.showWarningMessage(
     [
@@ -1768,16 +1737,11 @@ async function approveAndInitializeProjectInUi(
 
   if (confirmation !== "Approve & Initialize") return;
 
-  const approval = await approveCurrentProjectPlan(
-    workspace.directory,
-  );
+  const approval = await approveCurrentProjectPlan(workspace.directory);
 
-  const runtimeConfig = await loadAgentConfig(
-    folder.uri.fsPath,
-    {
-      LLMATIC_HOME: context.globalStorageUri.fsPath,
-    },
-  );
+  const runtimeConfig = await loadAgentConfig(folder.uri.fsPath, {
+    LLMATIC_HOME: context.globalStorageUri.fsPath,
+  });
 
   const result = await vscode.window.withProgress(
     {
@@ -1785,12 +1749,7 @@ async function approveAndInitializeProjectInUi(
       title: "LLMatic is initializing the approved project",
       cancellable: false,
     },
-    () =>
-      initializeApprovedProject(
-        folder.uri.fsPath,
-        workspace.directory,
-        runtimeConfig,
-      ),
+    () => initializeApprovedProject(folder.uri.fsPath, workspace.directory, runtimeConfig),
   );
 
   output.clear();
@@ -1798,22 +1757,11 @@ async function approveAndInitializeProjectInUi(
   output.appendLine("");
   output.appendLine("Plan: " + approval.planId);
   output.appendLine("SHA-256: " + approval.planDigest);
-  output.appendLine(
-    "State: " + result.lifecycle.state,
-  );
-  output.appendLine(
-    "Materialized planning files: " +
-      result.materializedFiles.length,
-  );
-  output.appendLine(
-    "Scaffold files: " + result.scaffoldFiles.length,
-  );
-  output.appendLine(
-    "Next task: " + result.nextTaskKey,
-  );
-  output.appendLine(
-    "Workflow: " + result.workflow.state,
-  );
+  output.appendLine("State: " + result.lifecycle.state);
+  output.appendLine("Materialized planning files: " + result.materializedFiles.length);
+  output.appendLine("Scaffold files: " + result.scaffoldFiles.length);
+  output.appendLine("Next task: " + result.nextTaskKey);
+  output.appendLine("Workflow: " + result.workflow.state);
   output.show(true);
 
   await vscode.window.showInformationMessage(
@@ -1851,20 +1799,17 @@ async function projectPlanReviewInUi(
     },
     {
       label: "$(edit) Edit decisions",
-      description:
-        "Reopen discovery from a selected decision",
+      description: "Reopen discovery from a selected decision",
       action: "edit",
     },
     {
       label: "$(refresh) Regenerate plan",
-      description:
-        "Create a new versioned draft from current discovery decisions",
+      description: "Create a new versioned draft from current discovery decisions",
       action: "regenerate",
     },
     {
       label: "$(comment-discussion) Request changes",
-      description:
-        "Record a private plan change request and invalidate approval",
+      description: "Record a private plan change request and invalidate approval",
       action: "changes",
     },
     {
@@ -1877,15 +1822,11 @@ async function projectPlanReviewInUi(
     },
   ];
 
-  const selected = await vscode.window.showQuickPick(
-    actions,
-    {
-      title: "LLMatic Plan Review — " + current.planId,
-      placeHolder:
-        "Repository mutation remains blocked until Approve & Initialize.",
-      ignoreFocusOut: true,
-    },
-  );
+  const selected = await vscode.window.showQuickPick(actions, {
+    title: "LLMatic Plan Review — " + current.planId,
+    placeHolder: "Repository mutation remains blocked until Approve & Initialize.",
+    ignoreFocusOut: true,
+  });
 
   if (!selected) return;
 
@@ -1894,29 +1835,16 @@ async function projectPlanReviewInUi(
       await reviewProjectPlanInUi(context, state, output);
       break;
     case "edit":
-      await editProjectDecisionsInUi(
-        context,
-        state,
-        output,
-      );
+      await editProjectDecisionsInUi(context, state, output);
       break;
     case "regenerate":
-      await vscode.commands.executeCommand(
-        "llmatic.generatePlan",
-      );
+      await vscode.commands.executeCommand("llmatic.generatePlan");
       break;
     case "changes":
-      await requestProjectPlanChangesInUi(
-        context,
-        state,
-      );
+      await requestProjectPlanChangesInUi(context, state);
       break;
     case "approve":
-      await approveAndInitializeProjectInUi(
-        context,
-        state,
-        output,
-      );
+      await approveAndInitializeProjectInUi(context, state, output);
       break;
   }
 }

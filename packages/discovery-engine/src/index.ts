@@ -661,21 +661,16 @@ export function discoverySummary(session: DiscoverySession): string {
   return lines.join("\n");
 }
 
-
 export interface AnsweredDiscoveryQuestion {
   id: string;
   title: string;
   answer: DiscoveryAnswer;
 }
 
-export function answeredDiscoveryQuestions(
-  session: DiscoverySession,
-): AnsweredDiscoveryQuestion[] {
+export function answeredDiscoveryQuestions(session: DiscoverySession): AnsweredDiscoveryQuestion[] {
   return QUESTIONS.flatMap((question) => {
     const answer = session.answers[question.id];
-    return answer
-      ? [{ id: question.id, title: question.title, answer }]
-      : [];
+    return answer ? [{ id: question.id, title: question.title, answer }] : [];
   });
 }
 
@@ -689,13 +684,9 @@ export async function reopenDiscoveryAt(
     throw new Error("Unknown discovery question: " + questionId + ".");
   }
 
-  const removeIds = new Set(
-    QUESTIONS.slice(index).map((question) => question.id),
-  );
+  const removeIds = new Set(QUESTIONS.slice(index).map((question) => question.id));
   const answers = Object.fromEntries(
-    Object.entries(session.answers).filter(
-      ([id]) => !removeIds.has(id),
-    ),
+    Object.entries(session.answers).filter(([id]) => !removeIds.has(id)),
   );
 
   const updated: DiscoverySession = {

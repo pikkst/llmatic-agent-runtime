@@ -104,4 +104,3 @@
 - Materialization verifies approved planning bytes before selecting the first dependency-unblocked task.
 - Failed initialization rolls back files created by that attempt.
 - Added read-only MCP approval/lifecycle status; MCP cannot self-approve or initialize.
-
