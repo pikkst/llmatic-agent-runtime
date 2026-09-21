@@ -13,7 +13,8 @@
     "test": "vitest run",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
-    "ci": "pnpm format:check && pnpm typecheck && pnpm test"
+    "ci": "node scripts/ci-local.mjs --ci",
+    "ci:local": "node scripts/ci-local.mjs"
   },
   "devDependencies": {
     "@types/node": "^22.10.0",
