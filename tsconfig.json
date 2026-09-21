@@ -65,6 +65,9 @@
       "path": "./packages/discovery-engine"
     },
     {
+      "path": "./packages/planning-engine"
+    },
+    {
       "path": "./packages/workspace-manager"
     },
     {
