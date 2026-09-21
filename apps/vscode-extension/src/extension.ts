@@ -4,6 +4,11 @@ import { homedir } from "node:os";
 import { resolve } from "node:path";
 import * as vscode from "vscode";
 import { runCodingAgent, type CodingAgentEvent } from "@llmatic/agent-orchestrator";
+import {
+  inspectBootstrap,
+  remediateBootstrap,
+  type BootstrapReport,
+} from "@llmatic/bootstrap-manager";
 import { loadAgentConfig, WorkflowStateStore } from "@llmatic/core";
 import { KiloGatewayClient } from "@llmatic/gateway-client";
 import {
@@ -539,6 +544,111 @@ async function runGatewayAgent(
   );
 }
 
+function writeBootstrapReport(output: vscode.OutputChannel, report: BootstrapReport): void {
+  output.clear();
+  output.appendLine("LLMatic Workspace Bootstrap");
+  output.appendLine("Repository: " + report.root);
+  output.appendLine("Ready: " + (report.ready ? "yes" : "no"));
+  output.appendLine("");
+
+  for (const item of report.requirements) {
+    const marker = item.installed ? "PASS" : item.level === "required" ? "FAIL" : "WARN";
+    const installer = !item.installed && item.installerAvailable ? " [auto-install available]" : "";
+    output.appendLine(
+      "[" + marker + "] " + item.name + " (" + item.level + "): " + item.reason + installer,
+    );
+  }
+
+  if (report.unsupportedPackageManager) {
+    output.appendLine("");
+    output.appendLine("[WARN] Package manager: " + report.unsupportedPackageManager);
+  }
+}
+
+async function bootstrapWorkspace(
+  context: vscode.ExtensionContext,
+  state: ExtensionState,
+  statusBar: vscode.StatusBarItem,
+  output: vscode.OutputChannel,
+): Promise<void> {
+  const folder = firstWorkspaceFolder();
+  if (!folder) {
+    await vscode.window.showWarningMessage("Open a workspace before bootstrapping LLMatic.");
+    return;
+  }
+
+  state.activeWorkspace = await attachWorkspace(context, folder);
+  let report = await inspectBootstrap(state.activeWorkspace.root, state.activeWorkspace.config);
+  writeBootstrapReport(output, report);
+  output.show(true);
+
+  const autoInstallable = report.requirements.filter(
+    (item) => !item.installed && item.installerAvailable,
+  );
+
+  if (autoInstallable.length > 0) {
+    const names = autoInstallable.map((item) => item.name).join(", ");
+    const action = await vscode.window.showInformationMessage(
+      "LLMatic can install registered missing tools: " + names + ".",
+      { modal: true },
+      "Install",
+    );
+
+    if (action === "Install") {
+      const result = await remediateBootstrap(
+        state.activeWorkspace.root,
+        state.activeWorkspace.config,
+        autoInstallable.map((item) => item.id),
+        { approved: true },
+      );
+
+      report = result.report;
+      writeBootstrapReport(output, report);
+      output.appendLine("");
+
+      for (const installation of result.installations) {
+        output.appendLine(
+          "[INSTALL] " +
+            installation.tool.name +
+            ": " +
+            (installation.changed ? "installed" : "already available"),
+        );
+      }
+    }
+  }
+
+  const kilo = await connectKilo(context);
+  state.kiloConnected = kilo.connected;
+  state.kiloReloadRecommended = kilo.changed;
+  state.lastError = undefined;
+  updateStatusBar(statusBar, state);
+
+  const missingRequired = report.requirements.filter(
+    (item) => item.level === "required" && !item.installed,
+  );
+
+  if (missingRequired.length > 0) {
+    await vscode.window.showWarningMessage(
+      "LLMatic bootstrap needs manual setup for: " +
+        missingRequired.map((item) => item.name).join(", ") +
+        ". See the LLMatic output channel.",
+    );
+    return;
+  }
+
+  if (kilo.changed) {
+    const action = await vscode.window.showInformationMessage(
+      "LLMatic workspace is ready. Kilo MCP configuration changed.",
+      "Reload Window",
+    );
+    if (action === "Reload Window") {
+      await vscode.commands.executeCommand("workbench.action.reloadWindow");
+    }
+  } else {
+    await vscode.window.showInformationMessage("LLMatic workspace bootstrap is ready.");
+  }
+}
+
 async function showStatus(context: vscode.ExtensionContext, state: ExtensionState): Promise<void> {
   const kiloInstalled = Boolean(vscode.extensions.getExtension(KILO_EXTENSION_ID));
   const kiloServer = kiloInstalled ? await readGlobalKiloLlmaticServer(homedir()) : undefined;
@@ -589,6 +699,18 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       } catch (error) {
         state.lastError = error instanceof Error ? error.message : String(error);
         updateStatusBar(statusBar, state);
+        await vscode.window.showErrorMessage(state.lastError);
+      }
+    }),
+    vscode.commands.registerCommand("llmatic.bootstrapWorkspace", async () => {
+      try {
+        await bootstrapWorkspace(context, state, statusBar, output);
+      } catch (error) {
+        state.lastError = error instanceof Error ? error.message : String(error);
+        updateStatusBar(statusBar, state);
+        output.appendLine("");
+        output.appendLine("[FAIL] Bootstrap: " + state.lastError);
+        output.show(true);
         await vscode.window.showErrorMessage(state.lastError);
       }
     }),

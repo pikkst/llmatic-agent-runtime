@@ -25,8 +25,19 @@ Direct implementation and review both default to:
 
 The model is configurable through llmatic.agentModel.
 
+## Workspace bootstrap
+
+The carried-forward bootstrap flow from PR #13 is available as:
+
+    LLMatic: Bootstrap Workspace
+
+It derives tool requirements from repository signals, offers only registry-backed controlled installers, reconciles Kilo MCP, and leaves tracked repository files untouched.
+
+See docs/bootstrap-remediation.md.
+
 ## VS Code commands
 
+    LLMatic: Bootstrap Workspace
     LLMatic: Run Gateway Agent
     LLMatic: Run Code Review
     LLMatic: Run Review / Fix Loop

@@ -28,6 +28,9 @@
     },
     {
       "path": "../../packages/review-engine"
+    },
+    {
+      "path": "../../packages/bootstrap-manager"
     }
   ]
 }
