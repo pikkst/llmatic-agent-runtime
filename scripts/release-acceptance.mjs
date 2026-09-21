@@ -34,7 +34,9 @@ function capture(command, args) {
   });
 
   if (result.error || result.status !== 0) return undefined;
-  return String(result.stdout || result.stderr).trim().split(/\r?\n/)[0];
+  return String(result.stdout || result.stderr)
+    .trim()
+    .split(/\r?\n/)[0];
 }
 
 function run(command, args, label) {
@@ -50,7 +52,9 @@ function run(command, args, label) {
 }
 
 async function sha256(path) {
-  return createHash("sha256").update(await readFile(path)).digest("hex");
+  return createHash("sha256")
+    .update(await readFile(path))
+    .digest("hex");
 }
 
 async function size(path) {
@@ -103,20 +107,14 @@ const version = assertReleaseVersion(
   String(extensionPackage.version),
 );
 
-run(
-  "node",
-  ["scripts/create-release-manifest.mjs", tag, commit],
-  "release manifest generation",
-);
+run("node", ["scripts/create-release-manifest.mjs", tag, commit], "release manifest generation");
 
 const versionedVsix = resolve(root, "artifacts", "llmatic-agent-runtime-" + version + ".vsix");
 const releaseManifestPath = resolve(root, "artifacts", "release-manifest.json");
 requireFile(versionedVsix, "versioned VSIX");
 requireFile(releaseManifestPath, "release manifest");
 
-const manifest = parseReleaseManifest(
-  JSON.parse(await readFile(releaseManifestPath, "utf8")),
-);
+const manifest = parseReleaseManifest(JSON.parse(await readFile(releaseManifestPath, "utf8")));
 
 if (manifest.commit !== commit) fail("manifest commit does not match acceptance commit.");
 if (manifest.tag !== tag) fail("manifest tag does not match acceptance tag.");
@@ -134,18 +132,8 @@ try {
   const packagedRoot = resolve(extraction, "extension");
   const packagedPackagePath = resolve(packagedRoot, "package.json");
   const packagedExtensionPath = resolve(packagedRoot, "dist", "extension.cjs");
-  const packagedRuntimeManifestPath = resolve(
-    packagedRoot,
-    "dist",
-    "runtime",
-    "manifest.json",
-  );
-  const packagedRuntimePath = resolve(
-    packagedRoot,
-    "dist",
-    "runtime",
-    "mcp-server.mjs",
-  );
+  const packagedRuntimeManifestPath = resolve(packagedRoot, "dist", "runtime", "manifest.json");
+  const packagedRuntimePath = resolve(packagedRoot, "dist", "runtime", "mcp-server.mjs");
 
   requireFile(packagedPackagePath, "packaged extension package");
   requireFile(packagedExtensionPath, "packaged extension activation bundle");
@@ -186,9 +174,7 @@ try {
     }
   }
 
-  const packagedRuntimeManifest = JSON.parse(
-    await readFile(packagedRuntimeManifestPath, "utf8"),
-  );
+  const packagedRuntimeManifest = JSON.parse(await readFile(packagedRuntimeManifestPath, "utf8"));
 
   if (String(packagedRuntimeManifest.runtimeVersion) !== manifest.runtime.version) {
     fail("packaged runtime version does not match release manifest.");
@@ -207,10 +193,7 @@ try {
     fail("packaged runtime byte size does not match release runtime size.");
   }
 
-  const forbiddenPaths = [
-    resolve(packagedRoot, ".llmatic"),
-    resolve(packagedRoot, "node_modules"),
-  ];
+  const forbiddenPaths = [resolve(packagedRoot, ".llmatic"), resolve(packagedRoot, "node_modules")];
   for (const forbidden of forbiddenPaths) {
     if (existsSync(forbidden)) {
       fail("VSIX contains forbidden repository/runtime footprint path: " + forbidden);

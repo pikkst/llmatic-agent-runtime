@@ -102,7 +102,6 @@ See docs/release-acceptance.md.
 
 ## Safety
 
-
 The reviewer is read-only and receives changed-files-first context. Sensitive paths are filtered.
 
 The fix agent remains constrained:
