@@ -28,5 +28,8 @@ jobs:
       - name: Install dependencies
         run: pnpm install --no-frozen-lockfile
 
+      - name: Show canonical M6 formatting
+        run: pnpm exec prettier apps/cli/tsconfig.json packages/repo-intelligence/src/indexer.ts packages/repo-intelligence/src/types.ts packages/repo-intelligence/test/indexer.test.ts
+
       - name: Validate
         run: pnpm run ci
