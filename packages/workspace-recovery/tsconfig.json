@@ -1,0 +1,17 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "composite": true,
+    "rootDir": "src",
+    "outDir": "dist"
+  },
+  "include": ["src/**/*.ts"],
+  "references": [
+    { "path": "../core" },
+    { "path": "../git-adapter" },
+    { "path": "../github-adapter" },
+    { "path": "../repo-intelligence" },
+    { "path": "../task-provider" },
+    { "path": "../task-router" }
+  ]
+}
