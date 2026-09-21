@@ -429,7 +429,6 @@ export async function recoverWorkspace(
     workflow,
     task,
     nextTask,
-    taskCandidates,
     pullRequest,
   });
 
@@ -441,6 +440,7 @@ export async function recoverWorkspace(
     taskSource,
     task,
     nextTask,
+    taskCandidates,
     pullRequest,
     warnings,
     recommendation,
