@@ -20,6 +20,7 @@ import {
   type WorkflowRun,
 } from "@llmatic/core";
 import {
+  discoverySessionPath,
   loadDiscoverySession,
   type DiscoverySession,
 } from "@llmatic/discovery-engine";
@@ -66,6 +67,7 @@ export interface ProjectApproval {
   version: 1;
   planId: string;
   planDigest: string;
+  discoveryDigest: string;
   approvedAt: string;
   approvedBy: "user";
   discoverySessionId: string;
@@ -75,6 +77,7 @@ export interface PlanApprovalStatus {
   currentPlanId?: string;
   approval?: ProjectApproval;
   currentDigest?: string;
+  currentDiscoveryDigest?: string;
   verified: boolean;
   reason?: string;
   lifecycle?: ProjectLifecycle;
@@ -315,6 +318,15 @@ export async function calculateProjectPlanDigest(
   return hash.digest("hex");
 }
 
+export async function calculateDiscoveryDigest(
+  workspaceDirectory: string,
+): Promise<string> {
+  const bytes = await readFile(
+    discoverySessionPath(workspaceDirectory),
+  );
+  return createHash("sha256").update(bytes).digest("hex");
+}
+
 export async function planApprovalStatus(
   workspaceDirectory: string,
 ): Promise<PlanApprovalStatus> {
@@ -335,11 +347,14 @@ export async function planApprovalStatus(
     workspaceDirectory,
     current.planId,
   );
+  const currentDiscoveryDigest =
+    await calculateDiscoveryDigest(workspaceDirectory);
 
   if (!approval) {
     return {
       currentPlanId: current.planId,
       currentDigest,
+      currentDiscoveryDigest,
       verified: false,
       reason: "The current plan has not been approved by the user.",
       lifecycle,
@@ -351,6 +366,7 @@ export async function planApprovalStatus(
       currentPlanId: current.planId,
       approval,
       currentDigest,
+      currentDiscoveryDigest,
       verified: false,
       reason:
         "The approval belongs to plan " +
@@ -367,9 +383,23 @@ export async function planApprovalStatus(
       currentPlanId: current.planId,
       approval,
       currentDigest,
+      currentDiscoveryDigest,
       verified: false,
       reason:
         "The approved plan bytes changed after approval; re-approval is required.",
+      lifecycle,
+    };
+  }
+
+  if (approval.discoveryDigest !== currentDiscoveryDigest) {
+    return {
+      currentPlanId: current.planId,
+      approval,
+      currentDigest,
+      currentDiscoveryDigest,
+      verified: false,
+      reason:
+        "Discovery decisions changed after approval; regenerate/review the plan and approve again.",
       lifecycle,
     };
   }
@@ -378,6 +408,7 @@ export async function planApprovalStatus(
     currentPlanId: current.planId,
     approval,
     currentDigest,
+    currentDiscoveryDigest,
     verified: true,
     lifecycle,
   };
@@ -405,11 +436,14 @@ export async function approveCurrentProjectPlan(
     workspaceDirectory,
     current.planId,
   );
+  const discoveryDigest =
+    await calculateDiscoveryDigest(workspaceDirectory);
   const now = new Date().toISOString();
   const approval: ProjectApproval = {
     version: 1,
     planId: current.planId,
     planDigest: digest,
+    discoveryDigest,
     approvedAt: now,
     approvedBy: "user",
     discoverySessionId: manifest.discoverySessionId,
@@ -435,6 +469,31 @@ export async function approveCurrentProjectPlan(
   );
 
   return approval;
+}
+
+export async function invalidateProjectApproval(
+  workspaceDirectory: string,
+  reason: string,
+): Promise<ProjectLifecycle | undefined> {
+  await rm(projectApprovalPath(workspaceDirectory), {
+    force: true,
+  });
+
+  const current = await loadCurrentProjectPlan(workspaceDirectory);
+  if (!current) return undefined;
+
+  let lifecycle = await lifecycleForPlan(
+    workspaceDirectory,
+    current.planId,
+  );
+  lifecycle = await transitionLifecycle(
+    workspaceDirectory,
+    lifecycle,
+    "PLAN_REVIEW",
+    reason.trim() || "Approval invalidated by user decision changes.",
+  );
+
+  return lifecycle;
 }
 
 export async function requestProjectPlanChanges(
@@ -463,18 +522,8 @@ export async function requestProjectPlanChanges(
     projectChangeRequestPath(workspaceDirectory),
     JSON.stringify(request, null, 2) + "\n",
   );
-  await rm(projectApprovalPath(workspaceDirectory), {
-    force: true,
-  });
-
-  let lifecycle = await lifecycleForPlan(
+  await invalidateProjectApproval(
     workspaceDirectory,
-    current.planId,
-  );
-  lifecycle = await transitionLifecycle(
-    workspaceDirectory,
-    lifecycle,
-    "PLAN_REVIEW",
     "User requested plan changes.",
   );
 
@@ -808,11 +857,11 @@ export async function initializeApprovedProject(
     session,
     status.approval,
   );
-  await preflightTargets(files);
 
   const createdFiles: string[] = [];
 
   try {
+    await preflightTargets(files);
     for (const [path, content] of files) {
       await writeAtomic(path, content);
       createdFiles.push(path);
