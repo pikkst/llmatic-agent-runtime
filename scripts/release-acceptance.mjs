@@ -14,7 +14,7 @@ import {
 import { verifyVsixBytes } from "../packages/update-installer/dist/index.js";
 
 const root = process.cwd();
-const tag = process.argv[2] || process.env.GITHUB_REF_NAME || "v0.1.2";
+const tag = process.argv[2] || process.env.GITHUB_REF_NAME || "v0.2.0";
 const commit =
   process.argv[3] ||
   process.env.GITHUB_SHA ||
@@ -169,6 +169,8 @@ try {
   const requiredActivationSignals = [
     "LLMatic",
     "llmatic.getReady",
+    "llmatic.openAgentChat",
+    "llmatic.refreshWorkspaceRecovery",
     "llmatic.reviewFixLoop",
     "llmatic.checkForUpdates",
     "llmatic.installUpdate",
