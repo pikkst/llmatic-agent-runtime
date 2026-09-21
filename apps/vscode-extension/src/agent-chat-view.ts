@@ -1,6 +1,7 @@
 import { randomBytes } from "node:crypto";
 import * as vscode from "vscode";
 import type { CodingAgentConversationTurn } from "@llmatic/agent-orchestrator";
+import type { CodeReviewReport } from "@llmatic/review-engine";
 import type { WorkspaceRecovery } from "@llmatic/workspace-recovery";
 
 type ChatMessage =
@@ -15,6 +16,7 @@ export interface AgentChatHandlers {
 export class AgentChatViewProvider implements vscode.WebviewViewProvider {
   private view?: vscode.WebviewView;
   private recovery?: WorkspaceRecovery;
+  private review?: CodeReviewReport;
   private readonly messages: ChatMessage[] = [];
   private busy = false;
   private handlers?: AgentChatHandlers;
@@ -60,6 +62,11 @@ export class AgentChatViewProvider implements vscode.WebviewViewProvider {
 
   public setRecovery(recovery: WorkspaceRecovery | undefined): void {
     this.recovery = recovery;
+    this.sync();
+  }
+
+  public setReview(review: CodeReviewReport | undefined): void {
+    this.review = review;
     this.sync();
   }
 
@@ -110,6 +117,22 @@ export class AgentChatViewProvider implements vscode.WebviewViewProvider {
     void this.view.webview.postMessage({
       type: "state",
       busy: this.busy,
+      review: this.review
+        ? {
+            summary: this.review.summary,
+            blockingCount: this.review.blockingCount,
+            nonBlockingCount: this.review.nonBlockingCount,
+            lenses: this.review.lenses,
+            findings: this.review.findings.slice(0, 20).map((finding) => ({
+              severity: finding.severity,
+              lens: finding.lens,
+              title: finding.title,
+              path: finding.path,
+              line: finding.line,
+              ruleId: finding.ruleId,
+            })),
+          }
+        : undefined,
       recovery: this.recovery
         ? {
             repository: this.recovery.repository,
@@ -252,6 +275,7 @@ export class AgentChatViewProvider implements vscode.WebviewViewProvider {
 </head>
 <body>
   <div id="recovery"><span class="muted">Repository context not loaded yet.</span></div>
+  <div id="review" style="display:none"></div>
   <div id="messages"></div>
   <textarea id="input" placeholder="Ask LLMatic to inspect, continue, implement, fix or explain this repository."></textarea>
   <div class="actions">
@@ -263,6 +287,7 @@ export class AgentChatViewProvider implements vscode.WebviewViewProvider {
   <script nonce="${nonce}">
     const vscode = acquireVsCodeApi();
     const recoveryElement = document.getElementById("recovery");
+    const reviewElement = document.getElementById("review");
     const messagesElement = document.getElementById("messages");
     const input = document.getElementById("input");
     const send = document.getElementById("send");
@@ -365,6 +390,48 @@ export class AgentChatViewProvider implements vscode.WebviewViewProvider {
       continueButton.disabled = false;
     }
 
+    function renderReview(review) {
+      reviewElement.textContent = "";
+
+      if (!review) {
+        reviewElement.style.display = "none";
+        return;
+      }
+
+      reviewElement.style.display = "block";
+      reviewElement.style.border = "1px solid var(--vscode-panel-border)";
+      reviewElement.style.borderRadius = "6px";
+      reviewElement.style.padding = "10px";
+      reviewElement.style.marginBottom = "10px";
+
+      reviewElement.appendChild(
+        textRow(
+          "Latest review",
+          review.blockingCount +
+            " blocking · " +
+            review.nonBlockingCount +
+            " non-blocking · " +
+            review.lenses.join(", "),
+        ),
+      );
+
+      for (const finding of review.findings) {
+        const item = document.createElement("div");
+        item.className = "row";
+        item.textContent =
+          (finding.severity === "blocking" ? "⛔ " : "• ") +
+          "[" +
+          finding.lens +
+          "] " +
+          finding.title +
+          " — " +
+          finding.path +
+          (finding.line ? ":" + finding.line : "") +
+          (finding.ruleId ? " · " + finding.ruleId : "");
+        reviewElement.appendChild(item);
+      }
+    }
+
     function renderMessages(messages) {
       messagesElement.textContent = "";
       for (const message of messages) {
@@ -415,6 +482,7 @@ export class AgentChatViewProvider implements vscode.WebviewViewProvider {
       const state = event.data;
       if (!state || state.type !== "state") return;
       renderRecovery(state.recovery);
+      renderReview(state.review);
       renderMessages(state.messages || []);
       input.disabled = Boolean(state.busy);
       send.disabled = Boolean(state.busy);
