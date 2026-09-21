@@ -123,7 +123,7 @@ describe("MarkdownTaskProvider", () => {
   });
 
   it("treats explicit no-dependency markers as empty dependencies", async () => {
-    const root = await fixtureRepository();
+    const root = await fixture();
     await writeFile(
       join(root, "TASKS.md"),
       [
@@ -149,9 +149,7 @@ describe("MarkdownTaskProvider", () => {
       "utf8",
     );
 
-    const detection = await detectRepository(root);
-    const config = createDefaultConfig(detection);
-    const provider = await createMarkdownTaskProvider(root, config);
+    const provider = await createMarkdownTaskProvider(root, config(root));
 
     const first = await provider.getTask("PLAN-001");
     expect(first.dependencies).toEqual([]);
