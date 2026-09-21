@@ -16,6 +16,10 @@ describe("VS Code extension activation surface", () => {
     expect(source).toContain('vscode.commands.registerCommand("llmatic.reviewFixLoop"');
     expect(source).toContain('vscode.commands.registerCommand("llmatic.checkForUpdates"');
     expect(source).toContain('vscode.commands.registerCommand("llmatic.installUpdate"');
+    expect(source).toContain("loadProjectChangeRequest");
+    expect(source).toContain("changeRequest: pendingChangeRequest?.text");
+    expect(source).toContain("vscode.extensions.onDidChange");
+    expect(source).toContain("Kilo Code installation detected; resuming Get Ready.");
     expect(source).toContain("export function deactivate");
   });
 });
