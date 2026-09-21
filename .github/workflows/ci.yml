@@ -28,24 +28,6 @@ jobs:
       - name: Install dependencies
         run: pnpm install --no-frozen-lockfile
 
-      - name: Show canonical M18 formatting
-        run: |
-          echo "__BEGIN_EXTENSION__"
-          pnpm exec prettier apps/vscode-extension/src/extension.ts
-          echo "__END_EXTENSION__"
-          echo "__BEGIN_TSCONFIG__"
-          pnpm exec prettier apps/vscode-extension/tsconfig.json
-          echo "__END_TSCONFIG__"
-          echo "__BEGIN_UPDATE_SOURCE__"
-          pnpm exec prettier packages/update-installer/src/update.ts
-          echo "__END_UPDATE_SOURCE__"
-          echo "__BEGIN_UPDATE_TEST__"
-          pnpm exec prettier packages/update-installer/test/update.test.ts
-          echo "__END_UPDATE_TEST__"
-          echo "__BEGIN_README__"
-          pnpm exec prettier README.md
-          echo "__END_README__"
-
       - name: Validate
         run: pnpm run ci
 

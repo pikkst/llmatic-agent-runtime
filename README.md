@@ -92,7 +92,6 @@ A regression test also verifies that the VS Code `activate()` entrypoint and cri
 
 ## Safety
 
-
 The reviewer is read-only and receives changed-files-first context. Sensitive paths are filtered.
 
 The fix agent remains constrained:

@@ -239,8 +239,7 @@ function updateStatusBar(statusBar: vscode.StatusBarItem, state: ExtensionState)
     statusBar.backgroundColor = new vscode.ThemeColor("statusBarItem.errorBackground");
   } else if (!health || health.status === "NEEDS_SETUP") {
     statusBar.text = "$(tools) LLMatic: NEEDS SETUP";
-    statusBar.tooltip =
-      health?.issues.map(issueDetail).join("\n") ?? "Run LLMatic: Get Ready.";
+    statusBar.tooltip = health?.issues.map(issueDetail).join("\n") ?? "Run LLMatic: Get Ready.";
     statusBar.backgroundColor = new vscode.ThemeColor("statusBarItem.warningBackground");
   } else if (health.status === "NEEDS_REPAIR") {
     statusBar.text = "$(wrench) LLMatic: NEEDS REPAIR";
@@ -559,9 +558,7 @@ async function installLatestUpdate(
     headers: { Accept: "application/octet-stream" },
   });
   if (!response.ok) {
-    throw new Error(
-      "VSIX download failed with " + response.status + " " + response.statusText,
-    );
+    throw new Error("VSIX download failed with " + response.status + " " + response.statusText);
   }
 
   const staged = await stageVerifiedVsix({
@@ -591,18 +588,12 @@ async function checkForUpdates(context: vscode.ExtensionContext): Promise<void> 
   const comparison = compareSemver(latest.manifest.version, currentVersion);
 
   if (comparison <= 0) {
-    await vscode.window.showInformationMessage(
-      "LLMatic " + currentVersion + " is up to date.",
-    );
+    await vscode.window.showInformationMessage("LLMatic " + currentVersion + " is up to date.");
     return;
   }
 
   const action = await vscode.window.showInformationMessage(
-    "LLMatic " +
-      latest.manifest.version +
-      " is available (installed: " +
-      currentVersion +
-      ").",
+    "LLMatic " + latest.manifest.version + " is available (installed: " + currentVersion + ").",
     "Install Update",
     "Open Release",
   );

@@ -49,16 +49,9 @@ export function verifyVsixBytes(bytes: Uint8Array, expected: ExpectedVsix): stri
   return sha256;
 }
 
-export async function stageVerifiedVsix(
-  options: StageVerifiedVsixOptions,
-): Promise<StagedVsix> {
+export async function stageVerifiedVsix(options: StageVerifiedVsixOptions): Promise<StagedVsix> {
   const sha256 = verifyVsixBytes(options.bytes, options.expected);
-  const directory = resolve(
-    options.updateHome,
-    "updates",
-    options.version,
-    sha256.slice(0, 16),
-  );
+  const directory = resolve(options.updateHome, "updates", options.version, sha256.slice(0, 16));
   const path = resolve(directory, options.expected.file);
   const temporary = path + "." + randomUUID() + ".tmp";
 
