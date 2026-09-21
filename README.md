@@ -4,7 +4,7 @@ Universal local software-engineering runtime for coding agents.
 
 ## Current milestone
 
-M15 — Runtime Lifecycle & Repair
+M16 — Guided Onboarding & Health
 
 LLMatic now supports:
 
@@ -29,6 +29,7 @@ The model is configurable through llmatic.agentModel.
 
 The carried-forward bootstrap flow from PR #13 is available as:
 
+    LLMatic: Get Ready
     LLMatic: Bootstrap Workspace
     LLMatic: Repair Runtime
 
@@ -45,6 +46,22 @@ Repair command:
     LLMatic: Repair Runtime
 
 See docs/runtime-lifecycle.md.
+
+## Guided onboarding
+
+The extension exposes one canonical runtime state:
+
+    READY
+    NEEDS_SETUP
+    NEEDS_REPAIR
+
+Use:
+
+    LLMatic: Get Ready
+
+The guided flow attaches the workspace externally, verifies/repairs the runtime, checks required repository tools, and reconciles Kilo MCP when configured.
+
+The same state is visible in the status bar and the LLMatic Activity Bar view.
 
 ## VS Code commands
 

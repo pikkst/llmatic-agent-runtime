@@ -44,6 +44,9 @@
       "path": "./packages/runtime-installer"
     },
     {
+      "path": "./packages/setup-health"
+    },
+    {
       "path": "./packages/workspace-manager"
     },
     {
