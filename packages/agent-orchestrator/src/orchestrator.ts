@@ -32,12 +32,18 @@ export type CodingAgentEvent =
   | { type: "tool-result"; name: string; success: boolean }
   | { type: "info"; message: string };
 
+export interface CodingAgentConversationTurn {
+  role: "user" | "assistant";
+  content: string;
+}
+
 export interface CodingAgentRunOptions {
   root: string;
   config: AgentConfig;
   store: WorkflowStateStore;
   gateway: GatewayChatClient;
   instruction: string;
+  history?: readonly CodingAgentConversationTurn[];
   model?: string;
   maxSteps?: number;
   maxTokens?: number;
@@ -288,6 +294,35 @@ async function executeTool(context: ToolExecutionContext, call: GatewayToolCall)
   }
 }
 
+const MAX_CHAT_HISTORY_CHARS = 32_000;
+const MAX_CHAT_HISTORY_TURNS = 20;
+
+function boundedConversationHistory(
+  history: readonly CodingAgentConversationTurn[] | undefined,
+): GatewayMessage[] {
+  if (!history?.length) return [];
+
+  const selected: CodingAgentConversationTurn[] = [];
+  let totalChars = 0;
+
+  for (const turn of [...history].reverse()) {
+    const content = turn.content.trim();
+    if (!content) continue;
+    if (selected.length >= MAX_CHAT_HISTORY_TURNS) break;
+
+    if (selected.length > 0 && totalChars + content.length > MAX_CHAT_HISTORY_CHARS) {
+      break;
+    }
+
+    selected.push({ role: turn.role, content });
+    totalChars += content.length;
+  }
+
+  return selected
+    .reverse()
+    .map((turn) => ({ role: turn.role, content: turn.content }) as GatewayMessage);
+}
+
 function systemPrompt(root: string): string {
   return [
     "You are the LLMatic direct coding agent working in one local Git repository.",
@@ -311,6 +346,7 @@ export async function runCodingAgent(
   const maxSteps = Math.max(1, Math.min(50, options.maxSteps ?? 20));
   const messages: GatewayMessage[] = [
     { role: "system", content: systemPrompt(options.root) },
+    ...boundedConversationHistory(options.history),
     { role: "user", content: options.instruction },
   ];
   const usage = {
