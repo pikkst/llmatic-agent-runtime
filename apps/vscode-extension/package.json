@@ -26,7 +26,8 @@
     "@llmatic/workspace-manager": "workspace:*",
     "@llmatic/agent-orchestrator": "workspace:*",
     "@llmatic/gateway-client": "workspace:*",
-    "@llmatic/review-engine": "workspace:*"
+    "@llmatic/review-engine": "workspace:*",
+    "@llmatic/bootstrap-manager": "workspace:*"
   },
   "devDependencies": {
     "@types/vscode": "1.105.0",
@@ -38,6 +39,11 @@
       {
         "command": "llmatic.attachWorkspace",
         "title": "Attach Workspace",
+        "category": "LLMatic"
+      },
+      {
+        "command": "llmatic.bootstrapWorkspace",
+        "title": "Bootstrap Workspace",
         "category": "LLMatic"
       },
       {

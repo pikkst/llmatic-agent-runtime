@@ -25,3 +25,10 @@
 - Added automated blocking-finding fix, local validation, and re-review loop.
 - Review uses changed-files-first context and bounded repository read/diff tools.
 - Added VS Code commands for one-shot review and automated review/fix loop.
+
+## Carried forward — Workspace bootstrap
+
+- Restored the repository-aware Bootstrap Workspace command from the original PR #13 branch.
+- Bootstrap derives required/recommended/optional tools from repository signals.
+- Automatic remediation remains restricted to Tool Registry installers and explicit user approval.
+- Bootstrap preserves the zero-repository-footprint boundary.
