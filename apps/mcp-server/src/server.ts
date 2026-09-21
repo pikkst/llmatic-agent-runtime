@@ -31,10 +31,7 @@ import {
   loadRepositoryIndex,
   searchRepositoryIndex,
 } from "@llmatic/repo-intelligence";
-import {
-  DEFAULT_TOOL_REGISTRY,
-  detectRegisteredTools,
-} from "@llmatic/tool-registry";
+import { DEFAULT_TOOL_REGISTRY, detectRegisteredTools } from "@llmatic/tool-registry";
 
 const capabilitySchema = z.enum(["format", "lint", "typecheck", "test", "build", "ci"]);
 const workflowStateInputSchema = z.string().min(1);
@@ -316,18 +313,13 @@ export function createLlmaticMcpServer(): McpServer {
     async ({ root, title, body, base, head, draft }) =>
       toolResult(async () => {
         const context = await runtimeContext(root);
-        return createWorkflowPullRequest(
-          context.root,
-          context.config,
-          context.store,
-          {
-            title,
-            body: body ?? "",
-            base,
-            head,
-            draft: draft ?? false,
-          },
-        );
+        return createWorkflowPullRequest(context.root, context.config, context.store, {
+          title,
+          body: body ?? "",
+          base,
+          head,
+          draft: draft ?? false,
+        });
       }),
   );
 
@@ -374,20 +366,17 @@ export function createLlmaticMcpServer(): McpServer {
     async ({ root, ref, method }) =>
       toolResult(async () => {
         const context = await runtimeContext(root);
-        return mergeWorkflowPullRequest(
-          context.root,
-          context.config,
-          context.store,
-          ref,
-          { method },
-        );
+        return mergeWorkflowPullRequest(context.root, context.config, context.store, ref, {
+          method,
+        });
       }),
   );
 
   server.registerTool(
     "llmatic_tools_list",
     {
-      description: "Detect engineering tools known to the LLMatic tool registry without mutating the machine.",
+      description:
+        "Detect engineering tools known to the LLMatic tool registry without mutating the machine.",
       inputSchema: z.object({
         root: z.string().optional(),
       }),

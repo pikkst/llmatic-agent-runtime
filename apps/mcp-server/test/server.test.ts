@@ -3,11 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { Client, InMemoryTransport } from "@modelcontextprotocol/client";
-import {
-  createDefaultConfig,
-  detectRepository,
-  serializeConfig,
-} from "@llmatic/core";
+import { createDefaultConfig, detectRepository, serializeConfig } from "@llmatic/core";
 import { createLlmaticMcpServer } from "../src/server.js";
 
 const temporaryDirectories: string[] = [];
@@ -48,10 +44,7 @@ async function connectedClient() {
   });
   const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
 
-  await Promise.all([
-    server.connect(serverTransport),
-    client.connect(clientTransport),
-  ]);
+  await Promise.all([server.connect(serverTransport), client.connect(clientTransport)]);
 
   return { server, client };
 }
