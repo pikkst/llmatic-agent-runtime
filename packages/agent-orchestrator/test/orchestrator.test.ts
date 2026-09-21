@@ -116,6 +116,35 @@ describe("gateway coding agent", () => {
     expect(await readFile(join(root, "src", "value.ts"), "utf8")).toContain("value = 2");
   });
 
+  it("includes bounded prior user/assistant turns in a new agent run", async () => {
+    const root = await mkdtemp(join(tmpdir(), "llmatic-agent-"));
+    temporaryDirectories.push(root);
+    await mkdir(join(root, ".git"));
+
+    const config = configFor(root);
+    const store = new WorkflowStateStore(root, config);
+    const gateway = new ScriptedGateway([response("I remember the prior context.")]);
+
+    await runCodingAgent({
+      root,
+      config,
+      store,
+      gateway,
+      instruction: "Continue from there.",
+      history: [
+        { role: "user", content: "Inspect the authentication flow." },
+        { role: "assistant", content: "I found the login handler." },
+      ],
+    });
+
+    expect(gateway.requests[0]?.messages.slice(0, 4)).toEqual([
+      expect.objectContaining({ role: "system" }),
+      { role: "user", content: "Inspect the authentication flow." },
+      { role: "assistant", content: "I found the login handler." },
+      { role: "user", content: "Continue from there." },
+    ]);
+  });
+
   it("returns tool failures to the model instead of bypassing ask permissions", async () => {
     const root = await mkdtemp(join(tmpdir(), "llmatic-agent-"));
     temporaryDirectories.push(root);
