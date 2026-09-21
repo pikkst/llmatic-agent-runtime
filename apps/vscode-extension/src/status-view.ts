@@ -66,6 +66,29 @@ export class LlmaticStatusProvider implements vscode.TreeDataProvider<vscode.Tre
       map.tooltip = "Generated " + this.recovery.repository.generatedAt;
       recoveryItems.push(map);
 
+      const rules = new vscode.TreeItem(
+        "Repository Rules",
+        vscode.TreeItemCollapsibleState.None,
+      );
+      rules.iconPath = new vscode.ThemeIcon("law");
+      rules.description =
+        this.recovery.constitution.counts.explicitRule +
+        " explicit · " +
+        this.recovery.constitution.counts.approvedRule +
+        " approved · " +
+        this.recovery.constitution.counts.inferredConvention +
+        " inferred";
+      rules.tooltip =
+        this.recovery.constitution.counts.blocking +
+        " blocking active rule(s); " +
+        this.recovery.constitution.counts.proposedRule +
+        " proposed rule(s) awaiting review.";
+      rules.command = {
+        command: "llmatic.openAgentChat",
+        title: "Open Agent Chat",
+      };
+      recoveryItems.push(rules);
+
       const recovered = new vscode.TreeItem(
         this.recovery.workflow
           ? "Workflow " + this.recovery.workflow.taskRef
