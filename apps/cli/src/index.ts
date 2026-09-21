@@ -311,12 +311,7 @@ gitCommand
   .option("--set-upstream", "Set upstream for the current branch")
   .option("--approve", "Approve when gitPush is configured as 'ask'")
   .action(
-    async (options: {
-      root: string;
-      remote: string;
-      setUpstream?: boolean;
-      approve?: boolean;
-    }) => {
+    async (options: { root: string; remote: string; setUpstream?: boolean; approve?: boolean }) => {
       const root = resolve(options.root);
       const config = await loadAgentConfig(root);
       const result = await pushCurrentBranch(root, config, {
@@ -431,12 +426,7 @@ workflow
   .option("--set-upstream", "Set upstream for the current branch")
   .option("--approve", "Approve when gitPush is configured as 'ask'")
   .action(
-    async (options: {
-      root: string;
-      remote: string;
-      setUpstream?: boolean;
-      approve?: boolean;
-    }) => {
+    async (options: { root: string; remote: string; setUpstream?: boolean; approve?: boolean }) => {
       const root = resolve(options.root);
       const config = await loadAgentConfig(root);
       const store = new WorkflowStateStore(root, config);

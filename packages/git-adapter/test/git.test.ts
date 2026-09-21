@@ -114,9 +114,9 @@ describe("git adapter", () => {
       stderr: "",
     });
 
-    await expect(
-      pushCurrentBranch("/repo", runtimeConfig, { runner }),
-    ).rejects.toThrow("requires approval");
+    await expect(pushCurrentBranch("/repo", runtimeConfig, { runner })).rejects.toThrow(
+      "requires approval",
+    );
   });
 
   it("transitions workflow only after branch creation succeeds", async () => {
@@ -135,20 +135,14 @@ describe("git adapter", () => {
       stderr: "",
     });
 
-    const result = await createWorkflowBranch(
-      root,
-      runtimeConfig,
-      store,
-      "feature/task-200",
-      { runner },
-    );
+    const result = await createWorkflowBranch(root, runtimeConfig, store, "feature/task-200", {
+      runner,
+    });
 
     expect(result.workflow.state).toBe("BRANCH_CREATED");
     expect(
       result.workflow.checkpoints.find(
-        (checkpoint) =>
-          checkpoint.kind === "ACTION" &&
-          checkpoint.action === "branch.create",
+        (checkpoint) => checkpoint.kind === "ACTION" && checkpoint.action === "branch.create",
       ),
     ).toMatchObject({
       provider: "git",

@@ -1,13 +1,6 @@
 import { spawnSync } from "node:child_process";
-import type {
-  AgentConfig,
-  WorkflowRun,
-  WorkflowStateStore,
-} from "@llmatic/core";
-import {
-  recordActionCheckpoint,
-  transitionWorkflow,
-} from "@llmatic/core";
+import type { AgentConfig, WorkflowRun, WorkflowStateStore } from "@llmatic/core";
+import { recordActionCheckpoint, transitionWorkflow } from "@llmatic/core";
 import type {
   BranchResult,
   CommitResult,
@@ -19,11 +12,7 @@ import type {
   PushResult,
 } from "./types.js";
 
-function defaultRunner(
-  executable: string,
-  args: string[],
-  cwd: string,
-): GitProcessResult {
+function defaultRunner(executable: string, args: string[], cwd: string): GitProcessResult {
   const result = spawnSync(executable, args, {
     cwd,
     env: process.env,
@@ -50,18 +39,11 @@ function commandText(args: string[]): string {
   return ["git", ...args].join(" ");
 }
 
-function run(
-  root: string,
-  args: string[],
-  runner: GitProcessRunner,
-): GitProcessResult {
+function run(root: string, args: string[], runner: GitProcessRunner): GitProcessResult {
   return runner("git", args, root);
 }
 
-function requireSuccess(
-  result: GitProcessResult,
-  args: string[],
-): GitProcessResult {
+function requireSuccess(result: GitProcessResult, args: string[]): GitProcessResult {
   if (result.exitCode !== 0) {
     const detail = (result.stderr || result.stdout).trim();
     throw new Error(
@@ -88,8 +70,7 @@ function assertPermission(
 
   if (permission === "ask" && !approved) {
     throw new Error(
-      permissionName +
-        " requires approval. Re-run with --approve after reviewing the operation.",
+      permissionName + " requires approval. Re-run with --approve after reviewing the operation.",
     );
   }
 }
@@ -98,10 +79,7 @@ function repositoryRunner(options?: GitMutationOptions): GitProcessRunner {
   return options?.runner ?? defaultRunner;
 }
 
-async function currentBranch(
-  root: string,
-  runner: GitProcessRunner,
-): Promise<string> {
+async function currentBranch(root: string, runner: GitProcessRunner): Promise<string> {
   const args = ["branch", "--show-current"];
   const result = requireSuccess(run(root, args, runner), args);
   const branch = result.stdout.trim();
@@ -117,15 +95,13 @@ export async function getGitStatus(
   root: string,
   runner: GitProcessRunner = defaultRunner,
 ): Promise<GitStatus> {
-  const branchResult = requireSuccess(
-    run(root, ["branch", "--show-current"], runner),
-    ["branch", "--show-current"],
-  );
+  const branchResult = requireSuccess(run(root, ["branch", "--show-current"], runner), [
+    "branch",
+    "--show-current",
+  ]);
   const statusArgs = ["status", "--porcelain=v1"];
   const statusResult = requireSuccess(run(root, statusArgs, runner), statusArgs);
-  const lines = statusResult.stdout
-    .split(/\r?\n/)
-    .filter((line) => line.length > 0);
+  const lines = statusResult.stdout.split(/\r?\n/).filter((line) => line.length > 0);
 
   let stagedCount = 0;
   let unstagedCount = 0;
@@ -250,11 +226,7 @@ export async function pushCurrentBranch(
   config: AgentConfig,
   options: PushOptions = {},
 ): Promise<PushResult> {
-  assertPermission(
-    config.permissions.gitPush,
-    "Git push",
-    options.approved ?? false,
-  );
+  assertPermission(config.permissions.gitPush, "Git push", options.approved ?? false);
 
   const runner = repositoryRunner(options);
   const branch = await currentBranch(root, runner);
@@ -278,9 +250,7 @@ export async function createWorkflowBranch(
   const current = await store.loadCurrent();
 
   if (!current || current.state !== "REPO_ANALYZED") {
-    throw new Error(
-      "Workflow branch creation requires state REPO_ANALYZED.",
-    );
+    throw new Error("Workflow branch creation requires state REPO_ANALYZED.");
   }
 
   try {
