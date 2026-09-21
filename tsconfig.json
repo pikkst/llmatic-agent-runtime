@@ -44,6 +44,9 @@
       "path": "./packages/agent-orchestrator"
     },
     {
+      "path": "./packages/architecture-impact"
+    },
+    {
       "path": "./packages/review-engine"
     },
     {
