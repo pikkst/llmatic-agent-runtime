@@ -1,0 +1,269 @@
+import { mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { afterEach, describe, expect, it } from "vitest";
+import {
+  WorkflowStateStore,
+  createDefaultConfig,
+  transitionWorkflow,
+  type RepositoryDetection,
+} from "@llmatic/core";
+import {
+  JiraTaskProvider,
+  jiraConnectionFromEnvironment,
+  selectJiraWorkflowTask,
+  syncJiraWorkflowTask,
+  validateJiraWorkflowTask,
+  type JiraHttpRequest,
+  type JiraHttpTransport,
+} from "../src/jira.js";
+
+const temporaryDirectories: string[] = [];
+
+afterEach(async () => {
+  await Promise.all(
+    temporaryDirectories.splice(0).map((directory) => rm(directory, { recursive: true })),
+  );
+});
+
+function configFor(root: string) {
+  const detection: RepositoryDetection = {
+    root,
+    git: true,
+    packageJson: true,
+    packageManager: "pnpm",
+    technologies: [],
+    capabilities: [],
+  };
+  return createDefaultConfig(detection);
+}
+
+const connection = {
+  baseUrl: "https://example.atlassian.net",
+  auth: {
+    type: "basic" as const,
+    email: "dev@example.test",
+    apiToken: "secret-token",
+  },
+};
+
+function issueJson(key = "KT-123") {
+  return {
+    id: "10001",
+    key,
+    fields: {
+      summary: "Implement deterministic task provider",
+      description: {
+        type: "doc",
+        version: 1,
+        content: [
+          {
+            type: "paragraph",
+            content: [{ type: "text", text: "Acceptance criteria" }],
+          },
+          {
+            type: "paragraph",
+            content: [{ type: "text", text: "Tests pass" }],
+          },
+        ],
+      },
+      status: {
+        id: "3",
+        name: "In Progress",
+        statusCategory: { name: "In Progress" },
+      },
+      issuetype: { name: "Task" },
+      priority: { name: "High" },
+      assignee: { displayName: "Engineer" },
+      labels: ["runtime"],
+      updated: "2026-09-21T07:00:00.000+0000",
+    },
+  };
+}
+
+describe("jira adapter", () => {
+  it("loads Basic auth configuration without persisting it in runtime config", () => {
+    const result = jiraConnectionFromEnvironment({
+      LLMATIC_JIRA_BASE_URL: "https://example.atlassian.net/",
+      LLMATIC_JIRA_EMAIL: "dev@example.test",
+      LLMATIC_JIRA_API_TOKEN: "token",
+    });
+
+    expect(result).toEqual({
+      baseUrl: "https://example.atlassian.net",
+      auth: {
+        type: "basic",
+        email: "dev@example.test",
+        apiToken: "token",
+      },
+    });
+  });
+
+  it("maps Jira v3 issue fields and ADF description into a task record", async () => {
+    const requests: JiraHttpRequest[] = [];
+    const transport: JiraHttpTransport = async (request) => {
+      requests.push(request);
+      return {
+        status: 200,
+        statusText: "OK",
+        body: JSON.stringify(issueJson()),
+      };
+    };
+    const provider = new JiraTaskProvider(configFor("/repo"), connection, transport);
+
+    const task = await provider.getTask("KT-123");
+
+    expect(task).toMatchObject({
+      provider: "jira",
+      id: "10001",
+      key: "KT-123",
+      summary: "Implement deterministic task provider",
+      description: "Acceptance criteria\nTests pass",
+      status: { name: "In Progress" },
+      issueType: "Task",
+      priority: "High",
+      assignee: "Engineer",
+      labels: ["runtime"],
+      webUrl: "https://example.atlassian.net/browse/KT-123",
+    });
+    expect(requests[0]?.url).toContain("/rest/api/3/issue/KT-123?fields=");
+    expect(requests[0]?.headers.Authorization).toMatch(/^Basic /);
+  });
+
+  it("requires taskWrite approval before mutating Jira", async () => {
+    const transport: JiraHttpTransport = async () => ({
+      status: 200,
+      statusText: "OK",
+      body: "{}",
+    });
+    const provider = new JiraTaskProvider(configFor("/repo"), connection, transport);
+
+    await expect(provider.addComment("KT-123", "Done")).rejects.toThrow(
+      "requires approval",
+    );
+  });
+
+  it("adds ADF comments and resolves transitions by name", async () => {
+    const requests: JiraHttpRequest[] = [];
+    const transport: JiraHttpTransport = async (request) => {
+      requests.push(request);
+
+      if (request.method === "GET" && request.url.endsWith("/transitions")) {
+        return {
+          status: 200,
+          statusText: "OK",
+          body: JSON.stringify({
+            transitions: [
+              { id: "31", name: "Done", to: { name: "Done" } },
+            ],
+          }),
+        };
+      }
+
+      return { status: 204, statusText: "No Content", body: "" };
+    };
+    const config = configFor("/repo");
+    config.permissions.taskWrite = "auto";
+    const provider = new JiraTaskProvider(config, connection, transport);
+
+    await provider.addComment("KT-123", "CI green\nMerged");
+    const transition = await provider.transitionTask("KT-123", "done");
+
+    expect(transition).toEqual({ id: "31", name: "Done", toStatus: "Done" });
+    expect(JSON.parse(requests[0]?.body ?? "{}")).toMatchObject({
+      body: {
+        type: "doc",
+        version: 1,
+      },
+    });
+    expect(JSON.parse(requests.at(-1)?.body ?? "{}")).toEqual({
+      transition: { id: "31" },
+    });
+  });
+
+  it("selects and validates a Jira task through workflow states", async () => {
+    const root = await mkdtemp(join(tmpdir(), "llmatic-jira-"));
+    temporaryDirectories.push(root);
+
+    const config = configFor(root);
+    const store = new WorkflowStateStore(root, config);
+    const transport: JiraHttpTransport = async () => ({
+      status: 200,
+      statusText: "OK",
+      body: JSON.stringify(issueJson()),
+    });
+    const provider = new JiraTaskProvider(config, connection, transport);
+
+    const selected = await selectJiraWorkflowTask(store, provider, "KT-123");
+    expect(selected.workflow.state).toBe("TASK_SELECTED");
+    expect(selected.workflow.taskRef).toBe("KT-123");
+
+    const validated = await validateJiraWorkflowTask(store, provider);
+    expect(validated.workflow.state).toBe("TASK_VALIDATED");
+    expect(
+      validated.workflow.checkpoints.find(
+        (checkpoint) =>
+          checkpoint.kind === "ACTION" &&
+          checkpoint.provider === "jira" &&
+          checkpoint.action === "task.validate",
+      ),
+    ).toMatchObject({
+      success: true,
+      metadata: { taskKey: "KT-123" },
+    });
+  });
+
+  it("syncs completion evidence and a Jira transition without changing workflow state", async () => {
+    const root = await mkdtemp(join(tmpdir(), "llmatic-jira-"));
+    temporaryDirectories.push(root);
+
+    const config = configFor(root);
+    config.permissions.taskWrite = "auto";
+    const store = new WorkflowStateStore(root, config);
+    const requests: JiraHttpRequest[] = [];
+    const transport: JiraHttpTransport = async (request) => {
+      requests.push(request);
+
+      if (request.method === "GET") {
+        return {
+          status: 200,
+          statusText: "OK",
+          body: JSON.stringify({
+            transitions: [{ id: "31", name: "Done", to: { name: "Done" } }],
+          }),
+        };
+      }
+
+      return { status: 204, statusText: "No Content", body: "" };
+    };
+    const provider = new JiraTaskProvider(config, connection, transport);
+
+    await selectJiraWorkflowTask(
+      store,
+      new JiraTaskProvider(
+        config,
+        connection,
+        async () => ({
+          status: 200,
+          statusText: "OK",
+          body: JSON.stringify(issueJson()),
+        }),
+      ),
+      "KT-123",
+    );
+    await transitionWorkflow(store, "TASK_VALIDATED");
+
+    const result = await syncJiraWorkflowTask(store, provider, {
+      comment: "Merged as abc123",
+      transition: "Done",
+    });
+
+    expect(result).toMatchObject({
+      taskRef: "KT-123",
+      commentAdded: true,
+      transition: { id: "31", name: "Done" },
+    });
+    expect((await store.loadCurrent())?.state).toBe("TASK_VALIDATED");
+    expect(requests.filter((request) => request.method === "POST")).toHaveLength(2);
+  });
+});

@@ -18,6 +18,8 @@ export const agentConfigSchema = z.object({
   permissions: z.object({
     repositoryRead: permissionSchema,
     repositoryWrite: permissionSchema,
+    taskRead: permissionSchema.default("auto"),
+    taskWrite: permissionSchema.default("ask"),
     runTests: permissionSchema,
     runQualityGates: permissionSchema.default("auto"),
     docker: permissionSchema,
@@ -57,6 +59,8 @@ export function createDefaultConfig(detection: RepositoryDetection): AgentConfig
     permissions: {
       repositoryRead: "auto",
       repositoryWrite: "auto",
+      taskRead: "auto",
+      taskWrite: "ask",
       runTests: "auto",
       runQualityGates: "auto",
       docker: "ask",

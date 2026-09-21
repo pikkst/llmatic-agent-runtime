@@ -17,6 +17,12 @@
       "path": "./packages/github-adapter"
     },
     {
+      "path": "./packages/task-provider"
+    },
+    {
+      "path": "./packages/jira-adapter"
+    },
+    {
       "path": "./apps/mcp-server"
     },
     {

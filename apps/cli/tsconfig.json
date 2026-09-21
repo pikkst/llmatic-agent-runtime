@@ -5,7 +5,9 @@
     "rootDir": "src",
     "outDir": "dist"
   },
-  "include": ["src/**/*.ts"],
+  "include": [
+    "src/**/*.ts"
+  ],
   "references": [
     {
       "path": "../../packages/core"
@@ -21,6 +23,12 @@
     },
     {
       "path": "../../packages/github-adapter"
+    },
+    {
+      "path": "../../packages/task-provider"
+    },
+    {
+      "path": "../../packages/jira-adapter"
     }
   ]
 }
