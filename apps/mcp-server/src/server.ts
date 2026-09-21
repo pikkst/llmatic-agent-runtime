@@ -6,6 +6,16 @@ import {
   syncJiraWorkflowTask,
   validateJiraWorkflowTask,
 } from "@llmatic/jira-adapter";
+import {
+  selectWorkflowTask,
+  syncWorkflowTask,
+  validateWorkflowTask,
+} from "@llmatic/task-provider";
+import {
+  detectTaskSources,
+  resolveTaskProvider,
+  resolveWorkflowTaskProvider,
+} from "@llmatic/task-router";
 import * as z from "zod/v4";
 import {
   inspectRuntimeTools,
@@ -91,6 +101,175 @@ export function createLlmaticMcpServer(): McpServer {
     name: "llmatic-agent-runtime",
     version: "0.1.0",
   });
+
+  const taskProviderSchema = z.enum(["auto", "markdown", "jira", "manual"]);
+
+  server.registerTool(
+    "llmatic_task_detect",
+    {
+      description:
+        "Detect available task sources. Auto mode prefers local Markdown tasks, then Jira, then manual references.",
+      inputSchema: z.object({
+        root: z.string().optional(),
+      }),
+    },
+    async ({ root }) =>
+      toolResult(() => detectTaskSources(runtimeRoot(root))),
+  );
+
+  server.registerTool(
+    "llmatic_task_list",
+    {
+      description:
+        "List tasks from the detected/selected provider when that provider supports enumeration.",
+      inputSchema: z.object({
+        root: z.string().optional(),
+        provider: taskProviderSchema.optional(),
+      }),
+    },
+    async ({ root, provider }) =>
+      toolResult(async () => {
+        const context = await runtimeContext(root);
+        const selected = await resolveTaskProvider(
+          context.root,
+          context.config,
+          provider ?? "auto",
+        );
+
+        if (!selected.listTasks) {
+          throw new Error(
+            "Task provider " + selected.id + " does not support task listing.",
+          );
+        }
+
+        return selected.listTasks();
+      }),
+  );
+
+  server.registerTool(
+    "llmatic_task_next",
+    {
+      description:
+        "Return the next dependency-unblocked task when the selected provider supports next-task selection.",
+      inputSchema: z.object({
+        root: z.string().optional(),
+        provider: taskProviderSchema.optional(),
+      }),
+    },
+    async ({ root, provider }) =>
+      toolResult(async () => {
+        const context = await runtimeContext(root);
+        const selected = await resolveTaskProvider(
+          context.root,
+          context.config,
+          provider ?? "auto",
+        );
+
+        if (!selected.getNextTask) {
+          throw new Error(
+            "Task provider " + selected.id + " does not support next-task selection.",
+          );
+        }
+
+        return (await selected.getNextTask()) ?? null;
+      }),
+  );
+
+  server.registerTool(
+    "llmatic_task_get",
+    {
+      description: "Read one task through the detected/selected task provider.",
+      inputSchema: z.object({
+        root: z.string().optional(),
+        provider: taskProviderSchema.optional(),
+        reference: z.string().min(1),
+      }),
+    },
+    async ({ root, provider, reference }) =>
+      toolResult(async () => {
+        const context = await runtimeContext(root);
+        const selected = await resolveTaskProvider(
+          context.root,
+          context.config,
+          provider ?? "auto",
+        );
+        return selected.getTask(reference);
+      }),
+  );
+
+  server.registerTool(
+    "llmatic_workflow_select_task",
+    {
+      description:
+        "Read a provider-neutral task and start a workflow in TASK_SELECTED. MCP never self-approves taskRead=ask.",
+      inputSchema: z.object({
+        root: z.string().optional(),
+        provider: taskProviderSchema.optional(),
+        reference: z.string().min(1),
+      }),
+    },
+    async ({ root, provider, reference }) =>
+      toolResult(async () => {
+        const context = await runtimeContext(root);
+        const selected = await resolveTaskProvider(
+          context.root,
+          context.config,
+          provider ?? "auto",
+        );
+        return selectWorkflowTask(context.store, selected, reference);
+      }),
+  );
+
+  server.registerTool(
+    "llmatic_workflow_validate_task",
+    {
+      description:
+        "Refresh the selected task through the workflow's original provider and advance TASK_SELECTED to TASK_VALIDATED.",
+      inputSchema: z.object({
+        root: z.string().optional(),
+        provider: taskProviderSchema.optional(),
+      }),
+    },
+    async ({ root, provider }) =>
+      toolResult(async () => {
+        const context = await runtimeContext(root);
+        const selected = await resolveWorkflowTaskProvider(
+          context.root,
+          context.config,
+          context.store,
+          provider ?? "auto",
+        );
+        return validateWorkflowTask(context.store, selected);
+      }),
+  );
+
+  server.registerTool(
+    "llmatic_workflow_sync_task",
+    {
+      description:
+        "Write a provider-native comment/note and/or transition to the selected workflow task. MCP never self-approves taskWrite=ask.",
+      inputSchema: z.object({
+        root: z.string().optional(),
+        provider: taskProviderSchema.optional(),
+        comment: z.string().min(1).optional(),
+        transition: z.string().min(1).optional(),
+      }),
+    },
+    async ({ root, provider, comment, transition }) =>
+      toolResult(async () => {
+        const context = await runtimeContext(root);
+        const selected = await resolveWorkflowTaskProvider(
+          context.root,
+          context.config,
+          context.store,
+          provider ?? "auto",
+        );
+        return syncWorkflowTask(context.store, selected, {
+          comment,
+          transition,
+        });
+      }),
+  );
 
   server.registerTool(
     "llmatic_jira_get",

@@ -16,7 +16,8 @@
     "zod": "4.6.5",
     "@llmatic/task-provider": "workspace:*",
     "@llmatic/jira-adapter": "workspace:*",
-    "@llmatic/runtime-tools": "workspace:*"
+    "@llmatic/runtime-tools": "workspace:*",
+    "@llmatic/task-router": "workspace:*"
   },
   "devDependencies": {
     "@modelcontextprotocol/client": "2.0.0"
