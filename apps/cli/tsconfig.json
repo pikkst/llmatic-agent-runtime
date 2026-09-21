@@ -26,6 +26,9 @@
       "path": "../../packages/task-provider"
     },
     {
+      "path": "../../packages/task-router"
+    },
+    {
       "path": "../../packages/jira-adapter"
     },
     {

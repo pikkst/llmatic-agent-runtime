@@ -6,6 +6,7 @@ import type {
   TaskRecord,
   TaskTransition,
 } from "@llmatic/task-provider";
+import { normalizeTaskLifecycleStatus } from "@llmatic/task-provider";
 
 export interface JiraConnectionConfig {
   baseUrl: string;
@@ -233,6 +234,10 @@ function taskFromIssue(connection: JiraConnectionConfig, raw: Record<string, unk
       id: String(status.id ?? ""),
       name: statusName,
       category: typeof statusCategory.name === "string" ? statusCategory.name : undefined,
+      lifecycle: normalizeTaskLifecycleStatus(
+        statusName,
+        typeof statusCategory.name === "string" ? statusCategory.name : undefined,
+      ),
     },
     issueType: typeof issueType.name === "string" ? issueType.name : undefined,
     priority: typeof priority.name === "string" ? priority.name : undefined,
@@ -242,6 +247,13 @@ function taskFromIssue(connection: JiraConnectionConfig, raw: Record<string, unk
       : [],
     updatedAt: typeof fields.updated === "string" ? fields.updated : undefined,
     webUrl: siteUrl ? siteUrl + "/browse/" + encodeURIComponent(key) : undefined,
+    acceptanceCriteria: [],
+    definitionOfDone: [],
+    dependencies: [],
+    source: {
+      type: "jira",
+      location: siteUrl ? siteUrl + "/browse/" + encodeURIComponent(key) : undefined,
+    },
   };
 }
 

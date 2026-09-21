@@ -4,7 +4,7 @@ Universal local software-engineering runtime for coding agents.
 
 ## Current milestone
 
-M19 — Release Acceptance
+M20 — Universal Task Sources
 
 LLMatic now supports:
 
@@ -134,3 +134,28 @@ See docs/review-fix-loop.md.
 ## Roadmap
 
 The canonical milestone roadmap is maintained in `docs/ROADMAP.md`.
+
+## Universal task sources
+
+LLMatic task workflows no longer require Jira.
+
+Canonical CLI:
+
+    llmatic task detect
+    llmatic task list
+    llmatic task next
+    llmatic task get <reference>
+    llmatic task start <reference>
+    llmatic task validate
+    llmatic task comment <reference> --text "..."
+    llmatic task transition <reference> --to <transition>
+    llmatic task complete --evidence "..."
+
+Auto-detection order:
+
+    TASKS.md / Tasks.md / TODO.md
+      -> Jira when configured
+      -> GitHub Issues when GitHub CLI is authenticated
+      -> manual workflow references
+
+Markdown tasks are fully offline and preserve unrelated document content while updating task-local status/notes.

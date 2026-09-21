@@ -1,5 +1,5 @@
 {
-  "name": "@llmatic/task-provider",
+  "name": "@llmatic/github-task-source",
   "version": "0.1.0",
   "private": true,
   "type": "module",
@@ -12,6 +12,7 @@
     }
   },
   "dependencies": {
-    "@llmatic/core": "workspace:*"
+    "@llmatic/core": "workspace:*",
+    "@llmatic/task-provider": "workspace:*"
   }
 }

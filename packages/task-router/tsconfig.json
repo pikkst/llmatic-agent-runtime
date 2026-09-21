@@ -9,6 +9,18 @@
   "references": [
     {
       "path": "../core"
+    },
+    {
+      "path": "../task-provider"
+    },
+    {
+      "path": "../markdown-task-source"
+    },
+    {
+      "path": "../github-task-source"
+    },
+    {
+      "path": "../jira-adapter"
     }
   ]
 }
