@@ -67,6 +67,12 @@ import {
 } from "@llmatic/setup-health";
 import { stageVerifiedVsix } from "@llmatic/update-installer";
 import { ensureManagedWorkspace, type ManagedWorkspace } from "@llmatic/workspace-manager";
+import {
+  recoverWorkspace,
+  workspaceRecoveryContext,
+  type WorkspaceRecovery,
+} from "@llmatic/workspace-recovery";
+import { AgentChatViewProvider } from "./agent-chat-view.js";
 import { LlmaticStatusProvider } from "./status-view.js";
 
 const KILO_EXTENSION_ID = "kilocode.kilo-code";
@@ -82,6 +88,7 @@ interface ExtensionState {
   kiloConnected: boolean;
   kiloReloadRecommended: boolean;
   gatewayKeyConfigured: boolean;
+  recovery?: WorkspaceRecovery;
   lastError?: string;
 }
 
@@ -318,6 +325,101 @@ async function refresh(
   }
 
   updateStatusBar(statusBar, state);
+}
+
+async function refreshWorkspaceRecovery(
+  context: vscode.ExtensionContext,
+  state: ExtensionState,
+  statusProvider: LlmaticStatusProvider,
+  chatProvider: AgentChatViewProvider,
+  output?: vscode.OutputChannel,
+  rebuildIndex = false,
+): Promise<WorkspaceRecovery | undefined> {
+  const folder = firstWorkspaceFolder();
+  if (!folder) {
+    state.recovery = undefined;
+    statusProvider.update(state.health, state.gatewayKeyConfigured, undefined);
+    chatProvider.setRecovery(undefined);
+    return undefined;
+  }
+
+  if (!state.activeWorkspace) {
+    state.activeWorkspace = await attachWorkspace(context, folder);
+  }
+
+  const config = await loadAgentConfig(folder.uri.fsPath, {
+    LLMATIC_HOME: context.globalStorageUri.fsPath,
+  });
+  const store = new WorkflowStateStore(folder.uri.fsPath, config);
+  const recovery = await recoverWorkspace(folder.uri.fsPath, config, store, {
+    rebuildIndex,
+    environment: process.env,
+  });
+
+  state.recovery = recovery;
+  statusProvider.update(state.health, state.gatewayKeyConfigured, recovery);
+  chatProvider.setRecovery(recovery);
+
+  if (output) {
+    output.appendLine("");
+    output.appendLine(
+      "[MAP] " +
+        recovery.repository.fileCount +
+        " files, " +
+        recovery.repository.symbolCount +
+        " symbols, " +
+        recovery.repository.importCount +
+        " imports",
+    );
+    output.appendLine(
+      "[RECOVERY] Task source: " +
+        recovery.taskSource.selected +
+        "; branch: " +
+        (recovery.git.branch ?? "detached HEAD"),
+    );
+    if (recovery.workflow) {
+      output.appendLine(
+        "[RECOVERY] Workflow: " +
+          recovery.workflow.taskRef +
+          " / " +
+          recovery.workflow.state,
+      );
+    }
+    if (recovery.task) {
+      output.appendLine(
+        "[RECOVERY] Task: " +
+          recovery.task.key +
+          " — " +
+          recovery.task.summary +
+          " [" +
+          recovery.task.status.name +
+          "]",
+      );
+    } else if (recovery.nextTask) {
+      output.appendLine(
+        "[RECOVERY] Next task: " +
+          recovery.nextTask.key +
+          " — " +
+          recovery.nextTask.summary,
+      );
+    }
+    if (recovery.pullRequest) {
+      output.appendLine(
+        "[RECOVERY] PR #" +
+          recovery.pullRequest.pullRequest.number +
+          " / CI " +
+          recovery.pullRequest.ciState,
+      );
+    }
+    output.appendLine(
+      "[NEXT] " +
+        recovery.recommendation.title +
+        " — " +
+        recovery.recommendation.detail,
+    );
+  }
+
+  return recovery;
 }
 
 function nodeVersion(nodeCommand: string): string | undefined {
@@ -876,14 +978,17 @@ async function runGatewayReview(
   );
 }
 
-async function runGatewayAgent(
+async function runAgentChatTurn(
   context: vscode.ExtensionContext,
   state: ExtensionState,
+  statusProvider: LlmaticStatusProvider,
+  chatProvider: AgentChatViewProvider,
   output: vscode.OutputChannel,
+  instruction: string,
 ): Promise<void> {
   const folder = firstWorkspaceFolder();
   if (!folder) {
-    throw new Error("Open a repository workspace before running the LLMatic agent.");
+    throw new Error("Open a repository workspace before using Agent Chat.");
   }
 
   if (!state.activeWorkspace) {
@@ -897,67 +1002,64 @@ async function runGatewayAgent(
     configuration().get<string>("agentModel", "kilo-auto/free").trim() || "kilo-auto/free";
   if (!(await confirmAutoFreeDataHandling(context, model))) return;
 
-  const instruction = await vscode.window.showInputBox({
-    title: "LLMatic Gateway Agent",
-    prompt: "Describe the implementation or fix you want the agent to perform in this repository.",
-    ignoreFocusOut: true,
-  });
+  if (!state.recovery) {
+    await refreshWorkspaceRecovery(
+      context,
+      state,
+      statusProvider,
+      chatProvider,
+      output,
+      false,
+    );
+  }
 
-  if (!instruction?.trim()) return;
-
-  const maxSteps = configuration().get<number>("agentMaxSteps", 20);
   const root = folder.uri.fsPath;
   const runtimeConfig = await loadAgentConfig(root, {
     LLMATIC_HOME: context.globalStorageUri.fsPath,
   });
   const store = new WorkflowStateStore(root, runtimeConfig);
   const gateway = new KiloGatewayClient({ apiKey });
+  const maxSteps = configuration().get<number>("agentMaxSteps", 20);
 
-  output.clear();
-  output.appendLine("LLMatic Gateway Agent");
-  output.appendLine("Model: " + model);
-  output.appendLine("Workspace: " + root);
+  chatProvider.setBusy(true);
   output.appendLine("");
+  output.appendLine("[CHAT] User: " + instruction);
 
-  const result = await vscode.window.withProgress(
-    {
-      location: vscode.ProgressLocation.Notification,
-      title: "LLMatic agent is working",
-      cancellable: false,
-    },
-    async (progress) =>
-      runCodingAgent({
-        root,
-        config: runtimeConfig,
-        store,
-        gateway,
-        instruction: instruction.trim(),
-        model,
-        maxSteps,
-        onEvent: (event) => {
-          const line = formatAgentEvent(event);
-          output.appendLine(line);
-          progress.report({ message: line });
-        },
-      }),
-  );
+  try {
+    const result = await runCodingAgent({
+      root,
+      config: runtimeConfig,
+      store,
+      gateway,
+      instruction,
+      history: chatProvider.conversationHistory(),
+      context: state.recovery ? workspaceRecoveryContext(state.recovery) : undefined,
+      model,
+      maxSteps,
+      onEvent: (event) => {
+        const line = formatAgentEvent(event);
+        output.appendLine(line);
+        chatProvider.appendActivity(
+          line,
+          event.type === "tool-result" ? event.success : undefined,
+        );
+      },
+    });
 
-  output.appendLine("");
-  output.appendLine("Final response:");
-  output.appendLine(result.finalText);
-  output.appendLine("");
-  output.appendLine(
-    "Usage: " +
-      result.usage.promptTokens +
-      " prompt / " +
-      result.usage.completionTokens +
-      " completion tokens",
-  );
-  output.show(true);
+    output.appendLine("[CHAT] LLMatic: " + result.finalText);
+    chatProvider.appendAssistant(result.finalText);
 
-  await vscode.window.showInformationMessage(
-    "LLMatic agent completed in " + result.steps + " step(s). See the LLMatic output channel.",
-  );
+    await refreshWorkspaceRecovery(
+      context,
+      state,
+      statusProvider,
+      chatProvider,
+      output,
+      true,
+    );
+  } finally {
+    chatProvider.setBusy(false);
+  }
 }
 
 function writeBootstrapReport(output: vscode.OutputChannel, report: BootstrapReport): void {
