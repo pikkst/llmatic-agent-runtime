@@ -22,9 +22,10 @@ function argsForScript(packageManager: PackageManager, script: string): string[]
 }
 
 function commandForScript(packageManager: PackageManager, script: string): string {
-  return [executableForPackageManager(packageManager), ...argsForScript(packageManager, script)].join(
-    " ",
-  );
+  return [
+    executableForPackageManager(packageManager),
+    ...argsForScript(packageManager, script),
+  ].join(" ");
 }
 
 export function detectCapabilities(

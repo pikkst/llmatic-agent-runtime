@@ -41,7 +41,11 @@ function defaultRunner(executable: string, args: string[], cwd: string): Process
   };
 }
 
-function assertPermission(config: AgentConfig, capability: CapabilityName, approved: boolean): void {
+function assertPermission(
+  config: AgentConfig,
+  capability: CapabilityName,
+  approved: boolean,
+): void {
   const permission =
     capability === "test" ? config.permissions.runTests : config.permissions.runQualityGates;
 
@@ -62,7 +66,12 @@ export function resolveCapability(
 ): Capability {
   const capability = detection.capabilities.find((candidate) => candidate.name === name);
 
-  if (!capability?.available || !capability.executable || !capability.args || !capability.command) {
+  if (
+    !capability?.available ||
+    !capability.executable ||
+    !capability.args ||
+    !capability.command
+  ) {
     throw new Error("Capability " + name + " is not available in this repository.");
   }
 
