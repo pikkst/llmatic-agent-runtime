@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.1.2
+
+- Added a visible Kilo Gateway API key action to the LLMatic Activity Bar.
+- Store and replace the Gateway key through a password input backed by VS Code SecretStorage.
+- Run Gateway Agent and Review / Fix Loop now offer secure key setup automatically when the key is missing instead of failing with a dead-end error.
+- Clarified that the Gateway key is optional for Kilo MCP connectivity and required only for LLMatic direct agent/review orchestration.
+- Refresh the LLMatic key status immediately after storing or clearing the credential.
+
 ## 0.1.1
 
 - Applied requested plan changes to regenerated private drafts.

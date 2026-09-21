@@ -2,7 +2,7 @@
   "name": "llmatic-agent-runtime",
   "displayName": "LLMatic Agent Runtime",
   "description": "Deterministic local software-engineering runtime for AI coding agents, with Kilo Code integration, project discovery, planning, review and safe workflow automation.",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "publisher": "eventnexus",
   "type": "module",
   "engines": {

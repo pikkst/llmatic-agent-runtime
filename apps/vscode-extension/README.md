@@ -31,7 +31,7 @@ Extensions → … → Install from VSIX…
 or:
 
 ```powershell
-code --install-extension .\llmatic-agent-runtime-0.1.1.vsix
+code --install-extension .\llmatic-agent-runtime-0.1.2.vsix
 ```
 
 ## First run
@@ -121,6 +121,18 @@ llmatic.agentModel
 ```
 
 LLMatic shows a data-handling warning before first use of Auto Free. Use an appropriate model/provider for confidential repositories.
+
+### Gateway API key
+
+Kilo Code MCP connectivity works without a Gateway API key. The key is needed only for LLMatic's direct Gateway Agent and automated review/fix orchestration.
+
+Use **Set Kilo Gateway API Key** in the LLMatic Activity Bar or run:
+
+```text
+LLMatic: Set Kilo Gateway API Key
+```
+
+LLMatic opens a password input and stores the value only in VS Code SecretStorage. Starting a direct agent or review without a key also offers this setup automatically.
 
 ## Core commands
 
