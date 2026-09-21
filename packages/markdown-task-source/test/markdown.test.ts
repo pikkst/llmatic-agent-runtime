@@ -157,5 +157,4 @@ describe("MarkdownTaskProvider", () => {
     expect(first.dependencies).toEqual([]);
     expect((await provider.getNextTask())?.key).toBe("PLAN-001");
   });
-
 });
