@@ -6,6 +6,7 @@ import {
   ensureGlobalKiloMcpServer,
   kiloGlobalConfigPath,
   readGlobalKiloLlmaticServer,
+  isGlobalKiloLlmaticServerHealthy,
 } from "../src/kilo.js";
 
 const temporaryDirectories: string[] = [];
@@ -65,5 +66,12 @@ describe("Kilo connector", () => {
       nodeCommand: "node",
     });
     expect(second.changed).toBe(false);
+    expect(
+      isGlobalKiloLlmaticServerHealthy(server, {
+        serverPath: join(home, "runtime", "mcp-server.mjs"),
+        llmaticHome: join(home, "llmatic-storage"),
+        nodeCommand: "node",
+      }),
+    ).toBe(true);
   });
 });

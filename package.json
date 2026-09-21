@@ -8,14 +8,15 @@
     "node": ">=20"
   },
   "scripts": {
-    "build": "tsc -b && pnpm --filter @llmatic/vscode-extension bundle",
+    "build": "tsc -b && pnpm --filter ./apps/vscode-extension bundle",
     "typecheck": "tsc -b --pretty false",
     "test": "vitest run",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "ci": "node scripts/ci-local.mjs --ci",
     "ci:local": "node scripts/ci-local.mjs",
-    "mcp": "node apps/mcp-server/dist/index.js"
+    "mcp": "node apps/mcp-server/dist/index.js",
+    "package:vsix": "pnpm --filter ./apps/vscode-extension package:vsix"
   },
   "devDependencies": {
     "@types/node": "^22.10.0",

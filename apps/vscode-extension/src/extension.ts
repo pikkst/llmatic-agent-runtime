@@ -1,8 +1,13 @@
+import { spawnSync } from "node:child_process";
 import { access } from "node:fs/promises";
 import { homedir } from "node:os";
 import { resolve } from "node:path";
 import * as vscode from "vscode";
-import { ensureGlobalKiloMcpServer, readGlobalKiloLlmaticServer } from "@llmatic/kilo-connector";
+import {
+  ensureGlobalKiloMcpServer,
+  isGlobalKiloLlmaticServerHealthy,
+  readGlobalKiloLlmaticServer,
+} from "@llmatic/kilo-connector";
 import { ensureManagedWorkspace, type ManagedWorkspace } from "@llmatic/workspace-manager";
 
 const KILO_EXTENSION_ID = "kilocode.kilo-code";
@@ -11,7 +16,19 @@ const KILO_GATEWAY_SECRET = "llmatic.kiloGatewayApiKey";
 interface ExtensionState {
   activeWorkspace?: ManagedWorkspace;
   kiloConnected: boolean;
+  kiloReloadRecommended: boolean;
   lastError?: string;
+}
+
+interface DoctorCheck {
+  name: string;
+  status: "PASS" | "WARN" | "FAIL";
+  detail: string;
+}
+
+interface KiloConnectionResult {
+  connected: boolean;
+  changed: boolean;
 }
 
 async function exists(path: string): Promise<boolean> {
@@ -47,9 +64,9 @@ async function attachWorkspace(
   return managed;
 }
 
-async function connectKilo(context: vscode.ExtensionContext): Promise<boolean> {
+async function connectKilo(context: vscode.ExtensionContext): Promise<KiloConnectionResult> {
   const kilo = vscode.extensions.getExtension(KILO_EXTENSION_ID);
-  if (!kilo) return false;
+  if (!kilo) return { connected: false, changed: false };
 
   const serverPath = bundledMcpServerPath(context);
   if (!(await exists(serverPath))) {
@@ -60,14 +77,14 @@ async function connectKilo(context: vscode.ExtensionContext): Promise<boolean> {
 
   const nodeCommand = configuration().get<string>("nodeCommand", "node").trim() || "node";
 
-  await ensureGlobalKiloMcpServer({
+  const registration = await ensureGlobalKiloMcpServer({
     homeDirectory: homedir(),
     serverPath,
     llmaticHome: context.globalStorageUri.fsPath,
     nodeCommand,
   });
 
-  return true;
+  return { connected: true, changed: registration.changed };
 }
 
 function updateStatusBar(statusBar: vscode.StatusBarItem, state: ExtensionState): void {
@@ -112,12 +129,141 @@ async function refresh(
     }
 
     const autoConnect = configuration().get<boolean>("autoConnectKilo", true);
-    state.kiloConnected = autoConnect ? await connectKilo(context) : false;
+    if (autoConnect) {
+      const kilo = await connectKilo(context);
+      state.kiloConnected = kilo.connected;
+      state.kiloReloadRecommended = kilo.changed;
+    } else {
+      state.kiloConnected = false;
+      state.kiloReloadRecommended = false;
+    }
   } catch (error) {
     state.lastError = error instanceof Error ? error.message : String(error);
   }
 
   updateStatusBar(statusBar, state);
+}
+
+function nodeVersion(nodeCommand: string): string | undefined {
+  const result = spawnSync(nodeCommand, ["--version"], {
+    encoding: "utf8",
+    shell: false,
+  });
+
+  if (result.status !== 0) return undefined;
+  return (result.stdout || result.stderr).trim().split(/\r?\n/)[0];
+}
+
+async function runDoctor(
+  context: vscode.ExtensionContext,
+  state: ExtensionState,
+): Promise<DoctorCheck[]> {
+  const checks: DoctorCheck[] = [];
+  const folder = firstWorkspaceFolder();
+  const serverPath = bundledMcpServerPath(context);
+  const nodeCommand = configuration().get<string>("nodeCommand", "node").trim() || "node";
+  const version = nodeVersion(nodeCommand);
+
+  checks.push({
+    name: "Workspace",
+    status: folder && state.activeWorkspace ? "PASS" : "FAIL",
+    detail:
+      folder && state.activeWorkspace
+        ? state.activeWorkspace.root
+        : "No attached workspace is available.",
+  });
+
+  checks.push({
+    name: "Managed config",
+    status:
+      state.activeWorkspace && (await exists(state.activeWorkspace.configPath)) ? "PASS" : "FAIL",
+    detail: state.activeWorkspace?.configPath ?? "Managed workspace config is unavailable.",
+  });
+
+  checks.push({
+    name: "Bundled MCP runtime",
+    status: (await exists(serverPath)) ? "PASS" : "FAIL",
+    detail: serverPath,
+  });
+
+  let nodeStatus: DoctorCheck["status"] = "FAIL";
+  if (version) {
+    const major = Number(version.replace(/^v/, "").split(".")[0]);
+    nodeStatus = Number.isFinite(major) && major >= 20 ? "PASS" : "FAIL";
+  }
+  checks.push({
+    name: "Node.js",
+    status: nodeStatus,
+    detail: version ? nodeCommand + " " + version : nodeCommand + " is not available on PATH.",
+  });
+
+  const kiloInstalled = Boolean(vscode.extensions.getExtension(KILO_EXTENSION_ID));
+  checks.push({
+    name: "Kilo Code",
+    status: kiloInstalled ? "PASS" : "WARN",
+    detail: kiloInstalled ? KILO_EXTENSION_ID : "Kilo Code is not installed.",
+  });
+
+  const server = kiloInstalled ? await readGlobalKiloLlmaticServer(homedir()) : undefined;
+  const kiloHealthy =
+    kiloInstalled &&
+    isGlobalKiloLlmaticServerHealthy(server, {
+      serverPath,
+      llmaticHome: context.globalStorageUri.fsPath,
+      nodeCommand,
+    });
+
+  checks.push({
+    name: "Kilo MCP",
+    status: kiloHealthy ? "PASS" : kiloInstalled ? "FAIL" : "WARN",
+    detail: kiloHealthy
+      ? "Global LLMatic MCP registration matches this extension."
+      : "Global LLMatic MCP registration is missing or stale.",
+  });
+
+  const hasGatewayKey = Boolean(await context.secrets.get(KILO_GATEWAY_SECRET));
+  checks.push({
+    name: "Kilo Gateway key",
+    status: hasGatewayKey ? "PASS" : "WARN",
+    detail: hasGatewayKey
+      ? "Stored in VS Code SecretStorage."
+      : "Not configured; only needed for future direct Gateway orchestration.",
+  });
+
+  return checks;
+}
+
+async function showDoctor(
+  context: vscode.ExtensionContext,
+  state: ExtensionState,
+  output: vscode.OutputChannel,
+): Promise<void> {
+  const checks = await runDoctor(context, state);
+  output.clear();
+  output.appendLine("LLMatic Agent Runtime Doctor");
+  output.appendLine("");
+
+  for (const check of checks) {
+    output.appendLine("[" + check.status + "] " + check.name + ": " + check.detail);
+  }
+
+  const failures = checks.filter((check) => check.status === "FAIL").length;
+  const warnings = checks.filter((check) => check.status === "WARN").length;
+  output.appendLine("");
+  output.appendLine(
+    failures === 0
+      ? "READY" + (warnings ? " (" + warnings + " warning(s))" : "")
+      : "NOT READY (" + failures + " failure(s))",
+  );
+  output.show(true);
+
+  if (failures === 0) {
+    await vscode.window.showInformationMessage("LLMatic Doctor: READY");
+  } else {
+    await vscode.window.showWarningMessage(
+      "LLMatic Doctor found " + failures + " blocking issue(s). See the LLMatic output channel.",
+    );
+  }
 }
 
 async function showStatus(context: vscode.ExtensionContext, state: ExtensionState): Promise<void> {
@@ -131,6 +277,7 @@ async function showStatus(context: vscode.ExtensionContext, state: ExtensionStat
     "Kilo Code: " + (kiloInstalled ? "installed" : "not installed"),
     "Kilo MCP: " + (kiloServer ? "configured" : "not configured"),
     "Kilo Gateway key: " + (hasGatewayKey ? "stored securely" : "not stored"),
+    state.kiloReloadRecommended ? "Kilo reload: recommended after config update" : undefined,
     state.lastError ? "Error: " + state.lastError : undefined,
   ].filter((line): line is string => Boolean(line));
 
@@ -142,7 +289,11 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 
   const state: ExtensionState = {
     kiloConnected: false,
+    kiloReloadRecommended: false,
   };
+
+  const output = vscode.window.createOutputChannel("LLMatic");
+  context.subscriptions.push(output);
 
   const statusBar = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 100);
   context.subscriptions.push(statusBar);
@@ -184,12 +335,25 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       }
 
       try {
-        state.kiloConnected = await connectKilo(context);
+        const result = await connectKilo(context);
+        state.kiloConnected = result.connected;
+        state.kiloReloadRecommended = result.changed;
         state.lastError = undefined;
         updateStatusBar(statusBar, state);
-        await vscode.window.showInformationMessage(
-          "LLMatic MCP is registered in the global Kilo configuration.",
-        );
+
+        if (result.changed) {
+          const action = await vscode.window.showInformationMessage(
+            "LLMatic MCP was added or updated in Kilo global config.",
+            "Reload Window",
+          );
+          if (action === "Reload Window") {
+            await vscode.commands.executeCommand("workbench.action.reloadWindow");
+          }
+        } else {
+          await vscode.window.showInformationMessage(
+            "LLMatic MCP is already registered and healthy in Kilo global config.",
+          );
+        }
       } catch (error) {
         state.lastError = error instanceof Error ? error.message : String(error);
         updateStatusBar(statusBar, state);
@@ -198,6 +362,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     }),
     vscode.commands.registerCommand("llmatic.showStatus", async () => {
       await showStatus(context, state);
+    }),
+    vscode.commands.registerCommand("llmatic.doctor", async () => {
+      await showDoctor(context, state, output);
     }),
     vscode.commands.registerCommand("llmatic.setKiloGatewayApiKey", async () => {
       const value = await vscode.window.showInputBox({

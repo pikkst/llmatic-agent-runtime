@@ -1,9 +1,8 @@
 {
-  "name": "@llmatic/vscode-extension",
+  "name": "llmatic-agent-runtime",
   "displayName": "LLMatic Agent Runtime",
   "description": "Attach LLMatic Agent Runtime to local repositories without adding runtime state to the repository.",
   "version": "0.1.0",
-  "private": true,
   "publisher": "eventnexus",
   "type": "module",
   "engines": {
@@ -18,7 +17,8 @@
   ],
   "main": "./dist/extension.cjs",
   "scripts": {
-    "bundle": "node scripts/bundle.mjs"
+    "bundle": "node scripts/bundle.mjs",
+    "package:vsix": "node scripts/package-vsix.mjs"
   },
   "dependencies": {
     "@llmatic/core": "workspace:*",
@@ -26,8 +26,9 @@
     "@llmatic/workspace-manager": "workspace:*"
   },
   "devDependencies": {
-    "@types/vscode": "1.138.0",
-    "esbuild": "0.28.2"
+    "@types/vscode": "1.105.0",
+    "esbuild": "0.28.2",
+    "@vscode/vsce": "4.0.0"
   },
   "contributes": {
     "commands": [
@@ -44,6 +45,11 @@
       {
         "command": "llmatic.showStatus",
         "title": "Show Status",
+        "category": "LLMatic"
+      },
+      {
+        "command": "llmatic.doctor",
+        "title": "Doctor",
         "category": "LLMatic"
       },
       {
@@ -87,5 +93,11 @@
         }
       }
     }
+  },
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/pikkst/llmatic-agent-runtime.git",
+    "directory": "apps/vscode-extension"
   }
 }
