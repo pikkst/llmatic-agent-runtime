@@ -56,8 +56,7 @@ async function repositorySignals(root: string) {
 
   const supabase = await exists(resolve(root, "supabase", "config.toml"));
   const deno =
-    (await exists(resolve(root, "deno.json"))) ||
-    (await exists(resolve(root, "deno.jsonc")));
+    (await exists(resolve(root, "deno.json"))) || (await exists(resolve(root, "deno.jsonc")));
   const python = await containsPython(root);
 
   return { docker, supabase, deno, python };
@@ -92,9 +91,7 @@ export async function inspectBootstrap(
   _config: AgentConfig,
 ): Promise<BootstrapReport> {
   const detection = await detectRepository(root);
-  const statuses = statusMap(
-    await detectRegisteredTools(detection.root, DEFAULT_TOOL_REGISTRY),
-  );
+  const statuses = statusMap(await detectRegisteredTools(detection.root, DEFAULT_TOOL_REGISTRY));
   const signals = await repositorySignals(detection.root);
   const requirements: BootstrapRequirement[] = [
     requirement(statuses, "node", "required", "Required to launch the bundled MCP runtime."),
@@ -160,9 +157,7 @@ export async function inspectBootstrap(
     ),
   );
 
-  const deduplicated = Array.from(
-    new Map(requirements.map((item) => [item.id, item])).values(),
-  );
+  const deduplicated = Array.from(new Map(requirements.map((item) => [item.id, item])).values());
 
   return {
     root: detection.root,
