@@ -2,12 +2,7 @@ import { access } from "node:fs/promises";
 import { resolve } from "node:path";
 
 export type ArchitectureImpactArea =
-  | "architecture"
-  | "api_contract"
-  | "schema"
-  | "security"
-  | "testing"
-  | "task_graph";
+  "architecture" | "api_contract" | "schema" | "security" | "testing" | "task_graph";
 
 export interface ArchitectureImpactItem {
   area: ArchitectureImpactArea;
@@ -73,18 +68,12 @@ const RULES: ImpactRule[] = [
       path === "package.json" ||
       path === "pnpm-workspace.yaml" ||
       path === "tsconfig.json" ||
-      /^(?:apps|packages)\/[^/]+\/(?:package\.json|tsconfig(?:\.[^/]+)?\.json)$/.test(
-        path,
-      ) ||
+      /^(?:apps|packages)\/[^/]+\/(?:package\.json|tsconfig(?:\.[^/]+)?\.json)$/.test(path) ||
       /^(?:Dockerfile|docker-compose\.ya?ml|compose\.ya?ml)$/.test(path) ||
       path.startsWith(".github/workflows/"),
-    resolutionPaths: [
-      "docs/planning/ARCHITECTURE.md",
-      "docs/planning/adr/",
-    ],
+    resolutionPaths: ["docs/planning/ARCHITECTURE.md", "docs/planning/adr/"],
     resolves: (path) =>
-      path === "docs/planning/ARCHITECTURE.md" ||
-      path.startsWith("docs/planning/adr/"),
+      path === "docs/planning/ARCHITECTURE.md" || path.startsWith("docs/planning/adr/"),
     recommendation:
       "Update ARCHITECTURE.md or add/update an ADR that explains the structural/tooling/deployment change.",
   },
@@ -92,14 +81,8 @@ const RULES: ImpactRule[] = [
     area: "api_contract",
     triggers: (path) =>
       path.startsWith("apps/api/") ||
-      /(?:^|\/)(?:api|routes?|controllers?|handlers?|http|openapi)(?:\/|\.|$)/i.test(
-        path,
-      ),
-    resolutionPaths: [
-      "docs/planning/API_CONTRACTS.md",
-      "packages/contracts/",
-      "openapi",
-    ],
+      /(?:^|\/)(?:api|routes?|controllers?|handlers?|http|openapi)(?:\/|\.|$)/i.test(path),
+    resolutionPaths: ["docs/planning/API_CONTRACTS.md", "packages/contracts/", "openapi"],
     resolves: (path) =>
       path === "docs/planning/API_CONTRACTS.md" ||
       path.startsWith("packages/contracts/") ||
@@ -111,8 +94,8 @@ const RULES: ImpactRule[] = [
     area: "schema",
     triggers: (path) =>
       /(?:^|\/)(?:migrations?|schema|schemas)(?:\/|\.|$)/i.test(path) ||
-      /(?:^|\/)(?:prisma|supabase)(?:\/|$)/i.test(path) &&
-        /(?:migration|schema|\.sql$)/i.test(path),
+      (/(?:^|\/)(?:prisma|supabase)(?:\/|$)/i.test(path) &&
+        /(?:migration|schema|\.sql$)/i.test(path)),
     resolutionPaths: ["docs/planning/DATA_MODEL.md"],
     resolves: (path) => path === "docs/planning/DATA_MODEL.md",
     recommendation:
@@ -141,9 +124,7 @@ const RULES: ImpactRule[] = [
     area: "task_graph",
     triggers: (path) => isPlanningDecision(path),
     resolutionPaths: ["TASKS.md", "docs/planning/ROADMAP.md"],
-    resolves: (path) =>
-      path === "TASKS.md" ||
-      path === "docs/planning/ROADMAP.md",
+    resolves: (path) => path === "TASKS.md" || path === "docs/planning/ROADMAP.md",
     recommendation:
       "Synchronize TASKS.md or ROADMAP.md when a planning/ADR decision changes implementation scope or dependencies.",
   },
@@ -158,9 +139,7 @@ async function exists(path: string): Promise<boolean> {
   }
 }
 
-export async function hasLivingArchitectureBaseline(
-  root: string,
-): Promise<boolean> {
+export async function hasLivingArchitectureBaseline(root: string): Promise<boolean> {
   return (
     (await exists(resolve(root, "docs", "planning", "APPROVED_PLAN.md"))) &&
     (await exists(resolve(root, "TASKS.md")))
@@ -171,9 +150,7 @@ export async function analyzeArchitectureImpact(
   root: string,
   changedFileInput: readonly string[],
 ): Promise<ArchitectureImpactReport> {
-  const changedFiles = [...new Set(changedFileInput.map(normalized))]
-    .filter(Boolean)
-    .sort();
+  const changedFiles = [...new Set(changedFileInput.map(normalized))].filter(Boolean).sort();
   const baselineDetected = await hasLivingArchitectureBaseline(root);
 
   if (!baselineDetected) {
@@ -216,9 +193,7 @@ export async function analyzeArchitectureImpact(
   };
 }
 
-export function architectureImpactSummary(
-  report: ArchitectureImpactReport,
-): string {
+export function architectureImpactSummary(report: ArchitectureImpactReport): string {
   if (!report.baselineDetected) {
     return "Living-architecture baseline not detected; no architecture synchronization gate was enforced.";
   }

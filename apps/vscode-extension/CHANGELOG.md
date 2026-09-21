@@ -112,4 +112,3 @@
 - Code review now blocks on unresolved architecture/API/schema/security/testing/task-graph synchronization.
 - Review/fix loop receives concrete synchronization instructions for unresolved impact areas.
 - VS Code review output shows code findings and living-architecture synchronization evidence separately.
-

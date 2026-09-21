@@ -152,10 +152,7 @@ describe("review engine", () => {
     await mkdir(join(root, "docs", "planning"), {
       recursive: true,
     });
-    await writeFile(
-      join(root, "docs", "planning", "APPROVED_PLAN.md"),
-      "# Approved\n",
-    );
+    await writeFile(join(root, "docs", "planning", "APPROVED_PLAN.md"), "# Approved\n");
     await writeFile(join(root, "TASKS.md"), "# Tasks\n");
 
     const config = configFor(root);
@@ -180,9 +177,7 @@ describe("review engine", () => {
     });
 
     expect(report.codeBlockingCount).toBe(0);
-    expect(report.architectureImpact.unresolvedAreas).toContain(
-      "testing",
-    );
+    expect(report.architectureImpact.unresolvedAreas).toContain("testing");
     expect(report.blockingCount).toBe(1);
     expect((await store.loadCurrent())?.state).toBe("FIXING");
   });
@@ -192,15 +187,9 @@ describe("review engine", () => {
     await mkdir(join(root, "docs", "planning"), {
       recursive: true,
     });
-    await writeFile(
-      join(root, "docs", "planning", "APPROVED_PLAN.md"),
-      "# Approved\n",
-    );
+    await writeFile(join(root, "docs", "planning", "APPROVED_PLAN.md"), "# Approved\n");
     await writeFile(join(root, "TASKS.md"), "# Tasks\n");
-    await writeFile(
-      join(root, "src", "value.test.ts"),
-      "export const covered = true;\n",
-    );
+    await writeFile(join(root, "src", "value.test.ts"), "export const covered = true;\n");
 
     const config = configFor(root);
     const store = new WorkflowStateStore(root, config);
@@ -225,9 +214,6 @@ describe("review engine", () => {
 
     expect(report.architectureImpact.unresolvedCount).toBe(0);
     expect(report.blockingCount).toBe(0);
-    expect((await store.loadCurrent())?.state).toBe(
-      "READY_TO_PUSH",
-    );
+    expect((await store.loadCurrent())?.state).toBe("READY_TO_PUSH");
   });
-
 });

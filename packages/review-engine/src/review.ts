@@ -301,10 +301,7 @@ export async function runCodeReview(options: CodeReviewOptions): Promise<CodeRev
   const changedFiles = listChangedFiles(options.root);
 
   if (changedFiles.length === 0) {
-    const architectureImpact = await analyzeArchitectureImpact(
-      options.root,
-      changedFiles,
-    );
+    const architectureImpact = await analyzeArchitectureImpact(options.root, changedFiles);
     const report: CodeReviewReport = {
       summary: "No changed non-secret files are available for review.",
       findings: [],
@@ -381,26 +378,17 @@ export async function runCodeReview(options: CodeReviewOptions): Promise<CodeRev
     const codeBlockingCount = parsed.findings.filter(
       (finding) => finding.severity === "blocking",
     ).length;
-    const architectureImpact = await analyzeArchitectureImpact(
-      options.root,
-      changedFiles,
-    );
-    const blockingCount =
-      codeBlockingCount + architectureImpact.unresolvedCount;
-    const impactSummary = architectureImpactSummary(
-      architectureImpact,
-    );
+    const architectureImpact = await analyzeArchitectureImpact(options.root, changedFiles);
+    const blockingCount = codeBlockingCount + architectureImpact.unresolvedCount;
+    const impactSummary = architectureImpactSummary(architectureImpact);
     const report: CodeReviewReport = {
       ...parsed,
       summary:
         parsed.summary +
-        (architectureImpact.baselineDetected
-          ? " Living architecture: " + impactSummary
-          : ""),
+        (architectureImpact.baselineDetected ? " Living architecture: " + impactSummary : ""),
       codeBlockingCount,
       blockingCount,
-      nonBlockingCount:
-        parsed.findings.length - codeBlockingCount,
+      nonBlockingCount: parsed.findings.length - codeBlockingCount,
       architectureImpact,
       model,
       changedFiles,
@@ -412,14 +400,9 @@ export async function runCodeReview(options: CodeReviewOptions): Promise<CodeRev
       success: architectureImpact.unresolvedCount === 0,
       detail: impactSummary,
       metadata: {
-        requiredCount: String(
-          architectureImpact.requiredCount,
-        ),
-        unresolvedCount: String(
-          architectureImpact.unresolvedCount,
-        ),
-        unresolvedAreas:
-          architectureImpact.unresolvedAreas.join(","),
+        requiredCount: String(architectureImpact.requiredCount),
+        unresolvedCount: String(architectureImpact.unresolvedCount),
+        unresolvedAreas: architectureImpact.unresolvedAreas.join(","),
       },
     });
     await recordActionCheckpoint(options.store, {
@@ -431,9 +414,7 @@ export async function runCodeReview(options: CodeReviewOptions): Promise<CodeRev
         model,
         blockingCount: String(blockingCount),
         codeBlockingCount: String(codeBlockingCount),
-        architectureImpactBlockingCount: String(
-          architectureImpact.unresolvedCount,
-        ),
+        architectureImpactBlockingCount: String(architectureImpact.unresolvedCount),
         findingCount: String(report.findings.length),
       },
     });

@@ -713,9 +713,7 @@ function printReviewReport(output: vscode.OutputChannel, report: CodeReviewRepor
           " required impact area(s)"
         : "baseline not detected"),
   );
-  output.appendLine(
-    "Total blocking review items: " + report.blockingCount,
-  );
+  output.appendLine("Total blocking review items: " + report.blockingCount);
   output.appendLine("");
 
   for (const finding of report.findings) {
@@ -733,25 +731,13 @@ function printReviewReport(output: vscode.OutputChannel, report: CodeReviewRepor
   }
 
   for (const impact of report.architectureImpact.impacts) {
-    output.appendLine(
-      "[" +
-        (impact.resolved ? "SYNCED" : "BLOCKING-SYNC") +
-        "] " +
-        impact.area,
-    );
-    output.appendLine(
-      "  Trigger: " + impact.reasons.join(", "),
-    );
+    output.appendLine("[" + (impact.resolved ? "SYNCED" : "BLOCKING-SYNC") + "] " + impact.area);
+    output.appendLine("  Trigger: " + impact.reasons.join(", "));
     if (impact.changedResolutionPaths.length > 0) {
-      output.appendLine(
-        "  Evidence: " +
-          impact.changedResolutionPaths.join(", "),
-      );
+      output.appendLine("  Evidence: " + impact.changedResolutionPaths.join(", "));
     }
     if (!impact.resolved) {
-      output.appendLine(
-        "  Required: " + impact.recommendation,
-      );
+      output.appendLine("  Required: " + impact.recommendation);
     }
   }
 }

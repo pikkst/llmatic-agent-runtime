@@ -252,7 +252,6 @@ Agents can inspect approval state using:
 
 MCP cannot create human approval or initialize the repository.
 
-
 ## Living architecture gate
 
 M24 extends code review beyond implementation correctness.
