@@ -127,10 +127,7 @@ function firstOutputLine(result: ToolProcessResult): string | undefined {
   return output || undefined;
 }
 
-function definitionFor(
-  id: ToolId,
-  registry: readonly ToolDefinition[],
-): ToolDefinition {
+function definitionFor(id: ToolId, registry: readonly ToolDefinition[]): ToolDefinition {
   const definition = registry.find((candidate) => candidate.id === id);
 
   if (!definition) {
@@ -142,9 +139,7 @@ function definitionFor(
 
 export function parseToolId(input: string): ToolId {
   if (!TOOL_IDS.includes(input as ToolId)) {
-    throw new Error(
-      "Unknown tool: " + input + ". Registered tools: " + TOOL_IDS.join(", ") + ".",
-    );
+    throw new Error("Unknown tool: " + input + ". Registered tools: " + TOOL_IDS.join(", ") + ".");
   }
 
   return input as ToolId;
@@ -249,11 +244,7 @@ export async function installRegisteredTool(
 
     if (result.exitCode !== 0) {
       throw new Error(
-        "Tool installer failed: " +
-          displayCommand(step) +
-          ". Exit code: " +
-          result.exitCode +
-          ".",
+        "Tool installer failed: " + displayCommand(step) + ". Exit code: " + result.exitCode + ".",
       );
     }
   }

@@ -35,11 +35,7 @@ describe("tool registry", () => {
       return { exitCode: 127, stdout: "", stderr: "not found" };
     };
 
-    const statuses = await detectRegisteredTools(
-      "/repo",
-      DEFAULT_TOOL_REGISTRY,
-      runner,
-    );
+    const statuses = await detectRegisteredTools("/repo", DEFAULT_TOOL_REGISTRY, runner);
 
     expect(statuses.find((tool) => tool.id === "node")).toMatchObject({
       installed: true,
@@ -56,9 +52,9 @@ describe("tool registry", () => {
       stderr: "not found",
     });
 
-    await expect(
-      installRegisteredTool("/repo", runtimeConfig, "pnpm", { runner }),
-    ).rejects.toThrow("requires approval");
+    await expect(installRegisteredTool("/repo", runtimeConfig, "pnpm", { runner })).rejects.toThrow(
+      "requires approval",
+    );
   });
 
   it("runs the pnpm installer as structured Corepack steps", async () => {
@@ -86,12 +82,10 @@ describe("tool registry", () => {
       return { exitCode: 127, stdout: "", stderr: "not found" };
     };
 
-    const result = await installRegisteredTool(
-      "/repo",
-      runtimeConfig,
-      "pnpm",
-      { approved: true, runner },
-    );
+    const result = await installRegisteredTool("/repo", runtimeConfig, "pnpm", {
+      approved: true,
+      runner,
+    });
 
     expect(result.changed).toBe(true);
     expect(result.executedSteps).toBe(2);
