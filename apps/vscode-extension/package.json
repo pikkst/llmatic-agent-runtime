@@ -1,15 +1,14 @@
 {
   "name": "llmatic-agent-runtime",
   "displayName": "LLMatic Agent Runtime",
-  "description": "Attach LLMatic Agent Runtime to local repositories without adding runtime state to the repository.",
-  "version": "0.1.0",
+  "description": "Deterministic local software-engineering runtime for AI coding agents, with Kilo Code integration, project discovery, planning, review and safe workflow automation.",
+  "version": "0.1.1",
   "publisher": "eventnexus",
   "type": "module",
   "engines": {
     "vscode": "^1.105.0"
   },
   "categories": [
-    "AI",
     "Other"
   ],
   "activationEvents": [
@@ -219,10 +218,33 @@
       ]
     }
   },
-  "license": "MIT",
+  "license": "SEE LICENSE IN LICENSE",
   "repository": {
     "type": "git",
     "url": "https://github.com/pikkst/llmatic-agent-runtime.git",
     "directory": "apps/vscode-extension"
+  },
+  "keywords": [
+    "ai",
+    "coding-agent",
+    "agentic",
+    "kilo-code",
+    "mcp",
+    "software-engineering",
+    "code-review",
+    "automation",
+    "developer-tools",
+    "project-planning",
+    "task-management"
+  ],
+  "icon": "media/llmatic.png",
+  "pricing": "Free",
+  "galleryBanner": {
+    "color": "#111827",
+    "theme": "dark"
+  },
+  "homepage": "https://github.com/pikkst/llmatic-agent-runtime#readme",
+  "bugs": {
+    "url": "https://github.com/pikkst/llmatic-agent-runtime/issues"
   }
 }
