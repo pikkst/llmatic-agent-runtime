@@ -327,6 +327,10 @@ async function commandFor(
     return { executable: resolution.executable, args: ["ps"] };
   }
 
+  if (request.operation !== "run") {
+    throw new Error("Unsupported Ollama operation: " + request.operation + ".");
+  }
+
   assertPermission(config.permissions.localProcess, "Local model execution", approved);
   return {
     executable: resolution.executable,
