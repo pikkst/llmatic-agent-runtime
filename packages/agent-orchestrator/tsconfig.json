@@ -5,12 +5,30 @@
     "rootDir": "src",
     "outDir": "dist"
   },
-  "include": ["src/**/*.ts"],
+  "include": [
+    "src/**/*.ts"
+  ],
   "references": [
-    { "path": "../core" },
-    { "path": "../gateway-client" },
-    { "path": "../git-adapter" },
-    { "path": "../repo-intelligence" },
-    { "path": "../workspace-files" }
+    {
+      "path": "../core"
+    },
+    {
+      "path": "../gateway-client"
+    },
+    {
+      "path": "../git-adapter"
+    },
+    {
+      "path": "../repo-intelligence"
+    },
+    {
+      "path": "../workspace-files"
+    },
+    {
+      "path": "../task-provider"
+    },
+    {
+      "path": "../task-router"
+    }
   ]
 }
