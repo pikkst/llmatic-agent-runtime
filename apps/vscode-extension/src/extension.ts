@@ -81,6 +81,7 @@ interface ExtensionState {
   health?: SetupHealth;
   kiloConnected: boolean;
   kiloReloadRecommended: boolean;
+  gatewayKeyConfigured: boolean;
   lastError?: string;
 }
 
@@ -299,6 +300,7 @@ async function refresh(
     }
 
     state.runtime = await ensureExtensionRuntime(context);
+    state.gatewayKeyConfigured = Boolean(await context.secrets.get(KILO_GATEWAY_SECRET));
 
     const autoConnect = configuration().get<boolean>("autoConnectKilo", true);
     if (autoConnect) {
@@ -404,8 +406,8 @@ async function runDoctor(
     name: "Kilo Gateway key",
     status: hasGatewayKey ? "PASS" : "WARN",
     detail: hasGatewayKey
-      ? "Stored in VS Code SecretStorage."
-      : "Not configured; only needed for future direct Gateway orchestration.",
+      ? "Stored in VS Code SecretStorage; direct agent and review are enabled."
+      : "Not configured; Kilo MCP still works, but direct LLMatic agent and review require this key.",
   });
 
   return checks;
@@ -755,6 +757,23 @@ function formatReviewLoopEvent(event: ReviewLoopEvent): string {
   return "[INFO] " + event.message;
 }
 
+async function gatewayApiKeyOrPrompt(
+  context: vscode.ExtensionContext,
+): Promise<string | undefined> {
+  const existing = await context.secrets.get(KILO_GATEWAY_SECRET);
+  if (existing) return existing;
+
+  const action = await vscode.window.showWarningMessage(
+    "LLMatic direct agent and review need a Kilo Gateway API key. Kilo Code and the LLMatic MCP connection remain usable without it.",
+    "Set API Key",
+  );
+
+  if (action !== "Set API Key") return undefined;
+
+  await vscode.commands.executeCommand("llmatic.setKiloGatewayApiKey");
+  return context.secrets.get(KILO_GATEWAY_SECRET);
+}
+
 async function runGatewayReview(
   context: vscode.ExtensionContext,
   state: ExtensionState,
@@ -770,12 +789,8 @@ async function runGatewayReview(
     state.activeWorkspace = await attachWorkspace(context, folder);
   }
 
-  const apiKey = await context.secrets.get(KILO_GATEWAY_SECRET);
-  if (!apiKey) {
-    throw new Error(
-      "Kilo Gateway API key is not configured. Run 'LLMatic: Set Kilo Gateway API Key' first.",
-    );
-  }
+  const apiKey = await gatewayApiKeyOrPrompt(context);
+  if (!apiKey) return;
 
   const model =
     configuration().get<string>("agentModel", "kilo-auto/free").trim() || "kilo-auto/free";
@@ -875,12 +890,8 @@ async function runGatewayAgent(
     state.activeWorkspace = await attachWorkspace(context, folder);
   }
 
-  const apiKey = await context.secrets.get(KILO_GATEWAY_SECRET);
-  if (!apiKey) {
-    throw new Error(
-      "Kilo Gateway API key is not configured. Run 'LLMatic: Set Kilo Gateway API Key' first.",
-    );
-  }
+  const apiKey = await gatewayApiKeyOrPrompt(context);
+  if (!apiKey) return;
 
   const model =
     configuration().get<string>("agentModel", "kilo-auto/free").trim() || "kilo-auto/free";
@@ -1159,7 +1170,7 @@ async function getReady(
   writeHealthReport(output, health);
   output.show(true);
   updateStatusBar(statusBar, state);
-  statusProvider.update(state.health);
+  statusProvider.update(state.health, state.gatewayKeyConfigured);
 
   if (health.status === "READY") {
     await context.workspaceState.update("llmatic.onboardingVersion", ONBOARDING_VERSION);
@@ -1927,6 +1938,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   const state: ExtensionState = {
     kiloConnected: false,
     kiloReloadRecommended: false,
+    gatewayKeyConfigured: false,
   };
 
   let kiloPreviouslyInstalled = Boolean(vscode.extensions.getExtension(KILO_EXTENSION_ID));
@@ -2024,7 +2036,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
           ],
         };
         updateStatusBar(statusBar, state);
-        statusProvider.update(state.health);
+        statusProvider.update(state.health, state.gatewayKeyConfigured);
         await vscode.window.showErrorMessage("LLMatic Get Ready: " + state.lastError);
       }
     }),
@@ -2134,20 +2146,32 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     }),
     vscode.commands.registerCommand("llmatic.setKiloGatewayApiKey", async () => {
       const value = await vscode.window.showInputBox({
-        title: "Kilo Gateway API Key",
+        title: "LLMatic: Kilo Gateway API Key",
         prompt:
-          "Stored only in VS Code SecretStorage. It is not written to the repository or Kilo config.",
+          "Required only for LLMatic direct agent/review orchestration. Stored in VS Code SecretStorage and never written to the repository or Kilo config.",
+        placeHolder: "Paste your Kilo Gateway API key",
         password: true,
         ignoreFocusOut: true,
       });
 
       if (!value?.trim()) return;
+
       await context.secrets.store(KILO_GATEWAY_SECRET, value.trim());
-      await vscode.window.showInformationMessage("Kilo Gateway API key stored securely.");
+      state.gatewayKeyConfigured = true;
+      statusProvider.update(state.health, state.gatewayKeyConfigured);
+
+      await vscode.window.showInformationMessage(
+        "Kilo Gateway API key stored securely. Direct LLMatic agent and review are enabled.",
+      );
     }),
     vscode.commands.registerCommand("llmatic.clearKiloGatewayApiKey", async () => {
       await context.secrets.delete(KILO_GATEWAY_SECRET);
-      await vscode.window.showInformationMessage("Kilo Gateway API key cleared.");
+      state.gatewayKeyConfigured = false;
+      statusProvider.update(state.health, state.gatewayKeyConfigured);
+
+      await vscode.window.showInformationMessage(
+        "Kilo Gateway API key cleared. Kilo MCP remains available; direct agent and review will ask for a key when needed.",
+      );
     }),
     vscode.commands.registerCommand("llmatic.runAgent", async () => {
       try {
@@ -2196,18 +2220,18 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     }),
     vscode.workspace.onDidChangeWorkspaceFolders(async () => {
       await refresh(context, statusBar, state);
-      statusProvider.update(state.health);
+      statusProvider.update(state.health, state.gatewayKeyConfigured);
     }),
     vscode.workspace.onDidChangeConfiguration(async (event) => {
       if (event.affectsConfiguration("llmatic")) {
         await refresh(context, statusBar, state);
-        statusProvider.update(state.health);
+        statusProvider.update(state.health, state.gatewayKeyConfigured);
       }
     }),
   );
 
   await refresh(context, statusBar, state);
-  statusProvider.update(state.health);
+  statusProvider.update(state.health, state.gatewayKeyConfigured);
   await vscode.commands.executeCommand("setContext", "llmatic.health", state.health?.status);
 
   // Onboarding must never block extension activation. In headless Extension Host
