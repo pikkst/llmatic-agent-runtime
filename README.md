@@ -131,3 +131,7 @@ Gateway credentials remain in VS Code SecretStorage.
 - direct Kilo Gateway coding agent
 
 See docs/review-fix-loop.md.
+
+## Roadmap
+
+The canonical milestone roadmap is maintained in `docs/ROADMAP.md`.
