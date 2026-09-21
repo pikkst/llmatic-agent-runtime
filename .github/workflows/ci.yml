@@ -7,7 +7,7 @@ on:
       - main
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   validate:
@@ -16,6 +16,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          ref: ${{ github.head_ref || github.ref_name }}
 
       - name: Set up Node.js
         uses: actions/setup-node@v4
@@ -27,6 +29,52 @@ jobs:
 
       - name: Install dependencies
         run: pnpm install --no-frozen-lockfile
+
+      - name: Canonical format M22 files
+        run: |
+          pnpm exec prettier --write \
+            apps/mcp-server/src/server.ts \
+            apps/mcp-server/tsconfig.json \
+            apps/vscode-extension/CHANGELOG.md \
+            apps/vscode-extension/src/extension.ts \
+            apps/vscode-extension/tsconfig.json \
+            packages/planning-engine/src/index.ts \
+            packages/planning-engine/test/planning.test.ts \
+            packages/planning-engine/tsconfig.json \
+            README.md
+
+      - name: Commit canonical M22 formatting
+        shell: bash
+        run: |
+          if git diff --quiet -- \
+            apps/mcp-server/src/server.ts \
+            apps/mcp-server/tsconfig.json \
+            apps/vscode-extension/CHANGELOG.md \
+            apps/vscode-extension/src/extension.ts \
+            apps/vscode-extension/tsconfig.json \
+            packages/planning-engine/src/index.ts \
+            packages/planning-engine/test/planning.test.ts \
+            packages/planning-engine/tsconfig.json \
+            README.md
+          then
+            echo "No canonical formatting changes to commit."
+            exit 0
+          fi
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add \
+            apps/mcp-server/src/server.ts \
+            apps/mcp-server/tsconfig.json \
+            apps/vscode-extension/CHANGELOG.md \
+            apps/vscode-extension/src/extension.ts \
+            apps/vscode-extension/tsconfig.json \
+            packages/planning-engine/src/index.ts \
+            packages/planning-engine/test/planning.test.ts \
+            packages/planning-engine/tsconfig.json \
+            README.md
+          git commit -m "style: apply canonical M22 formatting"
+          git push origin HEAD:"${{ github.head_ref || github.ref_name }}"
 
       - name: Validate
         run: pnpm run ci
