@@ -7,6 +7,7 @@ on:
 
 permissions:
   contents: write
+  id-token: write
 
 jobs:
   release:
@@ -59,6 +60,13 @@ jobs:
             artifacts/release-manifest.json
           if-no-files-found: error
           retention-days: 30
+
+      - name: Publish accepted VSIX to VS Code Marketplace
+        if: ${{ vars.VSCODE_MARKETPLACE_PUBLISH == 'true' }}
+        working-directory: apps/vscode-extension
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          pnpm exec vsce publish --oidc --skip-duplicate --packagePath "../../artifacts/llmatic-agent-runtime-$VERSION.vsix"
 
       - name: Publish GitHub Release
         env:
