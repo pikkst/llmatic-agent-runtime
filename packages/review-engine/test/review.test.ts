@@ -15,7 +15,7 @@ import type {
   GatewayChatRequest,
   GatewayChatResponse,
 } from "@llmatic/gateway-client";
-import { listChangedFiles, runCodeReview } from "../src/review.js";
+import { listChangedFiles, runCodeReview, runReviewFixLoop } from "../src/review.js";
 
 const temporaryDirectories: string[] = [];
 
@@ -92,6 +92,33 @@ describe("review engine", () => {
   it("filters sensitive changed paths from review context", async () => {
     const root = await repository();
     expect(listChangedFiles(root)).toEqual(["src/value.ts"]);
+  });
+
+  it("runs an ad-hoc review loop when no workflow is active", async () => {
+    const root = await repository();
+    const config = configFor(root);
+    const store = new WorkflowStateStore(root, config);
+    const gateway = new ScriptedGateway([
+      response(
+        JSON.stringify({
+          summary: "No blocking defects found.",
+          findings: [],
+        }),
+      ),
+    ]);
+
+    const result = await runReviewFixLoop({
+      root,
+      config,
+      store,
+      gateway,
+      allowAdHoc: true,
+    });
+
+    expect(result.review.blockingCount).toBe(0);
+    expect(result.reviewRounds).toBe(1);
+    expect(result.fixRounds).toBe(0);
+    expect(await store.loadCurrent()).toBeUndefined();
   });
 
   it("moves CODE_REVIEW to FIXING for blocking findings", async () => {
