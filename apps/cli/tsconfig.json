@@ -5,10 +5,21 @@
     "rootDir": "src",
     "outDir": "dist"
   },
-  "include": ["src/**/*.ts"],
+  "include": [
+    "src/**/*.ts"
+  ],
   "references": [
-    { "path": "../../packages/core" },
-    { "path": "../../packages/tool-registry" },
-    { "path": "../../packages/git-adapter" }
+    {
+      "path": "../../packages/core"
+    },
+    {
+      "path": "../../packages/tool-registry"
+    },
+    {
+      "path": "../../packages/git-adapter"
+    },
+    {
+      "path": "../../packages/repo-intelligence"
+    }
   ]
 }

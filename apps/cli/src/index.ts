@@ -4,6 +4,14 @@ import { mkdir, writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import { Command } from "commander";
 import {
+  analyzeWorkflowRepository,
+  buildRepositoryIndex,
+  loadRepositoryIndex,
+  searchRepositoryIndex,
+  type RepositoryIndex,
+  type RepositorySearchHit,
+} from "@llmatic/repo-intelligence";
+import {
   commitStagedChanges,
   createBranch,
   createWorkflowBranch,
@@ -55,6 +63,19 @@ function printDetection(detection: RepositoryDetection): void {
     const command = capability.command ? " -> " + capability.command : "";
     console.log("  " + marker + " " + capability.name + command);
   }
+}
+
+function printRepositoryIndex(index: RepositoryIndex): void {
+  console.log("Files: " + index.fileCount);
+  console.log("Source files: " + index.sourceFileCount);
+  console.log("Symbols: " + index.symbols.length);
+  console.log("Imports: " + index.imports.length);
+  console.log("Generated: " + index.generatedAt);
+}
+
+function printSearchHit(hit: RepositorySearchHit): void {
+  const suffix = hit.line ? ":" + hit.line : "";
+  console.log(hit.kind + " " + hit.path + suffix + " — " + hit.label);
 }
 
 function printGitStatus(status: GitStatus): void {
@@ -237,6 +258,58 @@ program
     }
   });
 
+const repoCommand = program.command("repo").description("Build and query repository intelligence.");
+
+repoCommand
+  .command("index")
+  .description("Build the repository file/symbol/import index.")
+  .option("-r, --root <path>", "Repository root", process.cwd())
+  .option("--approve", "Approve when repositoryRead is configured as 'ask'")
+  .option("--json", "Print machine-readable JSON")
+  .action(async (options: { root: string; approve?: boolean; json?: boolean }) => {
+    const root = resolve(options.root);
+    const config = await loadAgentConfig(root);
+    const index = await buildRepositoryIndex(root, config, {
+      approved: options.approve ?? false,
+    });
+
+    if (options.json) {
+      console.log(JSON.stringify(index, null, 2));
+      return;
+    }
+
+    printRepositoryIndex(index);
+  });
+
+repoCommand
+  .command("search")
+  .description("Search the cached repository index.")
+  .argument("<query>", "Symbol, path, or import query")
+  .option("-r, --root <path>", "Repository root", process.cwd())
+  .option("-n, --limit <count>", "Maximum results", "20")
+  .option("--json", "Print machine-readable JSON")
+  .action(async (query: string, options: { root: string; limit: string; json?: boolean }) => {
+    const root = resolve(options.root);
+    const config = await loadAgentConfig(root);
+    const index = await loadRepositoryIndex(root, config);
+    const limit = Number.parseInt(options.limit, 10);
+
+    if (!Number.isInteger(limit) || limit <= 0) {
+      throw new Error("Search limit must be a positive integer.");
+    }
+
+    const hits = searchRepositoryIndex(index, query, limit);
+
+    if (options.json) {
+      console.log(JSON.stringify(hits, null, 2));
+      return;
+    }
+
+    for (const hit of hits) {
+      printSearchHit(hit);
+    }
+  });
+
 const gitCommand = program.command("git").description("Run protected Git operations.");
 
 gitCommand
@@ -398,6 +471,23 @@ workflow
     }
 
     printWorkflow(run);
+  });
+
+workflow
+  .command("analyze")
+  .description("Build repository intelligence and advance TASK_VALIDATED -> REPO_ANALYZED.")
+  .option("-r, --root <path>", "Repository root", process.cwd())
+  .option("--approve", "Approve when repositoryRead is configured as 'ask'")
+  .action(async (options: { root: string; approve?: boolean }) => {
+    const root = resolve(options.root);
+    const config = await loadAgentConfig(root);
+    const store = new WorkflowStateStore(root, config);
+    const result = await analyzeWorkflowRepository(root, config, store, {
+      approved: options.approve ?? false,
+    });
+
+    printRepositoryIndex(result.index);
+    console.log("State: " + result.workflow.state);
   });
 
 workflow
