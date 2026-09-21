@@ -7,7 +7,7 @@ on:
       - main
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   validate:
@@ -16,6 +16,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          ref: ${{ github.head_ref || github.ref_name }}
 
       - name: Set up Node.js
         uses: actions/setup-node@v4
@@ -27,6 +29,24 @@ jobs:
 
       - name: Install dependencies
         run: pnpm install --no-frozen-lockfile
+
+      - name: Canonical format Markdown regression
+        run: pnpm exec prettier --write packages/markdown-task-source/test/markdown.test.ts
+
+      - name: Commit canonical Markdown regression
+        shell: bash
+        run: |
+          if git diff --quiet -- packages/markdown-task-source/test/markdown.test.ts
+          then
+            echo "No canonical formatting changes to commit."
+            exit 0
+          fi
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add packages/markdown-task-source/test/markdown.test.ts
+          git commit -m "style: format markdown dependency regression"
+          git push origin HEAD:"${{ github.head_ref || github.ref_name }}"
 
       - name: Validate
         run: pnpm run ci
