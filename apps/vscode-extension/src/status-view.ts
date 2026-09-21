@@ -46,6 +46,18 @@ export class LlmaticStatusProvider implements vscode.TreeDataProvider<vscode.Tre
         command: "llmatic.startDiscovery",
       },
       {
+        label: "Generate Project Plan",
+        description: "private architecture, roadmap and task graph",
+        icon: "project",
+        command: "llmatic.generatePlan",
+      },
+      {
+        label: "Review Project Plan",
+        description: "inspect private plan artifacts",
+        icon: "preview",
+        command: "llmatic.reviewPlan",
+      },
+      {
         label: "Get Ready",
         description: "guided setup and repair",
         icon: "rocket",

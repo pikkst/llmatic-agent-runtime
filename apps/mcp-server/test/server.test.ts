@@ -83,6 +83,9 @@ describe("LLMatic MCP server", () => {
           "llmatic_workflow_remote_ci",
           "llmatic_workflow_merge",
           "llmatic_tools_list",
+          "llmatic_plan_status",
+          "llmatic_plan_generate",
+          "llmatic_plan_read_artifact",
         ]),
       );
     } finally {

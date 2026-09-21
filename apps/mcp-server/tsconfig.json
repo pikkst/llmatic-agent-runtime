@@ -12,6 +12,12 @@
       "path": "../../packages/core"
     },
     {
+      "path": "../../packages/discovery-engine"
+    },
+    {
+      "path": "../../packages/planning-engine"
+    },
+    {
       "path": "../../packages/tool-registry"
     },
     {

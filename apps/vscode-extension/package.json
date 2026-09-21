@@ -32,7 +32,8 @@
     "@llmatic/setup-health": "workspace:*",
     "@llmatic/release-metadata": "workspace:*",
     "@llmatic/update-installer": "workspace:*",
-    "@llmatic/discovery-engine": "workspace:*"
+    "@llmatic/discovery-engine": "workspace:*",
+    "@llmatic/planning-engine": "workspace:*"
   },
   "devDependencies": {
     "@types/vscode": "1.105.0",
@@ -49,6 +50,16 @@
       {
         "command": "llmatic.discoveryStatus",
         "title": "Show Project Discovery",
+        "category": "LLMatic"
+      },
+      {
+        "command": "llmatic.generatePlan",
+        "title": "Generate Project Plan",
+        "category": "LLMatic"
+      },
+      {
+        "command": "llmatic.reviewPlan",
+        "title": "Review Project Plan",
         "category": "LLMatic"
       },
       {

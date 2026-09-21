@@ -17,7 +17,9 @@
     "@llmatic/task-provider": "workspace:*",
     "@llmatic/jira-adapter": "workspace:*",
     "@llmatic/runtime-tools": "workspace:*",
-    "@llmatic/task-router": "workspace:*"
+    "@llmatic/task-router": "workspace:*",
+    "@llmatic/discovery-engine": "workspace:*",
+    "@llmatic/planning-engine": "workspace:*"
   },
   "devDependencies": {
     "@modelcontextprotocol/client": "2.0.0"

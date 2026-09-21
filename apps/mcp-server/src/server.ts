@@ -7,6 +7,13 @@ import {
   validateJiraWorkflowTask,
 } from "@llmatic/jira-adapter";
 import { selectWorkflowTask, syncWorkflowTask, validateWorkflowTask } from "@llmatic/task-provider";
+import { loadDiscoverySession } from "@llmatic/discovery-engine";
+import {
+  generateProjectPlan,
+  loadCurrentProjectPlan,
+  loadProjectPlanManifest,
+  readProjectPlanArtifact,
+} from "@llmatic/planning-engine";
 import {
   detectTaskSources,
   resolveTaskProvider,
@@ -23,6 +30,7 @@ import {
   detectRepository,
   executeCapability,
   loadAgentConfig,
+  managedWorkspaceDirectory,
   normalizeWorkflowState,
   recordCapabilityCheckpoint,
   runLocalValidation,
@@ -55,6 +63,15 @@ const workflowStateInputSchema = z.string().min(1);
 
 function runtimeRoot(root?: string): string {
   return resolve(root ?? process.env.LLMATIC_ROOT ?? process.cwd());
+}
+
+function planningWorkspaceDirectory(root: string): string {
+  const llmaticHome = process.env.LLMATIC_HOME?.trim();
+  if (!llmaticHome) {
+    throw new Error("LLMATIC_HOME is required for private discovery/planning MCP tools.");
+  }
+
+  return managedWorkspaceDirectory(root, llmaticHome);
 }
 
 function errorMessage(error: unknown): string {
@@ -261,6 +278,79 @@ export function createLlmaticMcpServer(): McpServer {
           comment,
           transition,
         });
+      }),
+  );
+
+  server.registerTool(
+    "llmatic_plan_status",
+    {
+      description:
+        "Read the current private project-plan pointer and manifest. Does not read or mutate tracked repository files.",
+      inputSchema: z.object({
+        root: z.string().optional(),
+      }),
+    },
+    async ({ root }) =>
+      toolResult(async () => {
+        const projectRoot = runtimeRoot(root);
+        const workspaceDirectory = planningWorkspaceDirectory(projectRoot);
+        const current = await loadCurrentProjectPlan(workspaceDirectory);
+        const manifest = current
+          ? await loadProjectPlanManifest(workspaceDirectory, current.planId)
+          : undefined;
+
+        return {
+          current: current ?? null,
+          manifest: manifest ?? null,
+        };
+      }),
+  );
+
+  server.registerTool(
+    "llmatic_plan_generate",
+    {
+      description:
+        "Generate a new versioned private engineering-plan draft from a completed discovery session. This writes only LLMatic private workspace storage, never tracked project files.",
+      inputSchema: z.object({
+        root: z.string().optional(),
+      }),
+    },
+    async ({ root }) =>
+      toolResult(async () => {
+        const projectRoot = runtimeRoot(root);
+        const workspaceDirectory = planningWorkspaceDirectory(projectRoot);
+        const discovery = await loadDiscoverySession(workspaceDirectory);
+
+        if (!discovery) {
+          throw new Error(
+            "No discovery session exists. Complete project discovery before generating a plan.",
+          );
+        }
+
+        return generateProjectPlan(workspaceDirectory, discovery);
+      }),
+  );
+
+  server.registerTool(
+    "llmatic_plan_read_artifact",
+    {
+      description:
+        "Read one artifact from a versioned private project-plan draft by its manifest relative path.",
+      inputSchema: z.object({
+        root: z.string().optional(),
+        planId: z.string().uuid().optional(),
+        relativePath: z.string().min(1),
+      }),
+    },
+    async ({ root, planId, relativePath }) =>
+      toolResult(async () => {
+        const projectRoot = runtimeRoot(root);
+        const workspaceDirectory = planningWorkspaceDirectory(projectRoot);
+        return {
+          planId: planId ?? (await loadCurrentProjectPlan(workspaceDirectory))?.planId ?? null,
+          relativePath,
+          content: await readProjectPlanArtifact(workspaceDirectory, relativePath, planId),
+        };
       }),
   );
 
