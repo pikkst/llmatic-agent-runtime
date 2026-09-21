@@ -11,6 +11,7 @@ type ChatMessage =
 export interface AgentChatHandlers {
   send(text: string): Promise<void>;
   refresh(): Promise<void>;
+  continueRecommended(): Promise<void>;
 }
 
 export class AgentChatViewProvider implements vscode.WebviewViewProvider {
@@ -38,6 +39,11 @@ export class AgentChatViewProvider implements vscode.WebviewViewProvider {
 
       if (input.type === "refresh") {
         if (!this.busy) await this.handlers?.refresh();
+        return;
+      }
+
+      if (input.type === "continue") {
+        if (!this.busy) await this.handlers?.continueRecommended();
         return;
       }
 
@@ -470,12 +476,7 @@ export class AgentChatViewProvider implements vscode.WebviewViewProvider {
     refresh.addEventListener("click", () => vscode.postMessage({ type: "refresh" }));
     continueButton.addEventListener("click", () => {
       if (!latestRecovery) return;
-      submit(
-        "Continue with the recommended next action: " +
-          latestRecovery.recommendation.title +
-          ". " +
-          latestRecovery.recommendation.detail,
-      );
+      vscode.postMessage({ type: "continue" });
     });
 
     window.addEventListener("message", (event) => {
