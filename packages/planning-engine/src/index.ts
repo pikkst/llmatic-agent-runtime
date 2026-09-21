@@ -52,6 +52,21 @@ export interface GeneratedProjectPlan {
   tasks: ProjectPlanTask[];
 }
 
+export interface ProjectPlanGenerationOptions {
+  changeRequest?: string;
+}
+
+interface ProductProfile {
+  inferred: boolean;
+  resourceSingular: string;
+  resourcePlural: string;
+  resourceSlug: string;
+  resourceLabel: string;
+  actions: string[];
+  fields: string[];
+  changeRequest?: string;
+}
+
 interface PlanContext {
   idea: string;
   productType: string;
@@ -223,6 +238,149 @@ function list(items: string[]): string {
   return items.map((item) => "- " + item).join("\n");
 }
 
+const RESOURCE_STOP_WORDS = new Set([
+  "application",
+  "applications",
+  "product",
+  "products",
+  "system",
+  "systems",
+  "user",
+  "users",
+  "data",
+  "workflow",
+  "workflows",
+  "service",
+  "services",
+  "api",
+  "backend",
+  "frontend",
+  "account",
+  "accounts",
+]);
+
+function singularizeResource(value: string): string {
+  const word = value.toLowerCase();
+  if (word.endsWith("ies") && word.length > 3) return word.slice(0, -3) + "y";
+  if (word.endsWith("ses") && word.length > 3) return word.slice(0, -2);
+  if (word.endsWith("s") && !word.endsWith("ss") && word.length > 3) return word.slice(0, -1);
+  return word;
+}
+
+function pluralizeResource(value: string): string {
+  if (value.endsWith("y") && !/[aeiou]y$/.test(value)) return value.slice(0, -1) + "ies";
+  if (/(s|x|z|ch|sh)$/.test(value)) return value + "es";
+  return value + "s";
+}
+
+function resourceLabel(value: string): string {
+  return value
+    .split(/[-_\s]+/)
+    .filter(Boolean)
+    .map((part) => part.slice(0, 1).toUpperCase() + part.slice(1))
+    .join(" ");
+}
+
+function inferResource(text: string): string | undefined {
+  const candidates: string[] = [];
+  const management = text.match(/\b([a-z][a-z0-9_-]{2,})\s+(?:management|manager|tracking|tracker)\b/i);
+  if (management?.[1]) candidates.push(management[1]);
+
+  const actionPattern =
+    /\b(?:create|add|view|list|edit|update|complete|uncomplete|delete|remove|manage|track|store|publish|upload|download|book|schedule)\s+(?:their\s+own\s+|their\s+|the\s+|a\s+|an\s+)?([a-z][a-z0-9_-]{2,})\b/gi;
+  for (const match of text.matchAll(actionPattern)) {
+    if (match[1]) candidates.push(match[1]);
+  }
+
+  const usable = candidates
+    .map((candidate) => candidate.replace(/[^a-z0-9_-]/gi, "").toLowerCase())
+    .filter((candidate) => candidate && !RESOURCE_STOP_WORDS.has(candidate));
+  if (usable.length === 0) return undefined;
+
+  const counts = new Map<string, number>();
+  for (const candidate of usable) {
+    const singular = singularizeResource(candidate);
+    counts.set(singular, (counts.get(singular) ?? 0) + 1);
+  }
+
+  return [...counts.entries()].sort((a, b) => b[1] - a[1])[0]?.[0];
+}
+
+function inferActions(text: string): string[] {
+  const actionAliases: Array<[RegExp, string]> = [
+    [/\b(create|add)\b/i, "create"],
+    [/\b(view|read)\b/i, "view"],
+    [/\blist\b/i, "list"],
+    [/\b(edit|update)\b/i, "edit"],
+    [/\buncomplete\b/i, "uncomplete"],
+    [/\bcomplete\b/i, "complete"],
+    [/\b(delete|remove)\b/i, "delete"],
+  ];
+  return actionAliases.flatMap(([pattern, action]) => (pattern.test(text) ? [action] : []));
+}
+
+function inferFields(text: string, context: PlanContext): string[] {
+  const fields = ["id"];
+  if (context.authentication !== "none") {
+    fields.push(context.tenancy === "organizations" ? "organizationId" : "ownerUserId");
+  }
+  if (/\btitle\b/i.test(text)) fields.push("title");
+  if (/\bdescription\b/i.test(text)) fields.push("description");
+  if (/\b(completion|complete|completed)\b/i.test(text)) fields.push("completed");
+  if (/\bcreated(?:At|\s+timestamp)?\b/i.test(text) || /\bcreated\/updated timestamps\b/i.test(text)) {
+    fields.push("createdAt");
+  }
+  if (/\bupdated(?:At|\s+timestamp)?\b/i.test(text) || /\bcreated\/updated timestamps\b/i.test(text)) {
+    fields.push("updatedAt");
+  }
+  return [...new Set(fields)];
+}
+
+function productProfile(
+  context: PlanContext,
+  options: ProjectPlanGenerationOptions,
+): ProductProfile {
+  const changeRequest = options.changeRequest?.trim() || undefined;
+  const source = [context.idea, changeRequest].filter(Boolean).join("\n");
+  const resourceSingular = inferResource(source) ?? "domain resource";
+  const inferred = resourceSingular !== "domain resource";
+  const resourcePlural = inferred ? pluralizeResource(resourceSingular) : "domain resources";
+  const slugBase = inferred ? resourcePlural : "resources";
+
+  return {
+    inferred,
+    resourceSingular,
+    resourcePlural,
+    resourceSlug: slugBase.replace(/[^a-z0-9]+/gi, "-").replace(/^-|-$/g, "").toLowerCase(),
+    resourceLabel: inferred ? resourceLabel(resourceSingular) : "Domain resource",
+    actions: inferActions(source),
+    fields: inferFields(source, context),
+    changeRequest,
+  };
+}
+
+function actionPhrase(profile: ProductProfile): string {
+  return profile.actions.length > 0 ? profile.actions.join(", ") : "the approved lifecycle actions";
+}
+
+function ownershipRequirement(context: PlanContext, profile: ProductProfile): string {
+  if (context.authentication === "none") {
+    return "Public resource access must follow the explicitly approved no-auth trust boundary.";
+  }
+  if (context.tenancy === "organizations") {
+    return (
+      "Every " +
+      profile.resourceSingular +
+      " read and mutation must enforce organization/workspace ownership server-side."
+    );
+  }
+  return (
+    "An authenticated user may read or mutate only " +
+    profile.resourcePlural +
+    " owned by that user."
+  );
+}
+
 function decisionTable(session: DiscoverySession): string {
   const ordered = [
     "product_type",
@@ -258,8 +416,12 @@ function decisionTable(session: DiscoverySession): string {
   );
 }
 
-function productBrief(session: DiscoverySession, context: PlanContext): string {
-  return md("Product Brief", [
+function productBrief(
+  session: DiscoverySession,
+  context: PlanContext,
+  profile: ProductProfile,
+): string {
+  const sections: Array<[string, string]> = [
     ["Product idea", context.idea],
     [
       "Target",
@@ -287,19 +449,51 @@ function productBrief(session: DiscoverySession, context: PlanContext): string {
         "Capture consequential architecture changes as ADRs.",
       ]),
     ],
-    ["Discovery decisions", decisionTable(session)],
-  ]);
+  ];
+
+  if (profile.changeRequest) {
+    sections.push(["Requested plan refinements", profile.changeRequest]);
+  }
+
+  sections.push(["Discovery decisions", decisionTable(session)]);
+  return md("Product Brief", sections);
 }
 
-function requirements(context: PlanContext): string {
+function requirements(context: PlanContext, profile: ProductProfile): string {
   const authenticated = context.authentication !== "none";
   const organizations = context.tenancy === "organizations";
+  const productRequirements = [
+    "The implementation shall satisfy this approved product intent: " + context.idea,
+  ];
+
+  if (profile.inferred) {
+    productRequirements.push(
+      "The " +
+        profile.resourceLabel +
+        " lifecycle shall support " +
+        actionPhrase(profile) +
+        ".",
+    );
+    productRequirements.push(ownershipRequirement(context, profile));
+    if (profile.fields.length > 0) {
+      productRequirements.push(
+        "The canonical " +
+          profile.resourceLabel +
+          " model shall represent: " +
+          profile.fields.join(", ") +
+          ".",
+      );
+    }
+  }
 
   return md("Requirements", [
+    ["Product-specific requirements", list(productRequirements)],
+    ...(profile.changeRequest
+      ? ([["Requested refinements", profile.changeRequest]] as Array<[string, string]>)
+      : []),
     [
       "Functional requirements",
       list([
-        "The system shall implement the primary product workflow implied by the product idea.",
         "The system shall validate all externally supplied data at trust boundaries.",
         "The system shall expose deterministic error states rather than silent failure.",
         authenticated
@@ -336,7 +530,7 @@ function requirements(context: PlanContext): string {
   ]);
 }
 
-function journeys(context: PlanContext): string {
+function journeys(context: PlanContext, profile: ProductProfile): string {
   const auth =
     context.authentication === "none"
       ? "enters directly"
@@ -344,7 +538,24 @@ function journeys(context: PlanContext): string {
   const tenant =
     context.tenancy === "organizations"
       ? "selects or creates the organization/workspace"
-      : "operates in the configured ownership context";
+      : "uses the authenticated individual account";
+
+  if (!profile.inferred) {
+    return md("User Journeys", [
+      ["Approved product intent", context.idea],
+      [
+        "Journey 1 — First successful outcome",
+        [
+          "1. The primary user opens the product.",
+          "2. The user " + auth + ".",
+          "3. The user " + tenant + ".",
+          "4. The user completes the minimum workflow required by the approved product intent.",
+          "5. The system validates and processes the request with explicit state.",
+          "6. The user receives the primary outcome plus actionable errors where relevant.",
+        ].join("\n"),
+      ],
+    ]);
+  }
 
   return md("User Journeys", [
     [
@@ -353,25 +564,26 @@ function journeys(context: PlanContext): string {
         "1. The primary user opens the product.",
         "2. The user " + auth + ".",
         "3. The user " + tenant + ".",
-        "4. The user provides the minimum inputs for the core workflow.",
-        "5. The system validates and processes the request with explicit state.",
-        "6. The user receives the primary outcome plus actionable errors/evidence where relevant.",
+        "4. The user opens the " + profile.resourcePlural + " view and sees an explicit empty or loaded state.",
+        "5. The user creates a " + profile.resourceSingular + " with valid product-specific input.",
+        "6. The new " + profile.resourceSingular + " appears in the user's " + profile.resourcePlural + " collection.",
       ].join("\n"),
     ],
     [
-      "Journey 2 — Returning user",
+      "Journey 2 — Returning user lifecycle",
       [
-        "1. Existing account/tenant context is restored safely.",
-        "2. Prior relevant resources/results are discoverable.",
-        "3. The core workflow can continue without re-entering unrelated data.",
+        "1. Existing identity context is restored safely.",
+        "2. Existing " + profile.resourcePlural + " owned by the current user are discoverable.",
+        "3. The user can " + actionPhrase(profile) + " according to the approved lifecycle.",
+        "4. Mutations remain scoped to the authenticated owner and return deterministic errors on failure.",
       ].join("\n"),
     ],
     [
-      "Journey 3 — Failure and recovery",
+      "Journey 3 — Authorization and recovery",
       [
-        "1. Invalid, incomplete or unavailable dependencies are rejected explicitly.",
-        "2. Recoverable user work is preserved where feasible.",
-        "3. Retry does not create duplicate side effects.",
+        "1. Invalid or incomplete " + profile.resourceSingular + " input is rejected explicitly.",
+        "2. Attempts to access another owner's " + profile.resourcePlural + " are rejected server-side.",
+        "3. Recoverable user input is preserved where feasible and retry does not create duplicate side effects.",
       ].join("\n"),
     ],
   ]);
@@ -438,9 +650,10 @@ function adr(
   ]);
 }
 
-function dataModel(context: PlanContext): string {
+function dataModel(context: PlanContext, profile: ProductProfile): string {
   if (context.dataStore === "none") {
     return md("Data Model", [
+      ["Product intent", context.idea],
       [
         "Decision",
         list([
@@ -453,34 +666,60 @@ function dataModel(context: PlanContext): string {
     ]);
   }
 
-  const entities = ["Core domain resource", "Audit/evidence record"];
-  if (context.authentication !== "none") entities.unshift("User / identity reference");
-  if (context.tenancy === "organizations") entities.unshift("Organization", "Membership");
+  const entities: string[] = [];
+  if (context.tenancy === "organizations") entities.push("Organization", "Membership");
+  if (context.authentication !== "none") entities.push("User / identity reference");
+  entities.push(profile.resourceLabel);
+
+  const fieldDetails = profile.fields.map((field) => {
+    if (field === "id") return "id — stable unique identifier";
+    if (field === "ownerUserId") return "ownerUserId — authenticated user ownership reference";
+    if (field === "organizationId") return "organizationId — owning organization/workspace reference";
+    if (field === "title") return "title — required human-readable title";
+    if (field === "description") return "description — optional descriptive text";
+    if (field === "completed") return "completed — explicit completion state";
+    if (field === "createdAt") return "createdAt — creation timestamp";
+    if (field === "updatedAt") return "updatedAt — last-update timestamp";
+    return field;
+  });
 
   return md("Data Model", [
     ["Primary persistence", context.labels.data_store],
     ["Foundational entities", list(entities)],
+    ...(fieldDetails.length > 0
+      ? ([[
+          profile.resourceLabel + " fields",
+          list(fieldDetails),
+        ]] as Array<[string, string]>)
+      : []),
+    [
+      "Ownership and lifecycle",
+      list([
+        ownershipRequirement(context, profile),
+        "Delete/cascade behavior must be explicit and tested.",
+        "State transitions must preserve domain invariants.",
+      ]),
+    ],
     [
       "Data rules",
       list([
         "Use database constraints for invariants that must survive application bugs.",
         "Use migrations for every persistent schema change.",
         "Do not overload null to mean both unknown and not-applicable.",
-        "Preserve source/provenance for externally derived facts.",
-        "Delete/cascade behavior must be explicit.",
       ]),
     ],
   ]);
 }
 
-function apiContracts(context: PlanContext): string {
+function apiContracts(context: PlanContext, profile: ProductProfile): string {
   if (["cli_app", "desktop_app"].includes(context.applicationShape)) {
     return md("API Contracts", [
+      ["Product intent", context.idea],
       [
         "Contract rules",
         list([
           "No mandatory public HTTP API is assumed for the first delivery.",
-          "Internal use-cases still expose typed request/result contracts.",
+          "Internal use-cases expose typed request/result contracts for " + profile.resourcePlural + ".",
           "CLI/desktop inputs are validated before domain execution.",
           "External integrations use typed adapter interfaces.",
         ]),
@@ -488,6 +727,7 @@ function apiContracts(context: PlanContext): string {
     ]);
   }
 
+  const collection = "/api/" + profile.resourceSlug;
   return md("API Contracts", [
     [
       "Baseline conventions",
@@ -502,16 +742,26 @@ function apiContracts(context: PlanContext): string {
       ]),
     ],
     [
-      "Initial resource pattern",
+      profile.inferred ? profile.resourceLabel + " routes" : "Initial resource pattern",
       [
         "    GET    /api/health",
-        "    GET    /api/<resources>",
-        "    GET    /api/<resources>/:id",
-        "    POST   /api/<resources>",
-        "    PATCH  /api/<resources>/:id",
-        "",
-        "Only create routes required by approved user journeys.",
+        "    GET    " + collection,
+        "    GET    " + collection + "/:id",
+        "    POST   " + collection,
+        "    PATCH  " + collection + "/:id",
+        "    DELETE " + collection + "/:id",
       ].join("\n"),
+    ],
+    [
+      "Contract semantics",
+      list([
+        profile.inferred
+          ? "POST creates a " + profile.resourceSingular + " owned by the authenticated scope."
+          : "POST creates the approved resource.",
+        "PATCH supports approved edits/state transitions without changing ownership.",
+        "DELETE follows the explicit deletion behavior in the approved data model.",
+        ownershipRequirement(context, profile),
+      ]),
     ],
   ]);
 }
@@ -625,13 +875,15 @@ function operations(context: PlanContext): string {
   ]);
 }
 
-function phaseTasks(context: PlanContext): ProjectPlanTask[] {
+function phaseTasks(context: PlanContext, profile: ProductProfile): ProjectPlanTask[] {
   const tasks: ProjectPlanTask[] = [];
   const add = (task: ProjectPlanTask) => tasks.push(task);
   const baseDod = [
     "tests for changed behavior pass",
     "affected documentation/contracts are updated",
   ];
+  const resource = profile.resourceLabel;
+  const resourceLower = profile.resourceSingular;
 
   add({
     id: "PLAN-001",
@@ -680,12 +932,17 @@ function phaseTasks(context: PlanContext): ProjectPlanTask[] {
   add({
     id: "PLAN-010",
     phase: "Phase 1 — Domain",
-    summary: "Implement canonical domain model and use-case contracts",
-    description:
-      "Translate approved requirements/journeys into domain types, invariants and application use-cases.",
+    summary: profile.inferred
+      ? "Define " + resource + " domain model and lifecycle use-cases"
+      : "Implement canonical domain model and use-case contracts",
+    description: profile.inferred
+      ? "Implement the canonical " + resource + " model and use-cases for " + actionPhrase(profile) + "."
+      : "Translate approved requirements/journeys into domain types, invariants and application use-cases.",
     dependencies: ["PLAN-001"],
     acceptanceCriteria: [
-      "Core domain concepts have stable ownership semantics.",
+      profile.inferred
+        ? resource + " ownership and lifecycle invariants are explicit and testable."
+        : "Core domain concepts have stable ownership semantics.",
       "Business invariants are testable without UI/framework dependencies.",
     ],
     definitionOfDone: baseDod,
@@ -695,9 +952,12 @@ function phaseTasks(context: PlanContext): ProjectPlanTask[] {
     add({
       id: "PLAN-011",
       phase: "Phase 1 — Domain",
-      summary: "Implement persistence schema and migration baseline",
-      description:
-        "Create approved persistence model, constraints, migrations and repository adapters.",
+      summary: profile.inferred
+        ? "Implement " + resource + " persistence schema and ownership constraints"
+        : "Implement persistence schema and migration baseline",
+      description: profile.inferred
+        ? "Create the " + resource + " schema, ownership constraints, migrations and repository adapter."
+        : "Create approved persistence model, constraints, migrations and repository adapters.",
       dependencies: ["PLAN-010", "PLAN-003"],
       acceptanceCriteria: [
         "Schema represents ownership and lifecycle explicitly.",
@@ -712,8 +972,9 @@ function phaseTasks(context: PlanContext): ProjectPlanTask[] {
     add({
       id: "PLAN-012",
       phase: "Phase 1 — Identity",
-      summary: "Implement authentication boundary",
-      description: "Integrate approved identity mechanism behind an explicit identity adapter.",
+      summary: "Implement authentication and owner identity boundary",
+      description:
+        "Integrate the approved identity mechanism and map authenticated users to resource ownership.",
       dependencies: ["PLAN-003"],
       acceptanceCriteria: [
         "Valid identity maps to internal actor/user reference.",
@@ -752,26 +1013,35 @@ function phaseTasks(context: PlanContext): ProjectPlanTask[] {
   add({
     id: "PLAN-020",
     phase: "Phase 2 — Application",
-    summary: ["fullstack_web", "api_backend"].includes(context.applicationShape)
-      ? "Implement typed API contract and transport layer"
-      : "Implement primary application command/use-case surface",
-    description:
-      "Connect approved product inputs to canonical application use-cases with runtime validation and stable errors.",
+    summary:
+      profile.inferred && ["fullstack_web", "api_backend"].includes(context.applicationShape)
+        ? "Implement " + resource + " API contracts and authorization"
+        : ["fullstack_web", "api_backend"].includes(context.applicationShape)
+          ? "Implement typed API contract and transport layer"
+          : "Implement primary application command/use-case surface",
+    description: profile.inferred
+      ? "Expose the approved " + resourceLower + " lifecycle through typed contracts with validation, stable errors and ownership checks."
+      : "Connect approved product inputs to canonical application use-cases with runtime validation and stable errors.",
     dependencies: backendDeps,
     acceptanceCriteria: [
       "External inputs are validated.",
-      "Authorization rules are applied where required.",
+      ownershipRequirement(context, profile),
       "Errors use stable machine-readable/structured contracts.",
     ],
     definitionOfDone: baseDod,
   });
 
+  let journeyTaskId: string | undefined;
   if (["fullstack_web", "frontend_only"].includes(context.applicationShape)) {
     add({
       id: "PLAN-030",
       phase: "Phase 3 — Product UI",
-      summary: "Implement application shell and primary navigation",
-      description: "Create accessible UI structure and loading/empty/error state patterns.",
+      summary: profile.inferred
+        ? "Implement " + resource + " list, empty, loading and error states"
+        : "Implement application shell and primary navigation",
+      description: profile.inferred
+        ? "Create the primary " + profile.resourcePlural + " UI with explicit loading, empty and recoverable error states."
+        : "Create accessible UI structure and loading/empty/error state patterns.",
       dependencies: context.applicationShape === "fullstack_web" ? ["PLAN-020"] : ["PLAN-001"],
       acceptanceCriteria: [
         "Navigation matches approved journeys.",
@@ -783,30 +1053,40 @@ function phaseTasks(context: PlanContext): ProjectPlanTask[] {
     add({
       id: "PLAN-031",
       phase: "Phase 3 — Product UI",
-      summary: "Implement first successful user journey end to end",
-      description: "Deliver the minimum coherent user flow that produces the core product outcome.",
+      summary: profile.inferred
+        ? "Implement " + resource + " lifecycle end to end"
+        : "Implement first successful user journey end to end",
+      description: profile.inferred
+        ? "Deliver the complete user flow for " + actionPhrase(profile) + " on owned " + profile.resourcePlural + "."
+        : "Deliver the minimum coherent user flow that produces the core product outcome.",
       dependencies: [
         "PLAN-030",
         ...(context.applicationShape === "fullstack_web" ? ["PLAN-020"] : []),
       ],
       acceptanceCriteria: [
-        "A real user can complete the primary workflow.",
-        "Validation and recoverable errors are represented in UI.",
+        profile.inferred
+          ? "A real user can " + actionPhrase(profile) + " " + profile.resourcePlural + " through the product UI."
+          : "A real user can complete the primary workflow.",
+        "Validation, authorization and recoverable errors are represented in UI.",
       ],
       definitionOfDone: ["critical journey E2E passes", "journey docs match behavior"],
     });
+    journeyTaskId = "PLAN-031";
   }
 
   add({
     id: "PLAN-040",
     phase: "Phase 4 — Quality",
     summary: "Complete integration and regression coverage",
-    description:
-      "Cover persistence, identity, authorization and failure recovery based on selected test policy.",
-    dependencies: ["PLAN-020"],
+    description: profile.inferred
+      ? "Cover the " + resource + " lifecycle, persistence, identity, ownership authorization and recovery paths."
+      : "Cover persistence, identity, authorization and failure recovery based on selected test policy.",
+    dependencies: [journeyTaskId ?? "PLAN-020"],
     acceptanceCriteria: [
       "Critical cross-boundary behavior is tested.",
-      "Known failure modes have regression coverage.",
+      profile.inferred
+        ? "The complete " + resource + " lifecycle and cross-owner rejection have regression coverage."
+        : "Known failure modes have regression coverage.",
     ],
     definitionOfDone: ["required quality gates pass", "no flaky test accepted as green evidence"],
   });
@@ -1027,6 +1307,7 @@ export async function loadProjectPlanManifest(
 export async function generateProjectPlan(
   workspaceDirectory: string,
   session: DiscoverySession,
+  options: ProjectPlanGenerationOptions = {},
 ): Promise<GeneratedProjectPlan> {
   if (session.status !== "ready_for_planning") {
     throw new Error(
@@ -1035,16 +1316,17 @@ export async function generateProjectPlan(
   }
 
   const context = contextFor(session);
+  const profile = productProfile(context, options);
   const recommendation = architectureRecommendation(context);
-  const tasks = phaseTasks(context);
+  const tasks = phaseTasks(context, profile);
   const planId = randomUUID();
   const directory = planDirectory(workspaceDirectory, planId);
   const now = new Date().toISOString();
 
   const files = new Map<string, string>([
-    ["PRODUCT_BRIEF.md", productBrief(session, context)],
-    ["REQUIREMENTS.md", requirements(context)],
-    ["USER_JOURNEYS.md", journeys(context)],
+    ["PRODUCT_BRIEF.md", productBrief(session, context, profile)],
+    ["REQUIREMENTS.md", requirements(context, profile)],
+    ["USER_JOURNEYS.md", journeys(context, profile)],
     ["ARCHITECTURE.md", architecture(context, recommendation)],
     [
       "adr/ADR-001-application-architecture.md",
@@ -1084,8 +1366,8 @@ export async function generateProjectPlan(
         ],
       ),
     ],
-    ["DATA_MODEL.md", dataModel(context)],
-    ["API_CONTRACTS.md", apiContracts(context)],
+    ["DATA_MODEL.md", dataModel(context, profile)],
+    ["API_CONTRACTS.md", apiContracts(context, profile)],
     ["SECURITY.md", security(context)],
     ["TESTING.md", testing(context)],
     ["OPERATIONS.md", operations(context)],
