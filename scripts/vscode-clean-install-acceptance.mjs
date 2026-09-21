@@ -114,13 +114,24 @@ try {
       "  const extensionId = process.env.LLMATIC_EXTENSION_ID;",
       "  const expectedVersion = process.env.LLMATIC_EXPECTED_VERSION;",
       "  const sourceExtensionPath = process.env.LLMATIC_SOURCE_EXTENSION_PATH;",
+      "  const expectedExtensionsDir = process.env.LLMATIC_EXTENSIONS_DIR;",
       '  assert.ok(extensionId, "missing expected extension id");',
       '  assert.ok(expectedVersion, "missing expected extension version");',
+      '  assert.ok(expectedExtensionsDir, "missing isolated extensions directory");',
       "",
       "  const target = vscode.extensions.getExtension(extensionId);",
       '  assert.ok(target, "installed LLMatic extension was not discovered");',
       "  assert.equal(target.packageJSON.version, expectedVersion);",
-      "  assert.equal(target.extensionMode, vscode.ExtensionMode.Production);",
+      "  const normalizePath = (value) => {",
+      "    const normalized = path.resolve(value);",
+      '    return process.platform === "win32" ? normalized.toLowerCase() : normalized;',
+      "  };",
+      "  assert.ok(",
+      "    normalizePath(target.extensionPath).startsWith(",
+      "      normalizePath(expectedExtensionsDir) + path.sep,",
+      "    ),",
+      '    "installed extension was not loaded from the isolated VSIX extensions directory",',
+      "  );",
       "  if (sourceExtensionPath) {",
       "    assert.notEqual(",
       "      path.resolve(target.extensionPath),",
@@ -222,6 +233,7 @@ try {
         LLMATIC_EXTENSION_ID: extensionId,
         LLMATIC_EXPECTED_VERSION: expectedVersion,
         LLMATIC_SOURCE_EXTENSION_PATH: extensionSourcePath,
+        LLMATIC_EXTENSIONS_DIR: extensions,
       },
     });
   } finally {
@@ -233,7 +245,7 @@ try {
   console.log("VS CODE CLEAN-INSTALL ACCEPTANCE PASSED");
   console.log("VS Code: 1.105.0");
   console.log("Extension: " + extensionId + "@" + expectedVersion);
-  console.log("Install mode: VSIX / Production");
+  console.log("Install source: isolated VSIX extensions directory");
   console.log("Activation: verified");
   console.log("Critical commands: verified");
   console.log("Zero-repo footprint: verified");

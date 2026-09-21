@@ -117,7 +117,7 @@
 
 - Added real VSIX installation acceptance using VS Code Extension Host.
 - Acceptance runs against the minimum supported VS Code 1.105.0.
-- Verifies the installed extension is loaded in Production mode and activates successfully.
+- Verifies VS Code loads the extension from the isolated VSIX extensions directory rather than the source-development path, then activates it successfully.
 - Verifies critical LLMatic commands are registered from the installed VSIX.
 - Verifies extension activation keeps the opened repository free of LLMatic runtime/config files.
 - Added the clean-install gate to hosted CI and the tag-driven release workflow.

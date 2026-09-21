@@ -205,7 +205,7 @@ A release candidate is not product-ready if this lifecycle gate fails.
 
 Status: in progress.
 
-Goal: prove the packaged VSIX as a real installed production extension before the first public semantic release.
+Goal: prove the packaged VSIX as a real installed extension from an isolated VS Code profile before the first public semantic release.
 
 Acceptance path:
 
@@ -213,7 +213,7 @@ Acceptance path:
       -> isolated VS Code profile
       -> install VSIX through VS Code CLI
       -> discover installed extension
-      -> ExtensionMode.Production
+      -> loaded from isolated VSIX extensions directory
       -> activate installed extension
       -> verify critical command registrations
       -> verify zero-repository footprint
