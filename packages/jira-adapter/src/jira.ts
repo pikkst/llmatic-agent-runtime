@@ -204,6 +204,37 @@ function commentDocument(text: string) {
   };
 }
 
+function linkedDependencies(fields: Record<string, unknown>): string[] {
+  const links = Array.isArray(fields.issuelinks) ? fields.issuelinks : [];
+  const dependencies = new Set<string>();
+
+  for (const value of links) {
+    if (!value || typeof value !== "object") continue;
+    const link = value as Record<string, unknown>;
+    const type =
+      link.type && typeof link.type === "object"
+        ? (link.type as Record<string, unknown>)
+        : {};
+    const inwardDescription = String(type.inward ?? "").toLowerCase();
+    const inwardIssue =
+      link.inwardIssue && typeof link.inwardIssue === "object"
+        ? (link.inwardIssue as Record<string, unknown>)
+        : undefined;
+
+    if (
+      inwardIssue &&
+      (inwardDescription.includes("blocked by") ||
+        inwardDescription.includes("depends on") ||
+        inwardDescription.includes("requires"))
+    ) {
+      const key = String(inwardIssue.key ?? "").trim();
+      if (key) dependencies.add(key);
+    }
+  }
+
+  return [...dependencies];
+}
+
 function taskFromIssue(connection: JiraConnectionConfig, raw: Record<string, unknown>): TaskRecord {
   const fields = (raw.fields ?? {}) as Record<string, unknown>;
   const status = (fields.status ?? {}) as Record<string, unknown>;
@@ -249,7 +280,7 @@ function taskFromIssue(connection: JiraConnectionConfig, raw: Record<string, unk
     webUrl: siteUrl ? siteUrl + "/browse/" + encodeURIComponent(key) : undefined,
     acceptanceCriteria: [],
     definitionOfDone: [],
-    dependencies: [],
+    dependencies: linkedDependencies(fields),
     source: {
       type: "jira",
       location: siteUrl ? siteUrl + "/browse/" + encodeURIComponent(key) : undefined,
@@ -278,10 +309,83 @@ export class JiraTaskProvider implements TaskProvider {
       "GET",
       "/rest/api/3/issue/" +
         pathFor(reference) +
-        "?fields=summary,description,status,issuetype,priority,assignee,labels,updated",
+        "?fields=summary,description,status,issuetype,priority,assignee,labels,updated,issuelinks",
     );
 
     return taskFromIssue(this.connection, issue);
+  }
+
+  public async listTasks(
+    options: TaskProviderOperationOptions = {},
+  ): Promise<TaskRecord[]> {
+    permission(this.runtimeConfig.permissions.taskRead, "Task read", options.approved ?? false);
+
+    const projectKey = process.env.LLMATIC_JIRA_PROJECT_KEY?.trim();
+    if (projectKey && !/^[A-Z][A-Z0-9_]*$/i.test(projectKey)) {
+      throw new Error("LLMATIC_JIRA_PROJECT_KEY contains an invalid Jira project key.");
+    }
+
+    const configuredJql = process.env.LLMATIC_JIRA_RECOVERY_JQL?.trim();
+    const scope = projectKey
+      ? 'project = "' + projectKey.toUpperCase() + '" AND '
+      : "";
+    const jql =
+      configuredJql ||
+      scope +
+        "assignee = currentUser() AND statusCategory != Done ORDER BY Rank ASC, priority DESC, updated ASC";
+
+    const result = await requestJson<{ issues?: Array<Record<string, unknown>> }>(
+      this.connection,
+      this.transport,
+      "POST",
+      "/rest/api/3/search/jql",
+      {
+        jql,
+        maxResults: 50,
+        fields: [
+          "summary",
+          "description",
+          "status",
+          "issuetype",
+          "priority",
+          "assignee",
+          "labels",
+          "updated",
+          "issuelinks",
+        ],
+      },
+    );
+
+    return (result.issues ?? []).map((issue) => taskFromIssue(this.connection, issue));
+  }
+
+  public async getNextTask(
+    options: TaskProviderOperationOptions = {},
+  ): Promise<TaskRecord | undefined> {
+    const tasks = await this.listTasks(options);
+    const candidates = tasks.filter((task) => task.status.lifecycle === "todo");
+    const dependencyCache = new Map<string, TaskRecord | undefined>();
+
+    for (const candidate of candidates) {
+      let blocked = false;
+
+      for (const dependency of candidate.dependencies) {
+        let task = dependencyCache.get(dependency);
+        if (!dependencyCache.has(dependency)) {
+          task = await this.getTask(dependency, options).catch(() => undefined);
+          dependencyCache.set(dependency, task);
+        }
+
+        if (!task || task.status.lifecycle !== "done") {
+          blocked = true;
+          break;
+        }
+      }
+
+      if (!blocked) return candidate;
+    }
+
+    return undefined;
   }
 
   public async listTransitions(
