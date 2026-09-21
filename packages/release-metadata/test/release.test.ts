@@ -1,9 +1,5 @@
 import { describe, expect, it } from "vitest";
-import {
-  assertReleaseVersion,
-  compareSemver,
-  parseReleaseManifest,
-} from "../src/release.js";
+import { assertReleaseVersion, compareSemver, parseReleaseManifest } from "../src/release.js";
 
 describe("release metadata", () => {
   it("orders semantic versions for update checks", () => {
@@ -14,9 +10,7 @@ describe("release metadata", () => {
 
   it("requires tag, root package, and extension package versions to match", () => {
     expect(assertReleaseVersion("v0.1.0", "0.1.0", "0.1.0")).toBe("0.1.0");
-    expect(() => assertReleaseVersion("v0.2.0", "0.1.0", "0.2.0")).toThrow(
-      "does not match",
-    );
+    expect(() => assertReleaseVersion("v0.2.0", "0.1.0", "0.2.0")).toThrow("does not match");
   });
 
   it("validates a release manifest before the extension trusts it", () => {

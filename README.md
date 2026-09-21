@@ -75,7 +75,6 @@ See docs/release-update.md.
 
 ## VS Code commands
 
-
     LLMatic: Bootstrap Workspace
     LLMatic: Check for Updates
     LLMatic: Run Gateway Agent

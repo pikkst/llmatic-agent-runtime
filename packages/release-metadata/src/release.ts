@@ -100,7 +100,11 @@ export function parseReleaseManifest(value: unknown): ReleaseManifest {
   };
 }
 
-export function assertReleaseVersion(tag: string, rootVersion: string, extensionVersion: string): string {
+export function assertReleaseVersion(
+  tag: string,
+  rootVersion: string,
+  extensionVersion: string,
+): string {
   const normalizedTag = tag.trim();
   if (!normalizedTag.startsWith("v")) {
     throw new Error("Release tag must use vX.Y.Z format.");
@@ -110,7 +114,9 @@ export function assertReleaseVersion(tag: string, rootVersion: string, extension
   parseSemver(version);
 
   if (rootVersion !== version) {
-    throw new Error("Root package version " + rootVersion + " does not match tag " + normalizedTag + ".");
+    throw new Error(
+      "Root package version " + rootVersion + " does not match tag " + normalizedTag + ".",
+    );
   }
   if (extensionVersion !== version) {
     throw new Error(

@@ -1,7 +1,10 @@
 import { createHash } from "node:crypto";
 import { mkdir, readFile, stat, writeFile } from "node:fs/promises";
 import { basename, dirname, resolve } from "node:path";
-import { assertReleaseVersion, parseReleaseManifest } from "../packages/release-metadata/dist/index.js";
+import {
+  assertReleaseVersion,
+  parseReleaseManifest,
+} from "../packages/release-metadata/dist/index.js";
 
 const tag = process.argv[2] || process.env.GITHUB_REF_NAME;
 const commit = process.argv[3] || process.env.GITHUB_SHA;
@@ -11,7 +14,11 @@ const rootPackage = JSON.parse(await readFile(new URL("../package.json", import.
 const extensionPackage = JSON.parse(
   await readFile(new URL("../apps/vscode-extension/package.json", import.meta.url), "utf8"),
 );
-const version = assertReleaseVersion(tag, String(rootPackage.version), String(extensionPackage.version));
+const version = assertReleaseVersion(
+  tag,
+  String(rootPackage.version),
+  String(extensionPackage.version),
+);
 
 const root = resolve(new URL("..", import.meta.url).pathname);
 const sourceVsix = resolve(root, "artifacts", "llmatic-agent-runtime.vsix");
