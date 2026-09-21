@@ -40,6 +40,12 @@ export class LlmaticStatusProvider implements vscode.TreeDataProvider<vscode.Tre
 
     const actions: StatusAction[] = [
       {
+        label: "New Project Discovery",
+        description: "adaptive questions, best-practice recommendations",
+        icon: "comment-discussion",
+        command: "llmatic.startDiscovery",
+      },
+      {
         label: "Get Ready",
         description: "guided setup and repair",
         icon: "rocket",

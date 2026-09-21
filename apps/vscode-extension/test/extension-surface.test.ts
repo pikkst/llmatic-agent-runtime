@@ -7,6 +7,7 @@ describe("VS Code extension activation surface", () => {
 
     expect(source.length).toBeGreaterThan(20000);
     expect(source).toContain("export async function activate");
+    expect(source).toContain('vscode.commands.registerCommand("llmatic.startDiscovery"');
     expect(source).toContain('vscode.commands.registerCommand("llmatic.getReady"');
     expect(source).toContain('vscode.commands.registerCommand("llmatic.reviewFixLoop"');
     expect(source).toContain('vscode.commands.registerCommand("llmatic.checkForUpdates"');

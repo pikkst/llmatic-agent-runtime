@@ -10,6 +10,17 @@ import {
   type BootstrapReport,
 } from "@llmatic/bootstrap-manager";
 import { loadAgentConfig, WorkflowStateStore } from "@llmatic/core";
+import {
+  answerDiscoveryQuestion,
+  createDiscoverySession,
+  discoverySessionPath,
+  discoverySummary,
+  isGreenfieldRepository,
+  loadDiscoverySession,
+  nextDiscoveryQuestion,
+  type DiscoveryQuestion,
+  type DiscoverySession,
+} from "@llmatic/discovery-engine";
 import { KiloGatewayClient } from "@llmatic/gateway-client";
 import {
   compareSemver,
@@ -1135,6 +1146,257 @@ async function getReady(
   );
 }
 
+interface DiscoveryQuickPickItem extends vscode.QuickPickItem {
+  action: "option" | "recommended" | "delegate" | "custom";
+  value?: string;
+}
+
+function discoveryChoiceItems(question: DiscoveryQuestion): DiscoveryQuickPickItem[] {
+  const items: DiscoveryQuickPickItem[] = question.options.map((option) => ({
+    label:
+      option.id === question.recommendation.optionId
+        ? "$(star-full) " + option.label
+        : option.label,
+    description: option.id === question.recommendation.optionId ? "Recommended" : undefined,
+    detail: option.description,
+    action: "option",
+    value: option.id,
+  }));
+
+  items.push(
+    {
+      label: "$(question) Not sure — explain recommendation",
+      description: "Review the best-practice rationale first",
+      detail: question.recommendation.rationale,
+      action: "recommended",
+    },
+    {
+      label: "$(sparkle) Let LLMatic decide",
+      description: "Use the recommended option and record delegated rationale",
+      detail: question.recommendation.rationale,
+      action: "delegate",
+    },
+  );
+
+  if (question.customAllowed) {
+    items.push({
+      label: "$(edit) Custom…",
+      description: "Enter a project-specific answer",
+      action: "custom",
+    });
+  }
+
+  return items;
+}
+
+async function answerDiscoveryInUi(
+  workspaceDirectory: string,
+  session: DiscoverySession,
+  question: DiscoveryQuestion,
+): Promise<DiscoverySession | undefined> {
+  const choice = await vscode.window.showQuickPick(discoveryChoiceItems(question), {
+    title: "LLMatic Discovery — " + question.title,
+    placeHolder: question.prompt,
+    ignoreFocusOut: true,
+  });
+
+  if (!choice) return undefined;
+
+  if (choice.action === "custom") {
+    const value = await vscode.window.showInputBox({
+      title: "LLMatic Discovery — " + question.title,
+      prompt: question.prompt,
+      placeHolder: "Enter a custom project-specific answer",
+      ignoreFocusOut: true,
+      validateInput: (input) => (input.trim() ? undefined : "A custom answer is required."),
+    });
+
+    if (!value?.trim()) return undefined;
+
+    return answerDiscoveryQuestion(workspaceDirectory, session, question.id, {
+      mode: "custom",
+      value: value.trim(),
+    });
+  }
+
+  if (choice.action === "recommended") {
+    const recommended = question.options.find(
+      (option) => option.id === question.recommendation.optionId,
+    );
+    const action = await vscode.window.showInformationMessage(
+      (recommended ? "Recommended: " + recommended.label + "\n\n" : "") +
+        question.recommendation.rationale,
+      { modal: true },
+      "Use Recommendation",
+      "Choose Another",
+    );
+
+    if (action === "Choose Another") {
+      return answerDiscoveryInUi(workspaceDirectory, session, question);
+    }
+
+    if (action !== "Use Recommendation") return undefined;
+
+    return answerDiscoveryQuestion(workspaceDirectory, session, question.id, {
+      mode: "recommended",
+    });
+  }
+
+  if (choice.action === "delegate") {
+    return answerDiscoveryQuestion(workspaceDirectory, session, question.id, {
+      mode: "delegate",
+    });
+  }
+
+  return answerDiscoveryQuestion(workspaceDirectory, session, question.id, {
+    mode: "option",
+    value: choice.value,
+  });
+}
+
+function writeDiscoverySummary(
+  output: vscode.OutputChannel,
+  workspaceDirectory: string,
+  session: DiscoverySession,
+): void {
+  output.clear();
+  output.appendLine("LLMatic Project Discovery");
+  output.appendLine("");
+  output.appendLine(discoverySummary(session));
+  output.appendLine("");
+  output.appendLine("Private state: " + discoverySessionPath(workspaceDirectory));
+  output.appendLine("Repository files changed: none");
+  output.show(true);
+}
+
+async function startProjectDiscovery(
+  context: vscode.ExtensionContext,
+  state: ExtensionState,
+  output: vscode.OutputChannel,
+): Promise<void> {
+  const folder = firstWorkspaceFolder();
+  if (!folder) {
+    await vscode.window.showWarningMessage(
+      "Open a repository workspace before starting project discovery.",
+    );
+    return;
+  }
+
+  if (!state.activeWorkspace) {
+    state.activeWorkspace = await attachWorkspace(context, folder);
+  }
+
+  const greenfield = await isGreenfieldRepository(folder.uri.fsPath);
+  if (!greenfield) {
+    const proceed = await vscode.window.showWarningMessage(
+      "This repository is not empty. Discovery will remain private and will not change tracked project files, but recommendations may describe a new architecture.",
+      { modal: true },
+      "Continue Discovery",
+    );
+
+    if (proceed !== "Continue Discovery") return;
+  }
+
+  const workspaceDirectory = state.activeWorkspace.directory;
+  let session = await loadDiscoverySession(workspaceDirectory);
+
+  if (session) {
+    const action = await vscode.window.showQuickPick(
+      [
+        {
+          label: "$(debug-continue) Resume discovery",
+          description:
+            Object.keys(session.answers).length + " decision(s) recorded — " + session.status,
+          value: "resume",
+        },
+        {
+          label: "$(refresh) Restart discovery",
+          description: "Replace the private discovery session with a new one",
+          value: "restart",
+        },
+      ],
+      {
+        title: "LLMatic Project Discovery",
+        placeHolder: "A private discovery session already exists.",
+        ignoreFocusOut: true,
+      },
+    );
+
+    if (!action) return;
+    if (action.value === "restart") session = undefined;
+  }
+
+  if (!session) {
+    const idea = await vscode.window.showInputBox({
+      title: "LLMatic Project Discovery",
+      prompt: "What do you want to build? Describe the problem/product in your own words.",
+      placeHolder: "Example: A B2B SaaS that analyzes property development constraints",
+      ignoreFocusOut: true,
+      validateInput: (input) => (input.trim() ? undefined : "Describe the project idea first."),
+    });
+
+    if (!idea?.trim()) return;
+
+    session = await createDiscoverySession(folder.uri.fsPath, workspaceDirectory, idea.trim());
+  }
+
+  while (session.status === "in_progress") {
+    const question = nextDiscoveryQuestion(session);
+    if (!question) break;
+
+    const updated = await answerDiscoveryInUi(workspaceDirectory, session, question);
+
+    if (!updated) {
+      writeDiscoverySummary(output, workspaceDirectory, session);
+      await vscode.window.showInformationMessage(
+        "Discovery paused. Your answers were saved outside the repository.",
+      );
+      return;
+    }
+
+    session = updated;
+  }
+
+  writeDiscoverySummary(output, workspaceDirectory, session);
+
+  if (session.status === "ready_for_planning") {
+    await vscode.window.showInformationMessage(
+      "Project discovery is complete and ready for planning. No tracked repository files were changed.",
+    );
+  }
+}
+
+async function showProjectDiscovery(
+  context: vscode.ExtensionContext,
+  state: ExtensionState,
+  output: vscode.OutputChannel,
+): Promise<void> {
+  const folder = firstWorkspaceFolder();
+  if (!folder) {
+    await vscode.window.showWarningMessage("Open the project workspace to view discovery state.");
+    return;
+  }
+
+  if (!state.activeWorkspace) {
+    state.activeWorkspace = await attachWorkspace(context, folder);
+  }
+
+  const session = await loadDiscoverySession(state.activeWorkspace.directory);
+  if (!session) {
+    const action = await vscode.window.showInformationMessage(
+      "No project discovery session exists for this workspace.",
+      "Start Discovery",
+    );
+
+    if (action === "Start Discovery") {
+      await vscode.commands.executeCommand("llmatic.startDiscovery");
+    }
+    return;
+  }
+
+  writeDiscoverySummary(output, state.activeWorkspace.directory, session);
+}
+
 async function offerOnboarding(
   context: vscode.ExtensionContext,
   state: ExtensionState,
@@ -1200,6 +1462,22 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   );
 
   context.subscriptions.push(
+    vscode.commands.registerCommand("llmatic.startDiscovery", async () => {
+      try {
+        await startProjectDiscovery(context, state, output);
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        await vscode.window.showErrorMessage("LLMatic discovery: " + message);
+      }
+    }),
+    vscode.commands.registerCommand("llmatic.discoveryStatus", async () => {
+      try {
+        await showProjectDiscovery(context, state, output);
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        await vscode.window.showErrorMessage("LLMatic discovery: " + message);
+      }
+    }),
     vscode.commands.registerCommand("llmatic.getReady", async () => {
       try {
         await getReady(context, state, statusBar, statusProvider, output);

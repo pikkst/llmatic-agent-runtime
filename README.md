@@ -4,7 +4,7 @@ Universal local software-engineering runtime for coding agents.
 
 ## Current milestone
 
-M20 — Universal Task Sources
+M21 — Greenfield Discovery Engine
 
 LLMatic now supports:
 
@@ -159,3 +159,25 @@ Auto-detection order:
       -> manual workflow references
 
 Markdown tasks are fully offline and preserve unrelated document content while updating task-local status/notes.
+
+## Greenfield discovery
+
+New or empty projects can start with:
+
+    LLMatic: Start Project Discovery
+
+Discovery is adaptive and supports:
+
+- recommended best-practice option
+- normal alternatives
+- Custom…
+- Not sure — explain recommendation
+- Let LLMatic decide
+
+Every delegated/recommended choice stores its rationale. Discovery state is persisted only under the managed LLMatic workspace:
+
+    <globalStorage>/workspaces/<workspace-id>/planning/discovery.json
+
+Cancelling the wizard pauses discovery without losing answered decisions.
+
+M21 never scaffolds source code, installs packages, creates migrations, or writes planning files into the tracked repository.
