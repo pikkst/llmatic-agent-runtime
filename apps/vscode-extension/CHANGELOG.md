@@ -49,3 +49,11 @@
 - Status bar now uses the same canonical health state and routes non-ready states to Get Ready.
 - Added one-time per-workspace onboarding prompt.
 - Gateway API key remains optional and does not block runtime readiness.
+
+## M17 — Release and update pipeline
+
+- Added semantic-version release metadata and validation.
+- Added tag-driven GitHub Release workflow.
+- Release publishes a versioned VSIX plus SHA-256 release manifest.
+- Added `LLMatic: Check for Updates` backed by validated GitHub release metadata.
+- Update checks do not silently install or replace extension bytes.

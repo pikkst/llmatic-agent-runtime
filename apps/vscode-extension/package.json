@@ -29,7 +29,8 @@
     "@llmatic/review-engine": "workspace:*",
     "@llmatic/bootstrap-manager": "workspace:*",
     "@llmatic/runtime-installer": "workspace:*",
-    "@llmatic/setup-health": "workspace:*"
+    "@llmatic/setup-health": "workspace:*",
+    "@llmatic/release-metadata": "workspace:*"
   },
   "devDependencies": {
     "@types/vscode": "1.105.0",
@@ -61,6 +62,11 @@
       {
         "command": "llmatic.showStatus",
         "title": "Show Status",
+        "category": "LLMatic"
+      },
+      {
+        "command": "llmatic.checkForUpdates",
+        "title": "Check for Updates",
         "category": "LLMatic"
       },
       {
@@ -138,6 +144,11 @@
           "minimum": 1,
           "maximum": 50,
           "description": "Maximum model/tool rounds for one direct LLMatic agent run."
+        },
+        "llmatic.releaseRepository": {
+          "type": "string",
+          "default": "pikkst/llmatic-agent-runtime",
+          "description": "GitHub owner/repository used by LLMatic update checks."
         }
       }
     },

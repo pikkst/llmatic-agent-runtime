@@ -16,7 +16,9 @@
     "ci": "node scripts/ci-local.mjs --ci",
     "ci:local": "node scripts/ci-local.mjs",
     "mcp": "node apps/mcp-server/dist/index.js",
-    "package:vsix": "pnpm --filter ./apps/vscode-extension package:vsix"
+    "package:vsix": "pnpm --filter ./apps/vscode-extension package:vsix",
+    "release:verify": "node scripts/verify-release-version.mjs",
+    "release:manifest": "node scripts/create-release-manifest.mjs"
   },
   "devDependencies": {
     "@types/node": "^22.10.0",
