@@ -96,4 +96,5 @@ jobs:
           path: artifacts
 
       - name: Run installed-extension acceptance
+        timeout-minutes: 10
         run: xvfb-run -a pnpm run vscode:acceptance
