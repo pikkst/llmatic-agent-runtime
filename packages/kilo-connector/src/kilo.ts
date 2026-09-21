@@ -107,3 +107,28 @@ export async function readGlobalKiloLlmaticServer(
   const server = currentServer(raw);
   return Object.keys(server).length > 0 ? server : undefined;
 }
+
+export function isGlobalKiloLlmaticServerHealthy(
+  server: Record<string, unknown> | undefined,
+  expected: {
+    serverPath: string;
+    llmaticHome: string;
+    nodeCommand?: string;
+  },
+): boolean {
+  if (!server) return false;
+
+  const command = server.command;
+  const environment = server.environment;
+  const expectedCommand = expected.nodeCommand?.trim() || "node";
+
+  if (!Array.isArray(command) || command.length !== 2) return false;
+  if (command[0] !== expectedCommand || command[1] !== resolve(expected.serverPath)) return false;
+  if (!environment || typeof environment !== "object") return false;
+
+  return (
+    (environment as Record<string, unknown>).LLMATIC_HOME === resolve(expected.llmaticHome) &&
+    server.type === "local" &&
+    server.enabled === true
+  );
+}
