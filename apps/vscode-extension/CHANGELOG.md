@@ -17,3 +17,11 @@
 - Added repository-contained safe file tools and quality-gate tool loops.
 - Gateway credentials remain in VS Code SecretStorage.
 - Direct agent has no push, PR, merge, deployment, package-install, database, or arbitrary shell tools.
+
+## M14 — Review / fix loop
+
+- Added structured Kilo Gateway code review with blocking and non-blocking findings.
+- Added workflow-aware CODE_REVIEW to FIXING or READY_TO_PUSH transitions.
+- Added automated blocking-finding fix, local validation, and re-review loop.
+- Review uses changed-files-first context and bounded repository read/diff tools.
+- Added VS Code commands for one-shot review and automated review/fix loop.

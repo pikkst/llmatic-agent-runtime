@@ -25,6 +25,9 @@
     },
     {
       "path": "../../packages/agent-orchestrator"
+    },
+    {
+      "path": "../../packages/review-engine"
     }
   ]
 }

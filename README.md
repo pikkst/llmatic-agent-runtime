@@ -4,66 +4,60 @@ Universal local software-engineering runtime for coding agents.
 
 ## Current milestone
 
-M13 — Gateway Agent Orchestrator
+M14 — Automated Review / Fix Loop
 
-LLMatic can now operate in two complementary modes:
+LLMatic now supports:
 
-1. **Kilo-driven** — Kilo Code calls the global LLMatic MCP server.
-2. **LLMatic-driven** — the VS Code extension runs a constrained coding agent through Kilo Gateway.
+    implementation
+      -> local validation
+      -> structured review
+      -> blocking findings?
+           yes -> FIXING -> validation -> re-review
+           no  -> READY_TO_PUSH
 
-The direct agent defaults to:
+Review results are schema-validated before workflow state changes.
+
+## Default model
+
+Direct implementation and review both default to:
 
     kilo-auto/free
 
-The model can be changed with the `llmatic.agentModel` setting.
+The model is configurable through llmatic.agentModel.
 
-## Direct agent safety boundary
+## VS Code commands
 
-The direct Gateway agent can:
+    LLMatic: Run Gateway Agent
+    LLMatic: Run Code Review
+    LLMatic: Run Review / Fix Loop
 
-- search the repository index
-- read bounded repository text files
-- replace one exact text occurrence
-- create new repository text files
-- run detected format/lint/typecheck/test/build capabilities
-- run the existing local workflow validation
-- inspect Git/workflow status
+## Safety
 
-It cannot:
+The reviewer is read-only and receives changed-files-first context. Sensitive paths are filtered.
 
-- read common secret files such as `.env`, private keys, or credentials
-- escape the repository through paths or symlinks
-- execute arbitrary shell commands
-- install packages
-- push Git branches
-- create or merge pull requests
-- mutate databases
-- deploy
+The fix agent remains constrained:
 
-Operations configured as `ask` cannot be self-approved by the direct agent.
+- repository-contained text changes only
+- no arbitrary shell
+- no package install
+- no Git push
+- no PR/merge
+- no database mutation
+- no deploy
+- no self-approval of ask permissions
 
-## Auto Free privacy
+Gateway credentials remain in VS Code SecretStorage.
 
-`kilo-auto/free` requires no Kilo credits, but Kilo documents that Auto Free may route requests to providers that log prompts and outputs. The extension shows a one-time warning before direct Auto Free usage.
-
-Do not use Auto Free for confidential source repositories. Choose a provider/model whose data policy matches the repository when confidentiality is required.
-
-## Existing editor/runtime integration
+## Existing platform
 
 - zero-repo VS Code workspace state
-- `.git/info/exclude` fallback protection
-- bundled MCP runtime
+- VSIX packaging and Doctor
 - global Kilo MCP registration
-- VS Code SecretStorage for Gateway credentials
-- VSIX packaging and Doctor checks
-- Jira, GitHub, local CI, Docker, Supabase, Python, and Ollama runtime adapters
+- persistent workflow state
+- local CI
+- Git/GitHub/Jira adapters
+- repository AST intelligence
+- Docker/Supabase/Python/Ollama tool packs
+- direct Kilo Gateway coding agent
 
-## Development
-
-    corepack enable
-    pnpm install
-    pnpm ci:local
-    pnpm build
-    pnpm package:vsix
-
-See `docs/vscode-extension.md`, `docs/vsix-doctor.md`, and `docs/gateway-agent.md`.
+See docs/review-fix-loop.md.

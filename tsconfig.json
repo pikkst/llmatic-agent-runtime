@@ -35,6 +35,9 @@
       "path": "./packages/agent-orchestrator"
     },
     {
+      "path": "./packages/review-engine"
+    },
+    {
       "path": "./packages/workspace-manager"
     },
     {
