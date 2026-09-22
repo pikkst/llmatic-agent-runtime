@@ -223,6 +223,22 @@ describe("github adapter", () => {
         };
       }
 
+      if (args[0] === "api" && args.includes("--paginate")) {
+        return {
+          exitCode: 0,
+          stdout: JSON.stringify([
+            [
+              {
+                filename: "src/value.ts",
+                additions: 1,
+                deletions: 0,
+              },
+            ],
+          ]),
+          stderr: "",
+        };
+      }
+
       if (args[0] === "api" && args[1] === "graphql") {
         return {
           exitCode: 0,
@@ -266,7 +282,6 @@ describe("github adapter", () => {
             title: "Improve value handling",
             body: "PR body",
             author: { login: "contributor" },
-            files: [{ path: "src/value.ts", additions: 1, deletions: 0 }],
             reviews: [
               {
                 author: { login: "reviewer" },
@@ -316,6 +331,12 @@ describe("github adapter", () => {
     expect(context.diff).toContain("+export const value = 2;");
     expect(context.diffTruncated).toBe(false);
     expect(calls).toContainEqual(["pr", "diff", "7", "--color", "never"]);
+    expect(calls).toContainEqual([
+      "api",
+      "--paginate",
+      "--slurp",
+      "repos/example/repo/pulls/7/files?per_page=100",
+    ]);
   });
 
   it("returns bounded failed GitHub Actions logs for PR diagnostics", async () => {
