@@ -224,30 +224,12 @@ try {
     );
     phase("Candidate VSIX installation completed.");
 
-    phase("Verifying the installed extension identity and version.");
-    const installed = run(
-      cliPath,
-      [...cliBaseArgs, ...profileArgs, "--list-extensions", "--show-versions"],
-      root,
-    );
+    // Do not use a second VS Code CLI process for --list-extensions here.
+    // On Linux CI it can remain attached to the install process/profile and time out.
+    // The Extension Host harness below performs the stronger identity, version and
+    // isolated-install-path assertions before activating the extension.
+    phase("Launching the isolated Extension Host and verifying the installed extension.");
 
-    const expectedInstalledLine = extensionId + "@" + expectedVersion;
-
-    if (
-      !installed
-        .split(/\r?\n/)
-        .map((line) => line.trim().toLowerCase())
-        .includes(expectedInstalledLine.toLowerCase())
-    ) {
-      fail(
-        "isolated VS Code profile did not list " +
-          expectedInstalledLine +
-          ". Installed: " +
-          installed,
-      );
-    }
-
-    phase("Launching the isolated Extension Host and activating the installed extension.");
     await runTests({
       vscodeExecutablePath,
       extensionDevelopmentPath: harness,
