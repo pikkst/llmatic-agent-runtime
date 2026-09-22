@@ -424,6 +424,89 @@ describe("review engine", () => {
     );
   });
 
+  it("keeps successful external review batches when another batch times out", async () => {
+    const root = await repository();
+    const config = configFor(root);
+    let request = 0;
+    const gateway: GatewayChatClient = {
+      async createChatCompletion() {
+        request += 1;
+        if (request === 2) {
+          throw new Error("simulated batch timeout");
+        }
+        return response(
+          JSON.stringify({
+            summary: "Focused batch complete.",
+            findings:
+              request === 1
+                ? [
+                    {
+                      severity: "blocking",
+                      category: "correctness",
+                      basis: "defect",
+                      title: "First batch defect",
+                      path: "src/file-1.ts",
+                      line: 1,
+                      side: "RIGHT",
+                      evidence: "The changed line returns the wrong value.",
+                      recommendation: "Return the required value.",
+                    },
+                  ]
+                : [],
+          }),
+        );
+      },
+    };
+
+    const changedFiles = Array.from({ length: 7 }, (_, index) => "src/file-" + (index + 1) + ".ts");
+    const diff = changedFiles
+      .map(
+        (path, index) =>
+          "diff --git a/" +
+          path +
+          " b/" +
+          path +
+          "\n--- a/" +
+          path +
+          "\n+++ b/" +
+          path +
+          "\n@@ -1 +1 @@\n-export const value = " +
+          index +
+          ";\n+export const value = " +
+          (index + 1) +
+          ";\n",
+      )
+      .join("");
+
+    const report = await runExternalPullRequestReview({
+      root,
+      config,
+      gateway,
+      lenses: ["general"],
+      material: {
+        reference: "42",
+        headRefOid: "head-42",
+        title: "Batch resilience",
+        body: "",
+        ciState: "passing",
+        changedFiles,
+        diff,
+        diffTruncated: false,
+      },
+    });
+
+    expect(request).toBe(2);
+    expect(report.reviewStatus).toBe("partial");
+    expect(report.findings).toEqual([
+      expect.objectContaining({
+        title: "First batch defect",
+        path: "src/file-1.ts",
+      }),
+    ]);
+    expect(report.lensFailures[0]?.lens).toBe("general");
+    expect(report.lensFailures[0]?.reason).toContain("1/2 review batch(es) incomplete");
+  });
+
   it("accepts a prose-prefixed structured review object", async () => {
     const root = await repository();
     const config = configFor(root);
