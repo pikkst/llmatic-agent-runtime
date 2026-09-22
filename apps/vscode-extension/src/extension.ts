@@ -1,5 +1,5 @@
 import { spawnSync } from "node:child_process";
-import { access } from "node:fs/promises";
+import { access, appendFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { resolve } from "node:path";
 import * as vscode from "vscode";
@@ -68,6 +68,7 @@ import {
   runExternalPullRequestReview,
   runReviewFixLoop,
   type CodeReviewReport,
+  type ReviewActivityEvent,
   type ReviewLoopEvent,
 } from "@llmatic/review-engine";
 import {
@@ -2311,6 +2312,164 @@ async function runGatewayReview(
       " non-blocking finding(s).",
   );
   return report;
+}
+
+function formatElapsedDuration(durationMs: number): string {
+  const totalSeconds = Math.max(0, Math.floor(durationMs / 1000));
+  const hours = Math.floor(totalSeconds / 3600);
+  const minutes = Math.floor((totalSeconds % 3600) / 60);
+  const seconds = totalSeconds % 60;
+  const padded = (value: number) => String(value).padStart(2, "0");
+  return hours > 0
+    ? padded(hours) + ":" + padded(minutes) + ":" + padded(seconds)
+    : padded(minutes) + ":" + padded(seconds);
+}
+
+function reviewActivityDescription(event: ReviewActivityEvent): {
+  phase: string;
+  detail: string;
+} {
+  switch (event.type) {
+    case "constitution-start":
+      return {
+        phase: "Repository rules",
+        detail: "Building repository Constitution and review constraints…",
+      };
+    case "constitution-complete":
+      return {
+        phase: "Repository rules ready",
+        detail:
+          event.activeRuleCount +
+          " active rules · " +
+          event.blockingRuleCount +
+          " blocking · " +
+          formatElapsedDuration(event.durationMs),
+      };
+    case "coverage":
+      return {
+        phase: "Review coverage",
+        detail:
+          event.reviewableFileCount +
+          "/" +
+          event.changedFileCount +
+          " changed files reviewable · " +
+          event.coverage,
+      };
+    case "lens-start":
+      return {
+        phase: event.lens.replaceAll("_", " ") + " lens",
+        detail: "Starting " + event.lens.replaceAll("_", " ") + " review…",
+      };
+    case "model-request":
+      return {
+        phase: event.lens.replaceAll("_", " ") + " · model step " + event.step,
+        detail: "Waiting for model response…",
+      };
+    case "model-response":
+      return {
+        phase: event.lens.replaceAll("_", " ") + " · model step " + event.step,
+        detail:
+          "Model responded in " +
+          formatElapsedDuration(event.durationMs) +
+          " · " +
+          event.toolCallCount +
+          " tool call(s)",
+      };
+    case "tool-start":
+      return {
+        phase: event.lens.replaceAll("_", " ") + " · " + event.tool,
+        detail: "Running review tool at step " + event.step + "…",
+      };
+    case "tool-complete":
+      return {
+        phase: event.lens.replaceAll("_", " ") + " · " + event.tool,
+        detail:
+          (event.success ? "Completed" : "Failed") +
+          " in " +
+          formatElapsedDuration(event.durationMs) +
+          " · step " +
+          event.step,
+      };
+    case "lens-complete":
+      return {
+        phase: event.lens.replaceAll("_", " ") + " complete",
+        detail:
+          event.findingCount +
+          " finding(s) · " +
+          formatElapsedDuration(event.durationMs),
+      };
+    case "architecture-start":
+      return {
+        phase: "Architecture impact",
+        detail: "Comparing changed files against living architecture evidence…",
+      };
+    case "architecture-complete":
+      return {
+        phase: "Architecture impact complete",
+        detail:
+          event.unresolvedCount +
+          " unresolved impact(s) · " +
+          formatElapsedDuration(event.durationMs),
+      };
+    case "complete":
+      return {
+        phase: "Review complete",
+        detail: "Total review time " + formatElapsedDuration(event.durationMs),
+      };
+  }
+}
+
+function reviewTelemetryPath(context: vscode.ExtensionContext): string {
+  return resolve(context.globalStorageUri.fsPath, "review-activity.jsonl");
+}
+
+function reviewActivityLoggingEnabled(): boolean {
+  return configuration().get<boolean>("reviewActivityLogging", true);
+}
+
+function appendReviewActivity(
+  context: vscode.ExtensionContext,
+  reviewLog: vscode.OutputChannel,
+  sessionId: string,
+  reference: string,
+  startedAt: number,
+  event: ReviewActivityEvent | { type: "session"; phase: string; detail: string },
+): void {
+  if (!reviewActivityLoggingEnabled()) return;
+
+  const elapsedMs = Date.now() - startedAt;
+  const description =
+    event.type === "session"
+      ? { phase: event.phase, detail: event.detail }
+      : reviewActivityDescription(event);
+  const timestamp = new Date().toISOString();
+
+  reviewLog.appendLine(
+    "[" +
+      timestamp +
+      "] [+" +
+      formatElapsedDuration(elapsedMs) +
+      "] " +
+      description.phase +
+      " — " +
+      description.detail,
+  );
+
+  const record = {
+    timestamp,
+    sessionId,
+    reference,
+    elapsedMs,
+    event,
+  };
+  void appendFile(reviewTelemetryPath(context), JSON.stringify(record) + "\n", "utf8").catch(
+    (error) => {
+      reviewLog.appendLine(
+        "[WARN] Persistent review telemetry write failed: " +
+          (error instanceof Error ? error.message : String(error)),
+      );
+    },
+  );
 }
 
 function externalPullRequestReviewDraft(
