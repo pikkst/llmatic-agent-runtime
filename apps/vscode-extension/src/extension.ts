@@ -2269,6 +2269,7 @@ function externalPullRequestReviewDraft(
     "",
     report.summary,
     "",
+    "Reviewed head: `" + report.headRefOid + "`",
     "Remote CI: **" + report.ciState + "**",
     "Review coverage: **" + report.coverage + "**",
     "Diff truncated: **" + String(report.diffTruncated) + "**",
@@ -2367,6 +2368,7 @@ async function reviewExternalPullRequestInUi(
         lenses: ["general", "bug_hunter", "security"],
         material: {
           reference: reference.trim(),
+          headRefOid: reviewContext.status.pullRequest.headRefOid,
           title: reviewContext.title,
           body: reviewContext.body,
           authorLogin: reviewContext.authorLogin,
@@ -2386,6 +2388,7 @@ async function reviewExternalPullRequestInUi(
   output.appendLine("LLMatic External Pull Request Review");
   output.appendLine("PR: " + report.reference + " — " + report.title);
   output.appendLine("Author: " + (report.authorLogin ?? "unknown"));
+  output.appendLine("Reviewed head: " + report.headRefOid);
   output.appendLine("Remote CI: " + report.ciState);
   output.appendLine("Review coverage: " + report.coverage);
   output.appendLine("Diff truncated: " + String(report.diffTruncated));
@@ -2435,7 +2438,7 @@ async function reviewExternalPullRequestInUi(
       root,
       config,
       reference.trim(),
-      { body: draft },
+      { body: draft, expectedHeadOid: report.headRefOid },
       { approved: true },
     );
     await vscode.window.showInformationMessage(
