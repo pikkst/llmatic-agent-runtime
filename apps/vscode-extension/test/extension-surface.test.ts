@@ -189,4 +189,17 @@ describe("VS Code extension activation surface", () => {
     expect(source).toContain("VSIX SHA-256");
     expect(source).toContain('spawnSync("git", ["rev-parse", "HEAD"]');
   });
+  it("keeps VS Code clean-install identity verification inside the Extension Host", async () => {
+    const source = await readFile(
+      new URL("../../../scripts/vscode-clean-install-acceptance.mjs", import.meta.url),
+      "utf8",
+    );
+
+    expect(source).not.toContain("--list-extensions");
+    expect(source).toContain("installed extension was not loaded from the isolated VSIX extensions directory");
+    expect(source).toContain("target.packageJSON.version");
+    expect(source).toContain("await target.activate()");
+    expect(source).toContain("llmatic.agentChatProbe");
+  });
+
 });
