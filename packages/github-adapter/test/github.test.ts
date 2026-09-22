@@ -160,6 +160,25 @@ describe("github adapter", () => {
     ]);
   });
 
+  it("maps an empty no-check response into remote CI state none", async () => {
+    const runner: GitHubProcessRunner = (_executable, args) => {
+      if (args[1] === "view") {
+        return { exitCode: 0, stdout: pullRequestJson(), stderr: "" };
+      }
+
+      return {
+        exitCode: 1,
+        stdout: "",
+        stderr: "no checks reported on the branch",
+      };
+    };
+
+    const status = await getPullRequestStatus("/repo", "7", runner);
+
+    expect(status.ciState).toBe("none");
+    expect(status.checks).toEqual([]);
+  });
+
   it("maps pending check exit code 8 into remote CI status", async () => {
     const runner: GitHubProcessRunner = (_executable, args) => {
       if (args[1] === "view") {
