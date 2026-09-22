@@ -66,6 +66,9 @@
       "path": "../../packages/jira-adapter"
     },
     {
+      "path": "../../packages/github-adapter"
+    },
+    {
       "path": "../../packages/external-connections"
     }
   ]
