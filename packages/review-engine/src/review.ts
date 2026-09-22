@@ -236,6 +236,49 @@ export type ReviewLoopEvent =
   | { type: "validation"; round: number; success: boolean }
   | { type: "info"; message: string };
 
+export type ReviewActivityEvent =
+  | { type: "constitution-start" }
+  | {
+      type: "constitution-complete";
+      activeRuleCount: number;
+      blockingRuleCount: number;
+      durationMs: number;
+    }
+  | {
+      type: "coverage";
+      changedFileCount: number;
+      reviewableFileCount: number;
+      unreviewedFileCount: number;
+      coverage: "complete" | "partial";
+    }
+  | { type: "lens-start"; lens: ReviewLens }
+  | { type: "model-request"; lens: ReviewLens; step: number }
+  | {
+      type: "model-response";
+      lens: ReviewLens;
+      step: number;
+      toolCallCount: number;
+      durationMs: number;
+    }
+  | { type: "tool-start"; lens: ReviewLens; step: number; tool: string }
+  | {
+      type: "tool-complete";
+      lens: ReviewLens;
+      step: number;
+      tool: string;
+      success: boolean;
+      durationMs: number;
+    }
+  | {
+      type: "lens-complete";
+      lens: ReviewLens;
+      findingCount: number;
+      durationMs: number;
+    }
+  | { type: "architecture-start" }
+  | { type: "architecture-complete"; unresolvedCount: number; durationMs: number }
+  | { type: "complete"; durationMs: number };
+
 export interface ReviewFileReadOptions {
   startLine?: number;
   endLine?: number;
@@ -254,6 +297,7 @@ interface ReviewExecutionOptions {
   model?: string;
   maxSteps?: number;
   lenses?: ReviewLens[];
+  onActivity?: (event: ReviewActivityEvent) => void;
 }
 
 export interface CodeReviewOptions extends ReviewExecutionOptions {
@@ -696,6 +740,8 @@ async function runReviewLens(
   const maxSteps = Math.max(1, Math.min(30, options.maxSteps ?? 12));
 
   for (let step = 1; step <= maxSteps; step += 1) {
+    options.onActivity?.({ type: "model-request", lens, step });
+    const requestStartedAt = Date.now();
     const response = await options.gateway.createChatCompletion({
       model,
       mode: "code",
@@ -705,6 +751,13 @@ async function runReviewLens(
       temperature: 0,
     });
     const assistant = response.choices[0]?.message;
+    options.onActivity?.({
+      type: "model-response",
+      lens,
+      step,
+      toolCallCount: assistant?.tool_calls?.length ?? 0,
+      durationMs: Date.now() - requestStartedAt,
+    });
     if (!assistant) {
       throw new Error(
         "Review Gateway response did not contain an assistant message for lens " + lens + ".",
@@ -720,14 +773,37 @@ async function runReviewLens(
     const calls = assistant.tool_calls ?? [];
     if (calls.length > 0) {
       for (const call of calls) {
+        const toolStartedAt = Date.now();
+        options.onActivity?.({
+          type: "tool-start",
+          lens,
+          step,
+          tool: call.function.name,
+        });
         try {
           const value = await executeReviewTool(context, call);
+          options.onActivity?.({
+            type: "tool-complete",
+            lens,
+            step,
+            tool: call.function.name,
+            success: true,
+            durationMs: Date.now() - toolStartedAt,
+          });
           messages.push({
             role: "tool",
             tool_call_id: call.id,
             content: boundedJson(value),
           });
         } catch (error) {
+          options.onActivity?.({
+            type: "tool-complete",
+            lens,
+            step,
+            tool: call.function.name,
+            success: false,
+            durationMs: Date.now() - toolStartedAt,
+          });
           messages.push({
             role: "tool",
             tool_call_id: call.id,
@@ -780,9 +856,18 @@ async function applyWorkflowReviewResult(
 export async function runExternalPullRequestReview(
   options: ExternalPullRequestReviewOptions,
 ): Promise<ExternalPullRequestReviewReport> {
+  const reviewStartedAt = Date.now();
   const model = options.model?.trim() || "kilo-auto/free";
+  options.onActivity?.({ type: "constitution-start" });
+  const constitutionStartedAt = Date.now();
   const constitution = await buildRepositoryConstitution(options.root, options.config, {
     rebuildIndex: false,
+  });
+  options.onActivity?.({
+    type: "constitution-complete",
+    activeRuleCount: activeRepositoryRules(constitution).length,
+    blockingRuleCount: constitution.counts.blocking,
+    durationMs: Date.now() - constitutionStartedAt,
   });
   const lenses = [
     ...new Set(options.lenses ?? ["general", "bug_hunter", "security"]),
@@ -797,17 +882,44 @@ export async function runExternalPullRequestReview(
   const unreviewedFiles = changedFiles.filter((path) => !reviewableFiles.includes(path));
   const coverage =
     options.material.diffTruncated || unreviewedFiles.length > 0 ? "partial" : "complete";
+  options.onActivity?.({
+    type: "coverage",
+    changedFileCount: changedFiles.length,
+    reviewableFileCount: reviewableFiles.length,
+    unreviewedFileCount: unreviewedFiles.length,
+    coverage,
+  });
 
   const lensResults = [];
   for (const lens of lenses) {
-    lensResults.push(
-      await runReviewLens(options, constitution, reviewableFiles, lens, options.material),
+    const lensStartedAt = Date.now();
+    options.onActivity?.({ type: "lens-start", lens });
+    const result = await runReviewLens(
+      options,
+      constitution,
+      reviewableFiles,
+      lens,
+      options.material,
     );
+    options.onActivity?.({
+      type: "lens-complete",
+      lens,
+      findingCount: result.findings.length,
+      durationMs: Date.now() - lensStartedAt,
+    });
+    lensResults.push(result);
   }
 
   const findings = deduplicateFindings(lensResults.flatMap((result) => result.findings));
   const codeBlockingCount = findings.filter((finding) => finding.severity === "blocking").length;
+  options.onActivity?.({ type: "architecture-start" });
+  const architectureStartedAt = Date.now();
   const architectureImpact = await analyzeArchitectureImpact(options.root, changedFiles);
+  options.onActivity?.({
+    type: "architecture-complete",
+    unresolvedCount: architectureImpact.unresolvedCount,
+    durationMs: Date.now() - architectureStartedAt,
+  });
   const blockingCount = codeBlockingCount + architectureImpact.unresolvedCount;
   const impactSummary = architectureImpactSummary(architectureImpact);
   const reviewSummary = lensResults
@@ -817,6 +929,8 @@ export async function runExternalPullRequestReview(
     coverage === "complete"
       ? " Review coverage: complete."
       : " Review coverage: partial; the bounded PR diff was truncated or did not contain every changed file.";
+
+  options.onActivity?.({ type: "complete", durationMs: Date.now() - reviewStartedAt });
 
   return {
     source: "external_pull_request",
