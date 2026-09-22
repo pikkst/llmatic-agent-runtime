@@ -2,7 +2,7 @@
 
 import { createHash, randomUUID } from "node:crypto";
 import { existsSync } from "node:fs";
-import { mkdir, mkdtemp, readFile, rm } from "node:fs/promises";
+import { copyFile, mkdir, mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { spawnSync } from "node:child_process";
@@ -30,7 +30,7 @@ function capture(command, args) {
     cwd: root,
     env: process.env,
     encoding: "utf8",
-    shell: process.platform === "win32",
+    shell: false,
   });
 
   if (result.error || result.status !== 0) return undefined;
@@ -44,7 +44,7 @@ function run(command, args, label) {
     cwd: root,
     env: process.env,
     stdio: "inherit",
-    shell: process.platform === "win32",
+    shell: false,
   });
 
   if (result.error) fail(label + " could not start: " + result.error.message);
@@ -65,22 +65,30 @@ async function extractVsix(vsixPath, destination) {
   await mkdir(destination, { recursive: true });
 
   if (process.platform === "win32") {
-    const escapedVsix = vsixPath.replaceAll("'", "''");
-    const escapedDestination = destination.replaceAll("'", "''");
-    run(
-      "powershell",
-      [
-        "-NoProfile",
-        "-NonInteractive",
-        "-Command",
-        "Expand-Archive -LiteralPath '" +
-          escapedVsix +
-          "' -DestinationPath '" +
-          escapedDestination +
-          "' -Force",
-      ],
-      "VSIX extraction",
-    );
+    // Expand-Archive only accepts .zip even though VSIX files are ZIP archives.
+    const zipAlias = destination + ".zip";
+    await copyFile(vsixPath, zipAlias);
+
+    try {
+      const escapedZip = zipAlias.replaceAll("'", "''");
+      const escapedDestination = destination.replaceAll("'", "''");
+      run(
+        "powershell",
+        [
+          "-NoProfile",
+          "-NonInteractive",
+          "-Command",
+          "Expand-Archive -LiteralPath '" +
+            escapedZip +
+            "' -DestinationPath '" +
+            escapedDestination +
+            "' -Force",
+        ],
+        "VSIX extraction",
+      );
+    } finally {
+      await rm(zipAlias, { force: true });
+    }
     return;
   }
 
