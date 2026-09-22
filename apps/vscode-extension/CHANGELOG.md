@@ -20,6 +20,11 @@
 - Published review summaries are deterministic and based on validated findings rather than free-form model suggestion prose.
 - Added visible `External PR Review` and `Auto Review Agent` actions to the LLMatic Runtime Status view.
 - Added a repository-bound local Auto Review Agent that watches every two minutes while VS Code is open, baselines existing PRs on enable, automatically reviews new or updated review-ready PR heads, waits for drafts to become ready, and never auto-publishes review comments.
+- External review now uses bounded, preloaded changed-code batches and no model tools, eliminating broad `read_diff` / `repo_search` discovery loops during PR review.
+- Added adaptive free-model routing for external review: LLMatic discovers the live Kilo Gateway model catalog, selects available `:free` candidates per review task, records latency/failure telemetry, cools down failing explicit models, and reserves `kilo-auto/free` as the final fallback.
+- External free-model candidate requests default to a 45-second timeout and up to three model candidates; transient timeout/overload/context/capability failures switch models instead of retrying the same provider repeatedly.
+- Partial reviews no longer present zero findings as a clean verdict. The UI separates complete diff availability from review completeness, and a partial zero-finding review cannot be published as if it were an approval result.
+- Auto Review Agent retries partial/transient review results after a cooldown instead of marking the PR head permanently reviewed.
 
 ## 0.2.0
 
