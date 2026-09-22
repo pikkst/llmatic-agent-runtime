@@ -15,6 +15,7 @@ import type {
   PullRequestFileReadOptions,
   PullRequestFileReadResult,
   PullRequestCommentSnapshot,
+  PullRequestInlineCommentInput,
   PublishPullRequestReviewInput,
   PullRequestReviewContext,
   PullRequestReviewMetadata,
@@ -689,6 +690,25 @@ export async function getFailedPullRequestDiagnostics(
   return { status, failed };
 }
 
+function normalizeInlineReviewComment(
+  comment: PullRequestInlineCommentInput,
+): PullRequestInlineCommentInput {
+  const path = comment.path.replaceAll("\\", "/").replace(/^\/+/, "").trim();
+  const body = comment.body.trim();
+  const line = Math.trunc(comment.line);
+
+  if (!path) throw new Error("Inline review comment path is required.");
+  if (!body) throw new Error("Inline review comment body is required.");
+  if (!Number.isInteger(line) || line <= 0) {
+    throw new Error("Inline review comment line must be a positive integer.");
+  }
+  if (comment.side !== "RIGHT" && comment.side !== "LEFT") {
+    throw new Error("Inline review comment side must be RIGHT or LEFT.");
+  }
+
+  return { path, line, side: comment.side, body };
+}
+
 export async function publishPullRequestReview(
   root: string,
   config: AgentConfig,
@@ -713,8 +733,34 @@ export async function publishPullRequestReview(
   }
 
   const runner = runnerFor(options);
+  const pullRequest = await getPullRequestSummary(root, target, runner);
+  assertPullRequestMatchesWorkspaceRepository(root, pullRequest, runner);
+
   if (input.expectedHeadOid?.trim()) {
     await assertPullRequestHeadStable(root, target, input.expectedHeadOid.trim(), runner);
+  }
+
+  const { owner, name, number } = pullRequestCoordinates(pullRequest);
+  const inlineComments = (input.inlineComments ?? []).map(normalizeInlineReviewComment);
+
+  for (const comment of inlineComments) {
+    const inlineArgs = [
+      "api",
+      "--method",
+      "POST",
+      "repos/" + owner + "/" + name + "/pulls/" + String(number) + "/comments",
+      "-f",
+      "body=" + comment.body,
+      "-f",
+      "commit_id=" + pullRequest.headRefOid,
+      "-f",
+      "path=" + comment.path,
+      "-F",
+      "line=" + String(comment.line),
+      "-f",
+      "side=" + comment.side,
+    ];
+    requireSuccess(run(root, inlineArgs, runner), inlineArgs);
   }
 
   const args = ["pr", "review", target, "--comment", "--body", body];
