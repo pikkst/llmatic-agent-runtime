@@ -193,7 +193,6 @@
         "title": "Review External Pull Request",
         "category": "LLMatic"
       },
-
       {
         "command": "llmatic.connectJiraWorkspace",
         "title": "Connect Jira Workspace",
