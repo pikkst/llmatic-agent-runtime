@@ -171,6 +171,50 @@ describe("github adapter", () => {
         };
       }
 
+      if (args[0] === "repo" && args[1] === "view") {
+        return {
+          exitCode: 0,
+          stdout: JSON.stringify({ nameWithOwner: "example/repo" }),
+          stderr: "",
+        };
+      }
+
+      if (args[0] === "api" && args[1] === "graphql") {
+        return {
+          exitCode: 0,
+          stdout: JSON.stringify({
+            data: {
+              repository: {
+                pullRequest: {
+                  reviewThreads: {
+                    nodes: [
+                      {
+                        isResolved: false,
+                        isOutdated: false,
+                        path: "src/value.ts",
+                        line: 1,
+                        originalLine: 1,
+                        comments: {
+                          nodes: [
+                            {
+                              author: { login: "inline-reviewer" },
+                              body: "Please cover the null case.",
+                              createdAt: "2026-09-22T12:00:00Z",
+                              url: "https://github.com/example/repo/pull/7#discussion_r1",
+                            },
+                          ],
+                        },
+                      },
+                    ],
+                  },
+                },
+              },
+            },
+          }),
+          stderr: "",
+        };
+      }
+
       if (args[1] === "view" && String(args.at(-1)).includes("title")) {
         return {
           exitCode: 0,
@@ -218,6 +262,13 @@ describe("github adapter", () => {
       state: "COMMENTED",
     });
     expect(context.comments[0]?.authorLogin).toBe("maintainer");
+    expect(context.reviewThreads[0]).toMatchObject({
+      path: "src/value.ts",
+      line: 1,
+      resolved: false,
+      outdated: false,
+    });
+    expect(context.reviewThreads[0]?.comments[0]?.authorLogin).toBe("inline-reviewer");
     expect(context.diff).toContain("+export const value = 2;");
     expect(context.diffTruncated).toBe(false);
     expect(calls).toContainEqual(["pr", "diff", "7", "--color", "never"]);
