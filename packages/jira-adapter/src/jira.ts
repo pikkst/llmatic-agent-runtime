@@ -598,7 +598,9 @@ export async function verifyJiraConnectionFromEnvironment(
   runtimeConfig: AgentConfig,
   environment: NodeJS.ProcessEnv = process.env,
 ): Promise<JiraCurrentUser> {
-  return createJiraTaskProviderFromEnvironment(runtimeConfig, environment).getCurrentUser();
+  return createJiraTaskProviderFromEnvironment(runtimeConfig, environment).getCurrentUser({
+    approved: true,
+  });
 }
 
 function taskMetadata(task: TaskRecord): Record<string, string> {
