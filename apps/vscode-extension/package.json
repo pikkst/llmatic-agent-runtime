@@ -36,7 +36,8 @@
     "@llmatic/project-initializer": "workspace:*",
     "@llmatic/workspace-recovery": "workspace:*",
     "@llmatic/repository-constitution": "workspace:*",
-    "@llmatic/pr-draft": "workspace:*"
+    "@llmatic/pr-draft": "workspace:*",
+    "@llmatic/jira-adapter": "workspace:*"
   },
   "devDependencies": {
     "@types/vscode": "1.105.0",
@@ -184,6 +185,16 @@
         "command": "llmatic.generatePrDraft",
         "title": "Generate PR Draft",
         "category": "LLMatic"
+      },
+      {
+        "command": "llmatic.connectJiraWorkspace",
+        "title": "Connect Jira Workspace",
+        "category": "LLMatic"
+      },
+      {
+        "command": "llmatic.disconnectJiraWorkspace",
+        "title": "Disconnect Jira Workspace",
+        "category": "LLMatic"
       }
     ],
     "configuration": {
@@ -246,6 +257,15 @@
           "type": "string",
           "default": "",
           "description": "Optional advanced Jira JQL override for recovery candidates. When empty, LLMatic uses assigned open work ordered by Jira Rank."
+        },
+        "llmatic.jiraWorkMode": {
+          "type": "string",
+          "enum": [
+            "assigned_only",
+            "project_queue"
+          ],
+          "default": "assigned_only",
+          "description": "Fallback Jira work-ownership mode when no workspace Jira profile is connected. assigned_only is team-safe; project_queue is for solo/full-project queues."
         }
       }
     },
