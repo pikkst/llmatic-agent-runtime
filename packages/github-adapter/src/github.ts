@@ -576,12 +576,7 @@ export async function getPullRequestReviewContext(
   const diffArgs = [...prArgs("diff", target), "--color", "never"];
   const rawDiff = requireSuccess(run(root, diffArgs, runner), diffArgs).stdout;
   const diffTruncated = rawDiff.length > MAX_PULL_REQUEST_REVIEW_DIFF_CHARS;
-  await assertPullRequestHeadStable(
-    root,
-    ref,
-    metadata.status.pullRequest.headRefOid,
-    runner,
-  );
+  await assertPullRequestHeadStable(root, ref, metadata.status.pullRequest.headRefOid, runner);
 
   return {
     ...metadata,
@@ -689,12 +684,7 @@ export async function publishPullRequestReview(
 
   const runner = runnerFor(options);
   if (input.expectedHeadOid?.trim()) {
-    await assertPullRequestHeadStable(
-      root,
-      target,
-      input.expectedHeadOid.trim(),
-      runner,
-    );
+    await assertPullRequestHeadStable(root, target, input.expectedHeadOid.trim(), runner);
   }
 
   const args = ["pr", "review", target, "--comment", "--body", body];
