@@ -17,6 +17,7 @@ export interface WorkspaceJiraStatus {
   label?: string;
   detail?: string;
   workMode?: "assigned_only" | "project_queue";
+  error?: string;
 }
 
 const STATUS_COLOR_IDS: Record<Exclude<SemanticStatus, "neutral">, string> = {
@@ -173,16 +174,29 @@ export class LlmaticStatusProvider implements vscode.TreeDataProvider<vscode.Tre
     );
     decorateStatusItem(
       jira,
-      this.jiraStatus?.connected ? "ok" : this.jiraStatus?.required ? "error" : "attention",
+      this.jiraStatus?.error
+        ? "error"
+        : this.jiraStatus?.connected
+          ? "ok"
+          : this.jiraStatus?.required
+            ? "error"
+            : "attention",
       "jira-workspace",
-      this.jiraStatus?.connected ? "issues" : "plug",
+      this.jiraStatus?.error ? "error" : this.jiraStatus?.connected ? "issues" : "plug",
     );
-    jira.description = this.jiraStatus?.connected
-      ? (this.jiraStatus.workMode === "project_queue" ? "project queue" : "assigned to me") +
-        (this.jiraStatus.detail ? " · " + this.jiraStatus.detail : "")
-      : this.jiraStatus?.required
-        ? "required for canonical Jira task source"
-        : "workspace-specific Jira profile";
+    jira.description = this.jiraStatus?.error
+      ? "connection error · reconnect required"
+      : this.jiraStatus?.connected
+        ? (this.jiraStatus.workMode === "project_queue" ? "project queue" : "assigned to me") +
+          (this.jiraStatus.detail ? " · " + this.jiraStatus.detail : "")
+        : this.jiraStatus?.required
+          ? "required for canonical Jira task source"
+          : "workspace-specific Jira profile";
+    jira.tooltip =
+      this.jiraStatus?.error ??
+      (this.jiraStatus?.connected
+        ? "Jira workspace connection is healthy."
+        : "Connect Jira for this workspace.");
     jira.command = {
       command: "llmatic.connectJiraWorkspace",
       title: this.jiraStatus?.connected
