@@ -1062,6 +1062,21 @@ function deduplicateFindings(findings: ReviewFinding[]): ReviewFinding[] {
   );
 }
 
+async function reportSemanticModelFailure(
+  gateway: GatewayChatClient,
+  response: GatewayChatResponse,
+  lens: ReviewLens,
+  reason: string,
+): Promise<void> {
+  const model = response.model?.trim();
+  if (!model) return;
+  await gateway.reportModelFailure?.({
+    model,
+    task: "review_" + lens,
+    reason,
+  });
+}
+
 async function runReviewLens(
   options: ReviewExecutionOptions,
   constitution: RepositoryConstitution,
@@ -1151,6 +1166,15 @@ async function runReviewLens(
       durationMs: Date.now() - requestStartedAt,
     });
     if (!assistant) {
+      await reportSemanticModelFailure(
+        options.gateway,
+        response,
+        lens,
+        "missing assistant message",
+      );
+      if (material && step < maxSteps) {
+        continue;
+      }
       throw new Error(
         "Review Gateway response did not contain an assistant message for lens " + lens + ".",
       );
@@ -1213,6 +1237,34 @@ async function runReviewLens(
     }
 
     if (!assistant.content?.trim()) {
+      const semanticReason = "empty structured review content";
+      await reportSemanticModelFailure(options.gateway, response, lens, semanticReason);
+      if (response.model?.trim()) {
+        avoidedModels.add(response.model.trim());
+      }
+
+      if (material && step < maxSteps) {
+        reportRepairAttempts += 1;
+        options.onActivity?.({
+          type: "report-repair",
+          lens,
+          step,
+          attempt: reportRepairAttempts,
+          reason: "invalid_json",
+        });
+        messages.push({
+          role: "user",
+          content: [
+            "The previous model returned no usable structured review content.",
+            "Return ONLY one valid JSON object with exactly these top-level fields:",
+            '- "summary": string',
+            '- "findings": array',
+            "Do not include reasoning-only output, Markdown fences, commentary, preambles or trailing text.",
+          ].join("\n"),
+        });
+        continue;
+      }
+
       throw new Error(
         "Review model returned neither tool calls nor a JSON report for lens " + lens + ".",
       );
@@ -1230,9 +1282,18 @@ async function runReviewLens(
     } catch (error) {
       const reason =
         error instanceof SyntaxError ? ("invalid_json" as const) : ("invalid_schema" as const);
-      if (response.model?.trim()) {
-        avoidedModels.add(response.model.trim());
+      const model = response.model?.trim();
+      if (model) {
+        avoidedModels.add(model);
       }
+      await reportSemanticModelFailure(
+        options.gateway,
+        response,
+        lens,
+        reason === "invalid_json"
+          ? "invalid structured JSON"
+          : "structured review schema mismatch",
+      );
 
       if (reportRepairAttempts >= maxReportRepairAttempts || step >= maxSteps) {
         throw new Error(
