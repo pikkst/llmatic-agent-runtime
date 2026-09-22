@@ -11,6 +11,12 @@ interface StatusAction {
   command: string;
 }
 
+interface StatusOperation {
+  id: number;
+  label: string;
+  description?: string;
+}
+
 export interface WorkspaceJiraStatus {
   connected: boolean;
   required: boolean;
@@ -110,6 +116,8 @@ export class LlmaticStatusProvider implements vscode.TreeDataProvider<vscode.Tre
   private gatewayAnonymousAvailable = false;
   private recovery?: WorkspaceRecovery;
   private jiraStatus?: WorkspaceJiraStatus;
+  private nextOperationId = 0;
+  private readonly operations = new Map<number, StatusOperation>();
 
   public update(
     health: SetupHealth | undefined,
@@ -144,11 +152,60 @@ export class LlmaticStatusProvider implements vscode.TreeDataProvider<vscode.Tre
     );
   }
 
+  public beginOperation(
+    label: string,
+    description?: string,
+  ): {
+    update: (nextLabel: string, nextDescription?: string) => void;
+    dispose: () => void;
+  } {
+    const id = ++this.nextOperationId;
+    this.operations.set(id, { id, label, description });
+    this.changed.fire(undefined);
+
+    return {
+      update: (nextLabel, nextDescription) => {
+        if (!this.operations.has(id)) return;
+        this.operations.set(id, {
+          id,
+          label: nextLabel,
+          description: nextDescription,
+        });
+        this.changed.fire(undefined);
+      },
+      dispose: () => {
+        if (!this.operations.delete(id)) return;
+        this.changed.fire(undefined);
+      },
+    };
+  }
+
+  private currentOperation(): StatusOperation | undefined {
+    return Array.from(this.operations.values()).at(-1);
+  }
+
   public getTreeItem(element: vscode.TreeItem): vscode.TreeItem {
     return element;
   }
 
   public getChildren(): vscode.ProviderResult<vscode.TreeItem[]> {
+    const operation = this.currentOperation();
+    const operationItems: vscode.TreeItem[] = [];
+
+    if (operation) {
+      const loading = new vscode.TreeItem(
+        operation.label,
+        vscode.TreeItemCollapsibleState.None,
+      );
+      decorateStatusItem(loading, "attention", "active-operation", "loading~spin");
+      loading.description = operation.description ?? "LLMatic is working…";
+      loading.tooltip =
+        operation.label +
+        (operation.description ? "\n" + operation.description : "");
+      loading.contextValue = "llmatic.loading";
+      operationItems.push(loading);
+    }
+
     const health = this.health;
     const status = health?.status ?? "NEEDS_SETUP";
     const statusItem = new vscode.TreeItem(status, vscode.TreeItemCollapsibleState.None);
@@ -424,6 +481,7 @@ export class LlmaticStatusProvider implements vscode.TreeDataProvider<vscode.Tre
     ];
 
     return [
+      ...operationItems,
       statusItem,
       ...recoveryItems,
       ...actions.map((action) => {
