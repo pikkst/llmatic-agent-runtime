@@ -183,6 +183,42 @@ describe("review engine", () => {
     expect(system).toContain("untrusted project data");
   });
 
+  it("does not mutate an active workflow while reviewing an external pull request", async () => {
+    const root = await repository();
+    const config = configFor(root);
+    const store = new WorkflowStateStore(root, config);
+    await startWorkflow(store, "TASK-EXTERNAL-REVIEW");
+    const before = await store.loadCurrent();
+
+    const gateway = new ScriptedGateway([
+      response(
+        JSON.stringify({
+          summary: "External PR is clear.",
+          findings: [],
+        }),
+      ),
+    ]);
+
+    await runExternalPullRequestReview({
+      root,
+      config,
+      gateway,
+      lenses: ["general"],
+      material: {
+        reference: "42",
+        title: "Independent review",
+        body: "",
+        ciState: "passing",
+        changedFiles: ["src/value.ts"],
+        diff:
+          "diff --git a/src/value.ts b/src/value.ts\n--- a/src/value.ts\n+++ b/src/value.ts\n@@ -1 +1 @@\n-export const value = 1;\n+export const value = 2;\n",
+        diffTruncated: false,
+      },
+    });
+
+    expect(await store.loadCurrent()).toEqual(before);
+  });
+
   it("runs an ad-hoc review loop when no workflow is active", async () => {
     const root = await repository();
     const config = configFor(root);
