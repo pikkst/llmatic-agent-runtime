@@ -2210,6 +2210,8 @@ async function runGatewayReview(
   let store = new WorkflowStateStore(root, config);
   const gateway = new KiloGatewayClient({
     apiKey: gatewayAccess.apiKey,
+    maxRetries: 0,
+    requestTimeoutMs: configuration().get<number>("reviewRequestTimeoutMs", 90_000),
     onRetry: (event) => {
       output.appendLine(
         "[RETRY] Kilo Gateway " + event.nextAttempt + "/" + event.maxAttempts + ": " + event.reason,
@@ -2259,7 +2261,7 @@ async function runGatewayReview(
           gateway,
           model,
           lenses: ["general", "bug_hunter", "security"],
-          maxSteps: configuration().get<number>("agentMaxSteps", 20),
+          maxSteps: configuration().get<number>("reviewMaxSteps", 8),
           maxReviewRounds: config.workflow.maxFixAttempts,
           allowAdHoc: true,
           onEvent: (event) => {
@@ -2361,6 +2363,15 @@ function reviewActivityDescription(event: ReviewActivityEvent): {
         phase: event.lens.replaceAll("_", " ") + " lens",
         detail: "Starting " + event.lens.replaceAll("_", " ") + " review…",
       };
+    case "lens-failed":
+      return {
+        phase: event.lens.replaceAll("_", " ") + " incomplete",
+        detail:
+          "Lens stopped after " +
+          formatElapsedDuration(event.durationMs) +
+          ": " +
+          event.reason,
+      };
     case "model-request":
       return {
         phase: event.lens.replaceAll("_", " ") + " · model step " + event.step,
@@ -2388,13 +2399,19 @@ function reviewActivityDescription(event: ReviewActivityEvent): {
     case "tool-start":
       return {
         phase: event.lens.replaceAll("_", " ") + " · " + event.tool,
-        detail: "Running review tool at step " + event.step + "…",
+        detail:
+          "Running review tool" +
+          (event.target ? " on " + event.target : "") +
+          " at step " +
+          event.step +
+          "…",
       };
     case "tool-complete":
       return {
         phase: event.lens.replaceAll("_", " ") + " · " + event.tool,
         detail:
           (event.success ? "Completed" : "Failed") +
+          (event.target ? " " + event.target : "") +
           " in " +
           formatElapsedDuration(event.durationMs) +
           " · step " +
@@ -2513,6 +2530,15 @@ function externalPullRequestReviewDraft(
     "Reviewed head: `" + report.headRefOid + "`",
     "Remote CI: **" + report.ciState + "**",
     "Review coverage: **" + report.coverage + "**",
+    "Review status: **" + report.reviewStatus + "**",
+    ...(report.lensFailures.length > 0
+      ? [
+          "Incomplete lenses: " +
+            report.lensFailures
+              .map((failure) => "`" + failure.lens + "` — " + failure.reason)
+              .join("; "),
+        ]
+      : []),
     "Diff truncated: **" + String(report.diffTruncated) + "**",
     ...(report.unreviewedFiles.length > 0
       ? [
@@ -2594,6 +2620,8 @@ async function reviewExternalPullRequestInUi(
     });
     const gateway = new KiloGatewayClient({
       apiKey: gatewayAccess.apiKey,
+      maxRetries: 0,
+      requestTimeoutMs: configuration().get<number>("reviewRequestTimeoutMs", 90_000),
       onRetry: (event) => {
         const retryDetail =
           "Gateway retry " +
@@ -2675,7 +2703,7 @@ async function reviewExternalPullRequestInUi(
             return value;
           },
           model,
-          maxSteps: configuration().get<number>("agentMaxSteps", 20),
+          maxSteps: configuration().get<number>("reviewMaxSteps", 8),
           lenses: ["general", "bug_hunter", "security"],
           onActivity: (event) => {
             const description = reviewActivityDescription(event);
@@ -2730,6 +2758,15 @@ async function reviewExternalPullRequestInUi(
     output.appendLine("Reviewed head: " + report.headRefOid);
     output.appendLine("Remote CI: " + report.ciState);
     output.appendLine("Review coverage: " + report.coverage);
+    output.appendLine("Review status: " + report.reviewStatus);
+    if (report.lensFailures.length > 0) {
+      output.appendLine(
+        "Incomplete lenses: " +
+          report.lensFailures
+            .map((failure) => failure.lens + " — " + failure.reason)
+            .join("; "),
+      );
+    }
     output.appendLine("Review duration: " + formatElapsedDuration(durationMs));
     output.appendLine("Diff truncated: " + String(report.diffTruncated));
     if (report.unreviewedFiles.length > 0) {
@@ -2755,7 +2792,9 @@ async function reviewExternalPullRequestInUi(
         report.blockingCount +
         " blocking / " +
         report.nonBlockingCount +
-        " non-blocking finding(s).",
+        " non-blocking finding(s)" +
+        (report.reviewStatus === "partial" ? " · partial lens coverage" : "") +
+        ".",
       "Copy Review Draft",
       "Publish Review Comment",
     );
