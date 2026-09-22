@@ -218,6 +218,10 @@ export class AgentChatViewProvider implements vscode.WebviewViewProvider {
     .muted { color: var(--vscode-descriptionForeground); }
     .strong { font-weight: 600; }
     .row { margin: 3px 0; }
+    .status-ok { color: var(--vscode-testing-iconPassed); }
+    .status-attention { color: var(--vscode-list-warningForeground); }
+    .status-error { color: var(--vscode-list-errorForeground); }
+    .status-neutral { color: var(--vscode-foreground); }
     .recommendation {
       margin-top: 8px;
       padding-top: 8px;
@@ -306,9 +310,9 @@ export class AgentChatViewProvider implements vscode.WebviewViewProvider {
     const refresh = document.getElementById("refresh");
     let latestRecovery;
 
-    function textRow(label, value) {
+    function textRow(label, value, status = "neutral") {
       const row = document.createElement("div");
-      row.className = "row";
+      row.className = "row status-" + status;
       const strong = document.createElement("span");
       strong.className = "strong";
       strong.textContent = label + ": ";
@@ -339,13 +343,20 @@ export class AgentChatViewProvider implements vscode.WebviewViewProvider {
             " symbols · " +
             recovery.repository.importCount +
             " imports",
+          recovery.repository.fileCount > 0 ? "ok" : "attention",
         ),
       );
-      recoveryElement.appendChild(textRow("Branch", recovery.git.branch || "detached HEAD"));
       recoveryElement.appendChild(
-        textRow("Working tree", recovery.git.clean ? "clean" : "has local changes"),
+        textRow("Branch", recovery.git.branch || "detached HEAD", "neutral"),
       );
-      recoveryElement.appendChild(textRow("Task source", recovery.taskSource));
+      recoveryElement.appendChild(
+        textRow(
+          "Working tree",
+          recovery.git.clean ? "clean" : "has local changes",
+          recovery.git.clean ? "ok" : "attention",
+        ),
+      );
+      recoveryElement.appendChild(textRow("Task source", recovery.taskSource, "ok"));
       recoveryElement.appendChild(
         textRow(
           "Repository rules",
@@ -357,6 +368,7 @@ export class AgentChatViewProvider implements vscode.WebviewViewProvider {
             " inferred · " +
             recovery.constitution.proposedRule +
             " proposed",
+          recovery.constitution.proposedRule > 0 ? "attention" : "ok",
         ),
       );
       recoveryElement.appendChild(
@@ -365,6 +377,7 @@ export class AgentChatViewProvider implements vscode.WebviewViewProvider {
           recovery.workflow
             ? recovery.workflow.taskRef + " · " + recovery.workflow.state
             : "none",
+          recovery.workflow ? "attention" : "ok",
         ),
       );
 
@@ -373,11 +386,16 @@ export class AgentChatViewProvider implements vscode.WebviewViewProvider {
           textRow(
             "Recovered task",
             recovery.task.key + " · " + recovery.task.summary + " · " + recovery.task.status,
+            "attention",
           ),
         );
       } else if (recovery.nextTask) {
         recoveryElement.appendChild(
-          textRow("Next task", recovery.nextTask.key + " · " + recovery.nextTask.summary),
+          textRow(
+            "Next task",
+            recovery.nextTask.key + " · " + recovery.nextTask.summary,
+            "attention",
+          ),
         );
       }
 
@@ -386,13 +404,29 @@ export class AgentChatViewProvider implements vscode.WebviewViewProvider {
           textRow(
             "Open PR",
             "#" + recovery.pullRequest.number + " · CI " + recovery.pullRequest.ciState,
+            recovery.pullRequest.ciState === "failing" ||
+              recovery.pullRequest.ciState === "cancelled"
+              ? "error"
+              : recovery.pullRequest.ciState === "passing"
+                ? "ok"
+                : "attention",
           ),
         );
       }
 
       const recommendation = document.createElement("div");
       recommendation.className = "recommendation";
-      recommendation.appendChild(textRow("Recommended", recovery.recommendation.title));
+      recommendation.appendChild(
+        textRow(
+          "Recommended",
+          recovery.recommendation.title,
+          recovery.recommendation.action === "fix_pr"
+            ? "error"
+            : recovery.recommendation.action === "ask_goal"
+              ? "ok"
+              : "attention",
+        ),
+      );
       const detail = document.createElement("div");
       detail.className = "muted";
       detail.textContent = recovery.recommendation.detail;
@@ -423,12 +457,19 @@ export class AgentChatViewProvider implements vscode.WebviewViewProvider {
             review.nonBlockingCount +
             " non-blocking · " +
             review.lenses.join(", "),
+          review.blockingCount > 0
+            ? "error"
+            : review.nonBlockingCount > 0
+              ? "attention"
+              : "ok",
         ),
       );
 
       for (const finding of review.findings) {
         const item = document.createElement("div");
-        item.className = "row";
+        item.className =
+          "row " +
+          (finding.severity === "blocking" ? "status-error" : "status-attention");
         item.textContent =
           (finding.severity === "blocking" ? "⛔ " : "• ") +
           "[" +
@@ -452,7 +493,12 @@ export class AgentChatViewProvider implements vscode.WebviewViewProvider {
             ? "message user"
             : message.role === "assistant"
               ? "message assistant"
-              : "activity";
+              : "activity " +
+                (message.success === true
+                  ? "status-ok"
+                  : message.success === false
+                    ? "status-error"
+                    : "status-neutral");
         item.textContent =
           message.role === "user"
             ? "You\n" + message.content
