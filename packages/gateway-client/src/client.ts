@@ -1,4 +1,9 @@
-import type { GatewayChatRequest, GatewayChatResponse, GatewayFetch } from "./types.js";
+import type {
+  GatewayChatRequest,
+  GatewayChatResponse,
+  GatewayFetch,
+  GatewayModelInfo,
+} from "./types.js";
 
 const DEFAULT_BASE_URL = "https://api.kilo.ai/api/gateway";
 
@@ -120,6 +125,51 @@ export class KiloGatewayClient implements GatewayChatClient {
     );
     this.sleep = options.sleep ?? defaultSleep;
     this.onRetry = options.onRetry;
+  }
+
+  public async listModels(): Promise<GatewayModelInfo[]> {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), this.requestTimeoutMs);
+
+    try {
+      const response = await this.request(this.baseUrl + "/models", {
+        method: "GET",
+        headers: { Accept: "application/json" },
+        signal: controller.signal,
+      });
+      if (!response.ok) {
+        throw new Error(
+          "Kilo Gateway model catalog failed with " +
+            response.status +
+            " " +
+            response.statusText +
+            ".",
+        );
+      }
+
+      const parsed = (await response.json()) as { data?: unknown };
+      if (!Array.isArray(parsed.data)) {
+        throw new Error("Kilo Gateway model catalog did not return a data array.");
+      }
+
+      return parsed.data.filter(
+        (model): model is GatewayModelInfo =>
+          Boolean(
+            model &&
+              typeof model === "object" &&
+              typeof (model as Record<string, unknown>).id === "string",
+          ),
+      );
+    } catch (error) {
+      if (controller.signal.aborted) {
+        throw new Error(
+          "Kilo Gateway model catalog timed out after " + this.requestTimeoutMs + "ms.",
+        );
+      }
+      throw error;
+    } finally {
+      clearTimeout(timeout);
+    }
   }
 
   public async createChatCompletion(request: GatewayChatRequest): Promise<GatewayChatResponse> {
