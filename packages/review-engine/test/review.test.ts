@@ -222,6 +222,79 @@ describe("review engine", () => {
     ).toBeGreaterThanOrEqual(0);
   });
 
+  it("accepts a prose-prefixed structured review object", async () => {
+    const root = await repository();
+    const config = configFor(root);
+    const gateway = new ScriptedGateway([
+      response(
+        'Now I have enough context. {"summary":"Prefixed report parsed.","findings":[]}',
+      ),
+    ]);
+
+    const report = await runExternalPullRequestReview({
+      root,
+      config,
+      gateway,
+      lenses: ["general"],
+      material: {
+        reference: "42",
+        headRefOid: "head-42",
+        title: "Prefixed model response",
+        body: "",
+        ciState: "passing",
+        changedFiles: ["src/value.ts"],
+        diff: "diff --git a/src/value.ts b/src/value.ts\n--- a/src/value.ts\n+++ b/src/value.ts\n@@ -1 +1 @@\n-export const value = 1;\n+export const value = 2;\n",
+        diffTruncated: false,
+      },
+    });
+
+    expect(report.summary).toContain("Prefixed report parsed.");
+    expect(gateway.requests).toHaveLength(1);
+  });
+
+  it("repairs a non-JSON review response instead of failing the lens immediately", async () => {
+    const root = await repository();
+    const config = configFor(root);
+    const events: ReviewActivityEvent[] = [];
+    const gateway = new ScriptedGateway([
+      response("Now I have enough context and will provide the report."),
+      response(JSON.stringify({ summary: "Repaired report.", findings: [] })),
+    ]);
+
+    const report = await runExternalPullRequestReview({
+      root,
+      config,
+      gateway,
+      lenses: ["general"],
+      onActivity: (event) => events.push(event),
+      material: {
+        reference: "42",
+        headRefOid: "head-42",
+        title: "Repair response",
+        body: "",
+        ciState: "passing",
+        changedFiles: ["src/value.ts"],
+        diff: "diff --git a/src/value.ts b/src/value.ts\n--- a/src/value.ts\n+++ b/src/value.ts\n@@ -1 +1 @@\n-export const value = 1;\n+export const value = 2;\n",
+        diffTruncated: false,
+      },
+    });
+
+    expect(report.summary).toContain("Repaired report.");
+    expect(gateway.requests).toHaveLength(2);
+    expect(gateway.requests[1]?.messages.at(-1)).toMatchObject({
+      role: "user",
+    });
+    expect(gateway.requests[1]?.messages.at(-1)?.content).toContain("Return ONLY one valid JSON object");
+    expect(events).toContainEqual(
+      expect.objectContaining({
+        type: "report-repair",
+        lens: "general",
+        attempt: 1,
+        reason: "invalid_json",
+      }),
+    );
+  });
+
   it("uses the external PR-head file reader instead of local working-tree bytes", async () => {
     const root = await repository();
     const config = configFor(root);
