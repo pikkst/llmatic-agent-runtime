@@ -115,7 +115,7 @@ export class KiloGatewayClient implements GatewayChatClient {
     this.maxRetries = Math.max(0, Math.min(5, Math.trunc(options.maxRetries ?? 2)));
     this.retryBaseDelayMs = Math.max(0, Math.trunc(options.retryBaseDelayMs ?? 500));
     this.requestTimeoutMs = Math.max(
-      5_000,
+      1_000,
       Math.min(10 * 60_000, Math.trunc(options.requestTimeoutMs ?? 120_000)),
     );
     this.sleep = options.sleep ?? defaultSleep;
