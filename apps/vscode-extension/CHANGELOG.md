@@ -8,6 +8,7 @@
 - Added an explicit `LLMatic: Review External Pull Request` flow that runs General, Bug Hunter and Security lenses with Repository Constitution context without mutating Jira ownership or the active workflow.
 - External PR context now includes bounded inline review threads with path/line and resolved/outdated state so the reviewer can account for existing code-review discussion.
 - Review results can be copied as a Markdown draft or published as a GitHub review comment only after explicit modal confirmation and the dedicated `pullRequestReview` permission.
+- Pull requests without CI checks are treated as `ciState=none` instead of failing review context loading, and bounded/truncated diffs are explicitly reported as partial review coverage with omitted changed files.
 
 ## 0.2.0
 
