@@ -32,8 +32,10 @@ export class AgentChatViewProvider implements vscode.WebviewViewProvider {
     view.webview.options = {
       enableScripts: true,
     };
-    view.webview.html = this.html(view.webview);
 
+    // Register the extension-side receiver before assigning HTML. The webview
+    // posts a ready handshake during script startup, and a fast webview could
+    // otherwise beat listener registration and remain permanently unhydrated.
     view.webview.onDidReceiveMessage(async (message: unknown) => {
       if (!message || typeof message !== "object") return;
       const input = message as Record<string, unknown>;
@@ -69,6 +71,14 @@ export class AgentChatViewProvider implements vscode.WebviewViewProvider {
       }
     });
 
+    view.onDidChangeVisibility(() => {
+      if (view.visible) this.sync();
+    });
+    view.onDidDispose(() => {
+      if (this.view === view) this.view = undefined;
+    });
+
+    view.webview.html = this.html(view.webview);
     this.sync();
   }
 
