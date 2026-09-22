@@ -224,7 +224,7 @@ try {
     );
     phase("Candidate VSIX installation completed.");
 
-    // Do not use a second VS Code CLI process for --list-extensions here.
+    // Do not use a second VS Code CLI process to enumerate installed extensions here.
     // On Linux CI it can remain attached to the install process/profile and time out.
     // The Extension Host harness below performs the stronger identity, version and
     // isolated-install-path assertions before activating the extension.
