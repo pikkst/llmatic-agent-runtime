@@ -123,9 +123,15 @@ importers:
       '@llmatic/discovery-engine':
         specifier: workspace:*
         version: link:../../packages/discovery-engine
+      '@llmatic/external-connections':
+        specifier: workspace:*
+        version: link:../../packages/external-connections
       '@llmatic/gateway-client':
         specifier: workspace:*
         version: link:../../packages/gateway-client
+      '@llmatic/jira-adapter':
+        specifier: workspace:*
+        version: link:../../packages/jira-adapter
       '@llmatic/kilo-connector':
         specifier: workspace:*
         version: link:../../packages/kilo-connector
@@ -224,6 +230,8 @@ importers:
         version: 3.25.76
 
   packages/discovery-engine: {}
+
+  packages/external-connections: {}
 
   packages/gateway-client: {}
 
