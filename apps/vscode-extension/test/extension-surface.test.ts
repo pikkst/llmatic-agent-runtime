@@ -143,6 +143,14 @@ describe("VS Code extension activation surface", () => {
     expect(source).toContain("onDidChangeVisibility");
     expect(source).toContain("onDidDispose");
     expect(source).toContain("syncRetryCount");
+    expect(source).toContain("stateRevision");
+    expect(source).toContain("acknowledgedRevision");
+    expect(source).toContain("scheduleStateRetry");
+    expect(source).toContain('input.type === "state-applied"');
+    expect(source).toContain(
+      'vscode.postMessage({ type: "state-applied", revision: state.revision })',
+    );
+    expect(source).toContain("this.acknowledgedRevision >= revision");
     expect(source).toContain("setRecoverySource");
     expect(source).toContain("currentRecovery");
     expect(source).toContain("receivedState");
