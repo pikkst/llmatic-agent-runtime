@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   externalConnectionProvider,
+  getBrokerHealth,
   pollBrokerConnection,
   startBrokerConnection,
 } from "../src/index.js";
@@ -16,6 +17,40 @@ describe("external connection registry", () => {
       workspaceScoped: false,
       browserUrl: "https://app.kilo.ai",
       methods: expect.arrayContaining(["anonymous", "browser_api_key"]),
+    });
+  });
+
+  it("reads broker readiness before browser authorization", async () => {
+    const request: typeof fetch = async (input) => {
+      expect(String(input)).toBe("https://broker.example/health");
+      return new Response(
+        JSON.stringify({
+          ok: true,
+          ready: false,
+          service: "llmatic-oauth-broker",
+          version: "1",
+          providers: {
+            atlassian: {
+              ready: false,
+              missing: ["ATLASSIAN_CLIENT_SECRET"],
+            },
+          },
+        }),
+        {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        },
+      );
+    };
+
+    await expect(getBrokerHealth("https://broker.example/", request)).resolves.toMatchObject({
+      ready: false,
+      providers: {
+        atlassian: {
+          ready: false,
+          missing: ["ATLASSIAN_CLIENT_SECRET"],
+        },
+      },
     });
   });
 
