@@ -26,6 +26,7 @@ describe("VS Code extension activation surface", () => {
     expect(source).toContain('vscode.commands.registerCommand("llmatic.reviewRuleProposals"');
     expect(source).toContain('vscode.commands.registerCommand("llmatic.generatePrDraft"');
     expect(source).toContain('vscode.commands.registerCommand("llmatic.reviewExternalPullRequest"');
+    expect(source).toContain('vscode.commands.registerCommand("llmatic.configureAutoReview"');
     expect(source).toContain('vscode.commands.registerCommand("llmatic.checkForUpdates"');
     expect(source).toContain('vscode.commands.registerCommand("llmatic.installUpdate"');
     expect(source).toContain("loadProjectChangeRequest");
@@ -100,6 +101,10 @@ describe("VS Code extension activation surface", () => {
     expect(source).toContain("connecting…");
     expect(source).toContain("beginOperation");
     expect(source).toContain("active-operation");
+    expect(source).toContain("External PR Review");
+    expect(source).toContain("Auto Review Agent");
+    expect(source).toContain('command: "llmatic.reviewExternalPullRequest"');
+    expect(source).toContain('command: "llmatic.configureAutoReview"');
     expect(source).toContain("LLMatic is working…");
   });
   it("contributes a persistent Agent Chat webview with repository recovery controls", async () => {
