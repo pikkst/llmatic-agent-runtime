@@ -266,10 +266,10 @@
         },
         "llmatic.reviewMaxSteps": {
           "type": "number",
-          "default": 8,
-          "minimum": 2,
-          "maximum": 20,
-          "description": "Maximum model/tool rounds per external PR review lens before that lens is marked incomplete and the remaining lenses continue."
+          "default": 3,
+          "minimum": 1,
+          "maximum": 8,
+          "description": "Maximum model/tool rounds per bounded external PR review batch. External PR diff evidence is preloaded, so tools are only for focused verification."
         },
         "llmatic.reviewRequestTimeoutMs": {
           "type": "number",
