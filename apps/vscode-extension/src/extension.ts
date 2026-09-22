@@ -2523,6 +2523,7 @@ async function reviewExternalPullRequestInUi(
   state: ExtensionState,
   statusProvider: LlmaticStatusProvider,
   output: vscode.OutputChannel,
+  reviewLog: vscode.OutputChannel,
 ): Promise<void> {
   const folder = firstWorkspaceFolder();
   if (!folder) {
@@ -2542,137 +2543,240 @@ async function reviewExternalPullRequestInUi(
   });
   if (!reference?.trim()) return;
 
-  const model =
-    configuration().get<string>("agentModel", "kilo-auto/free").trim() || "kilo-auto/free";
-  const gatewayAccess = await gatewayAccessOrPrompt(context, model, state, statusProvider);
-  if (!gatewayAccess) return;
-  if (!(await confirmAutoFreeDataHandling(context, model))) return;
+  const normalizedReference = reference.trim();
+  const startedAt = Date.now();
+  const sessionId = "manual-" + normalizedReference + "-" + String(startedAt);
+  const reviewStatus = statusProvider.beginExternalReview(normalizedReference);
 
-  const root = folder.uri.fsPath;
-  const config = await loadAgentConfig(root, {
-    LLMATIC_HOME: context.globalStorageUri.fsPath,
-  });
-  const gateway = new KiloGatewayClient({
-    apiKey: gatewayAccess.apiKey,
-    onRetry: (event) => {
-      output.appendLine(
-        "[RETRY] Kilo Gateway " + event.nextAttempt + "/" + event.maxAttempts + ": " + event.reason,
-      );
-    },
+  appendReviewActivity(context, reviewLog, sessionId, normalizedReference, startedAt, {
+    type: "session",
+    phase: "Review started",
+    detail:
+      "Manual external PR review · telemetry " +
+      (reviewActivityLoggingEnabled() ? "ON" : "OFF"),
   });
 
-  const report = await vscode.window.withProgress(
-    {
-      location: vscode.ProgressLocation.Notification,
-      title: "LLMatic is reviewing external pull request " + reference.trim(),
-      cancellable: false,
-    },
-    async (progress) => {
-      progress.report({ message: "Reading pull request context…" });
-      const reviewContext = await getPullRequestReviewContext(root, reference.trim());
-
-      progress.report({ message: "Running General, Bug Hunter and Security review…" });
-      const fileCache = new Map<string, unknown>();
-      return runExternalPullRequestReview({
-        root,
-        config,
-        gateway,
-        readFile: (path, options) => {
-          const key =
-            path + ":" + String(options.startLine ?? "") + ":" + String(options.endLine ?? "");
-          const cached = fileCache.get(key);
-          if (cached) return cached;
-
-          const value = readPullRequestFileAtHead(
-            root,
-            reviewContext.status.pullRequest,
-            path,
-            options,
-          );
-          fileCache.set(key, value);
-          return value;
-        },
-        model,
-        maxSteps: configuration().get<number>("agentMaxSteps", 20),
-        lenses: ["general", "bug_hunter", "security"],
-        material: {
-          reference: reference.trim(),
-          headRefOid: reviewContext.status.pullRequest.headRefOid,
-          title: reviewContext.title,
-          body: reviewContext.body,
-          authorLogin: reviewContext.authorLogin,
-          ciState: reviewContext.status.ciState,
-          changedFiles: reviewContext.changedFiles.map((file) => file.path),
-          diff: reviewContext.diff,
-          diffTruncated: reviewContext.diffTruncated,
-          reviews: reviewContext.reviews,
-          comments: reviewContext.comments,
-          reviewThreads: reviewContext.reviewThreads,
-        },
-      });
-    },
-  );
-
-  output.clear();
-  output.appendLine("LLMatic External Pull Request Review");
-  output.appendLine("PR: " + report.reference + " — " + report.title);
-  output.appendLine("Author: " + (report.authorLogin ?? "unknown"));
-  output.appendLine("Reviewed head: " + report.headRefOid);
-  output.appendLine("Remote CI: " + report.ciState);
-  output.appendLine("Review coverage: " + report.coverage);
-  output.appendLine("Diff truncated: " + String(report.diffTruncated));
-  if (report.unreviewedFiles.length > 0) {
-    output.appendLine("Unreviewed changed files: " + report.unreviewedFiles.join(", "));
-  }
-  output.appendLine("");
-  printReviewReport(output, report);
-  output.show(true);
-
-  const draft = externalPullRequestReviewDraft(report);
-  output.appendLine("");
-  output.appendLine("Review comment draft (exact text that can be published):");
-  output.appendLine("");
-  output.appendLine(draft);
-  output.show(true);
-
-  const action = await vscode.window.showInformationMessage(
-    "LLMatic external PR review completed (" +
-      report.coverage +
-      " coverage) with " +
-      report.blockingCount +
-      " blocking / " +
-      report.nonBlockingCount +
-      " non-blocking finding(s).",
-    "Copy Review Draft",
-    "Publish Review Comment",
-  );
-
-  if (action === "Copy Review Draft") {
-    await vscode.env.clipboard.writeText(draft);
-    await vscode.window.showInformationMessage("LLMatic review draft copied to clipboard.");
-    return;
+  if (reviewActivityLoggingEnabled()) {
+    reviewLog.appendLine("");
+    reviewLog.appendLine("=== LLMatic External PR Review " + normalizedReference + " ===");
+    reviewLog.appendLine("Telemetry: " + reviewTelemetryPath(context));
+    reviewLog.show(true);
   }
 
-  if (action === "Publish Review Comment") {
-    const approval = await vscode.window.showWarningMessage(
-      "Publish the generated review to pull request " +
-        reference.trim() +
-        " as a GitHub review comment? This changes GitHub but does not change Jira ownership or the active LLMatic workflow.",
-      { modal: true },
+  try {
+    const model =
+      configuration().get<string>("agentModel", "kilo-auto/free").trim() || "kilo-auto/free";
+    const gatewayAccess = await gatewayAccessOrPrompt(context, model, state, statusProvider);
+    if (!gatewayAccess) {
+      reviewStatus.fail("Gateway access was not configured.", Date.now() - startedAt);
+      return;
+    }
+    if (!(await confirmAutoFreeDataHandling(context, model))) {
+      reviewStatus.fail("Review cancelled before model execution.", Date.now() - startedAt);
+      return;
+    }
+
+    const root = folder.uri.fsPath;
+    const config = await loadAgentConfig(root, {
+      LLMATIC_HOME: context.globalStorageUri.fsPath,
+    });
+    const gateway = new KiloGatewayClient({
+      apiKey: gatewayAccess.apiKey,
+      onRetry: (event) => {
+        const retryDetail =
+          "Gateway retry " +
+          event.nextAttempt +
+          "/" +
+          event.maxAttempts +
+          " after " +
+          event.delayMs +
+          "ms: " +
+          event.reason;
+        output.appendLine("[RETRY] " + retryDetail);
+        appendReviewActivity(context, reviewLog, sessionId, normalizedReference, startedAt, {
+          type: "session",
+          phase: "Gateway retry",
+          detail: retryDetail,
+        });
+      },
+    });
+
+    const report = await vscode.window.withProgress(
+      {
+        location: vscode.ProgressLocation.Notification,
+        title: "LLMatic is reviewing external pull request " + normalizedReference,
+        cancellable: false,
+      },
+      async (progress) => {
+        reviewStatus.update("Pull request context", "Reading metadata, checks, diff and threads…");
+        progress.report({ message: "Reading pull request context…" });
+        appendReviewActivity(context, reviewLog, sessionId, normalizedReference, startedAt, {
+          type: "session",
+          phase: "Pull request context",
+          detail: "Reading metadata, checks, diff and review threads…",
+        });
+
+        const contextStartedAt = Date.now();
+        const reviewContext = await getPullRequestReviewContext(root, normalizedReference);
+        appendReviewActivity(context, reviewLog, sessionId, normalizedReference, startedAt, {
+          type: "session",
+          phase: "Pull request context ready",
+          detail:
+            reviewContext.changedFiles.length +
+            " changed files · CI " +
+            reviewContext.status.ciState +
+            " · head " +
+            reviewContext.status.pullRequest.headRefOid.slice(0, 12) +
+            " · " +
+            formatElapsedDuration(Date.now() - contextStartedAt),
+        });
+
+        const fileCache = new Map<string, unknown>();
+        return runExternalPullRequestReview({
+          root,
+          config,
+          gateway,
+          readFile: (path, options) => {
+            const key =
+              path + ":" + String(options.startLine ?? "") + ":" + String(options.endLine ?? "");
+            const cached = fileCache.get(key);
+            if (cached) return cached;
+
+            const value = readPullRequestFileAtHead(
+              root,
+              reviewContext.status.pullRequest,
+              path,
+              options,
+            );
+            fileCache.set(key, value);
+            return value;
+          },
+          model,
+          maxSteps: configuration().get<number>("agentMaxSteps", 20),
+          lenses: ["general", "bug_hunter", "security"],
+          onActivity: (event) => {
+            const description = reviewActivityDescription(event);
+            reviewStatus.update(description.phase, description.detail);
+            progress.report({ message: description.phase + " — " + description.detail });
+            appendReviewActivity(
+              context,
+              reviewLog,
+              sessionId,
+              normalizedReference,
+              startedAt,
+              event,
+            );
+          },
+          material: {
+            reference: normalizedReference,
+            headRefOid: reviewContext.status.pullRequest.headRefOid,
+            title: reviewContext.title,
+            body: reviewContext.body,
+            authorLogin: reviewContext.authorLogin,
+            ciState: reviewContext.status.ciState,
+            changedFiles: reviewContext.changedFiles.map((file) => file.path),
+            diff: reviewContext.diff,
+            diffTruncated: reviewContext.diffTruncated,
+            reviews: reviewContext.reviews,
+            comments: reviewContext.comments,
+            reviewThreads: reviewContext.reviewThreads,
+          },
+        });
+      },
+    );
+
+    const durationMs = Date.now() - startedAt;
+    reviewStatus.complete(durationMs);
+    appendReviewActivity(context, reviewLog, sessionId, normalizedReference, startedAt, {
+      type: "session",
+      phase: "Review finished",
+      detail:
+        report.blockingCount +
+        " blocking · " +
+        report.nonBlockingCount +
+        " non-blocking · " +
+        report.coverage +
+        " coverage · total " +
+        formatElapsedDuration(durationMs),
+    });
+
+    output.clear();
+    output.appendLine("LLMatic External Pull Request Review");
+    output.appendLine("PR: " + report.reference + " — " + report.title);
+    output.appendLine("Author: " + (report.authorLogin ?? "unknown"));
+    output.appendLine("Reviewed head: " + report.headRefOid);
+    output.appendLine("Remote CI: " + report.ciState);
+    output.appendLine("Review coverage: " + report.coverage);
+    output.appendLine("Review duration: " + formatElapsedDuration(durationMs));
+    output.appendLine("Diff truncated: " + String(report.diffTruncated));
+    if (report.unreviewedFiles.length > 0) {
+      output.appendLine("Unreviewed changed files: " + report.unreviewedFiles.join(", "));
+    }
+    output.appendLine("");
+    printReviewReport(output, report);
+    output.show(true);
+
+    const draft = externalPullRequestReviewDraft(report);
+    output.appendLine("");
+    output.appendLine("Review comment draft (exact text that can be published):");
+    output.appendLine("");
+    output.appendLine(draft);
+    output.show(true);
+
+    const action = await vscode.window.showInformationMessage(
+      "LLMatic external PR review completed in " +
+        formatElapsedDuration(durationMs) +
+        " (" +
+        report.coverage +
+        " coverage) with " +
+        report.blockingCount +
+        " blocking / " +
+        report.nonBlockingCount +
+        " non-blocking finding(s).",
+      "Copy Review Draft",
       "Publish Review Comment",
     );
-    if (approval !== "Publish Review Comment") return;
 
-    await publishPullRequestReview(
-      root,
-      config,
-      reference.trim(),
-      { body: draft, expectedHeadOid: report.headRefOid },
-      { approved: true },
-    );
-    await vscode.window.showInformationMessage(
-      "LLMatic review comment published to pull request " + reference.trim() + ".",
-    );
+    if (action === "Copy Review Draft") {
+      await vscode.env.clipboard.writeText(draft);
+      await vscode.window.showInformationMessage("LLMatic review draft copied to clipboard.");
+      return;
+    }
+
+    if (action === "Publish Review Comment") {
+      const approval = await vscode.window.showWarningMessage(
+        "Publish the generated review to pull request " +
+          normalizedReference +
+          " as a GitHub review comment? This changes GitHub but does not change Jira ownership or the active LLMatic workflow.",
+        { modal: true },
+        "Publish Review Comment",
+      );
+      if (approval !== "Publish Review Comment") return;
+
+      await publishPullRequestReview(
+        root,
+        config,
+        normalizedReference,
+        { body: draft, expectedHeadOid: report.headRefOid },
+        { approved: true },
+      );
+      await vscode.window.showInformationMessage(
+        "LLMatic review comment published to pull request " + normalizedReference + ".",
+      );
+    }
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    const durationMs = Date.now() - startedAt;
+    reviewStatus.fail(message, durationMs);
+    appendReviewActivity(context, reviewLog, sessionId, normalizedReference, startedAt, {
+      type: "session",
+      phase: "Review failed",
+      detail: message + " · after " + formatElapsedDuration(durationMs),
+    });
+    reviewLog.show(true);
+    throw error;
+  } finally {
+    reviewStatus.dispose();
   }
 }
 
