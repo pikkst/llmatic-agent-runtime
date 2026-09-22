@@ -14,6 +14,7 @@ import {
   createWorkflowPullRequest,
   getFailedPullRequestDiagnostics,
   getPullRequestReviewContext,
+  getPullRequestReviewMetadata,
   getPullRequestStatus,
   mergePullRequest,
   mergeWorkflowPullRequest,
@@ -223,6 +224,14 @@ describe("github adapter", () => {
         };
       }
 
+      if (args[0] === "repo" && args[1] === "view") {
+        return {
+          exitCode: 0,
+          stdout: JSON.stringify({ nameWithOwner: "example/repo" }),
+          stderr: "",
+        };
+      }
+
       if (args[0] === "api" && args.includes("--paginate")) {
         return {
           exitCode: 0,
@@ -337,6 +346,38 @@ describe("github adapter", () => {
       "--slurp",
       "repos/example/repo/pulls/7/files?per_page=100",
     ]);
+  });
+
+  it("rejects external PR review when the target belongs to another repository", async () => {
+    const runner: GitHubProcessRunner = (_executable, args) => {
+      if (args[0] === "pr" && args[1] === "view") {
+        return {
+          exitCode: 0,
+          stdout: pullRequestJson({
+            url: "https://github.com/other/repo/pull/7",
+          }),
+          stderr: "",
+        };
+      }
+
+      if (args[0] === "pr" && args[1] === "checks") {
+        return { exitCode: 0, stdout: "[]", stderr: "" };
+      }
+
+      if (args[0] === "repo" && args[1] === "view") {
+        return {
+          exitCode: 0,
+          stdout: JSON.stringify({ nameWithOwner: "example/repo" }),
+          stderr: "",
+        };
+      }
+
+      return { exitCode: 1, stdout: "", stderr: "unexpected command" };
+    };
+
+    await expect(getPullRequestReviewMetadata("/repo", "7", runner)).rejects.toThrow(
+      "must target the opened repository",
+    );
   });
 
   it("returns bounded failed GitHub Actions logs for PR diagnostics", async () => {
