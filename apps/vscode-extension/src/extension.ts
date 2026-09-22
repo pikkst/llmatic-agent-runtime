@@ -2311,6 +2311,7 @@ async function reviewExternalPullRequestInUi(
           diffTruncated: reviewContext.diffTruncated,
           reviews: reviewContext.reviews,
           comments: reviewContext.comments,
+          reviewThreads: reviewContext.reviewThreads,
         },
       });
     },
