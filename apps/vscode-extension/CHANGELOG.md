@@ -13,6 +13,7 @@
 - Agent Chat no longer receives or downloads raw external PR diff bytes; it gets secret-policy-filtered metadata only, while the explicit structured review path keeps per-file diff access behind the existing sensitive-path guard. Inline review threads on sensitive paths are also excluded from model context.
 - External review now rejects pull requests from a different repository than the opened workspace, preventing local Constitution/source context from being applied to an unrelated repository.
 - Structured review `read_file` calls now read immutable file content from the target PR head SHA through GitHub instead of the active local branch, preserving external-review isolation without checkout or worktree mutation.
+- Review metadata, diff capture and publication are bound to one PR head SHA; if the PR changes during capture or before publication, LLMatic aborts and requires a refreshed review instead of posting stale findings.
 
 ## 0.2.0
 
