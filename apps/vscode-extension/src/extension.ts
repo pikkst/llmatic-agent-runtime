@@ -1642,21 +1642,189 @@ function formatReviewLoopEvent(event: ReviewLoopEvent): string {
   return "[INFO] " + event.message;
 }
 
-async function gatewayApiKeyOrPrompt(
-  context: vscode.ExtensionContext,
-): Promise<string | undefined> {
-  const existing = await context.secrets.get(KILO_GATEWAY_SECRET);
-  if (existing) return existing;
+function isAnonymousFreeKiloModel(model: string): boolean {
+  const normalized = model.trim().toLowerCase();
+  return normalized === "kilo-auto/free" || normalized.endsWith(":free");
+}
 
-  const action = await vscode.window.showWarningMessage(
-    "LLMatic direct agent and review need a Kilo Gateway API key. Kilo Code and the LLMatic MCP connection remain usable without it.",
-    "Set API Key",
+async function connectKiloGatewayInUi(
+  context: vscode.ExtensionContext,
+  state: ExtensionState,
+  statusProvider: LlmaticStatusProvider,
+): Promise<void> {
+  const provider = externalConnectionProvider("kilo_gateway");
+  const existing = await context.secrets.get(KILO_GATEWAY_SECRET);
+  const anonymousAccepted = context.globalState.get<boolean>(KILO_ANONYMOUS_STATE, false);
+
+  const choice = await vscode.window.showQuickPick(
+    [
+      {
+        label: "$(globe) Get a Kilo Gateway API key",
+        description: "Open Kilo in your browser",
+        detail:
+          "Sign in at app.kilo.ai, open your personal profile and create an API key. LLMatic will then ask you to paste it securely.",
+        action: "browser" as const,
+      },
+      {
+        label: "$(key) Paste an existing API key",
+        description: existing ? "Replace the stored key" : "Store securely in VS Code",
+        action: "paste" as const,
+      },
+      {
+        label: "$(rocket) Use anonymous Auto Free",
+        description: "No API key required",
+        detail:
+          "Available for kilo-auto/free and explicit :free models; anonymous requests are rate-limited by Kilo.",
+        action: "anonymous" as const,
+      },
+      ...(existing
+        ? [
+            {
+              label: "$(trash) Remove stored API key",
+              description: "Keep Kilo Code/MCP; direct paid Gateway access will no longer use this key",
+              action: "clear" as const,
+            },
+          ]
+        : []),
+    ],
+    {
+      title: "LLMatic: Connect Kilo Gateway",
+      placeHolder: anonymousAccepted
+        ? "Anonymous Auto Free is already allowed; choose another option if needed"
+        : "Choose how LLMatic should access Kilo Gateway",
+      ignoreFocusOut: true,
+    },
   );
 
-  if (action !== "Set API Key") return undefined;
+  if (!choice) return;
 
-  await vscode.commands.executeCommand("llmatic.setKiloGatewayApiKey");
-  return context.secrets.get(KILO_GATEWAY_SECRET);
+  if (choice.action === "clear") {
+    await context.secrets.delete(KILO_GATEWAY_SECRET);
+    state.gatewayKeyConfigured = false;
+    statusProvider.update(state.health, false, state.recovery);
+    await vscode.window.showInformationMessage(
+      "Kilo Gateway API key removed. Auto Free can still run anonymously when enabled.",
+    );
+    return;
+  }
+
+  if (choice.action === "anonymous") {
+    await context.globalState.update(KILO_ANONYMOUS_STATE, true);
+    await vscode.window.showInformationMessage(
+      "Anonymous Kilo Auto Free enabled. No API key is required for kilo-auto/free or explicit :free models.",
+    );
+    return;
+  }
+
+  if (choice.action === "browser") {
+    if (provider.browserUrl) {
+      const opened = await vscode.env.openExternal(vscode.Uri.parse(provider.browserUrl));
+      if (!opened) {
+        throw new Error("VS Code could not open the Kilo account page.");
+      }
+    }
+  }
+
+  const value = await vscode.window.showInputBox({
+    title: "LLMatic: Kilo Gateway API Key",
+    prompt:
+      choice.action === "browser"
+        ? "After creating the key in your Kilo personal profile, paste it here. Stored only in VS Code SecretStorage."
+        : "Paste your Kilo Gateway API key. Stored only in VS Code SecretStorage.",
+    placeHolder: "Paste Kilo Gateway API key",
+    password: true,
+    ignoreFocusOut: true,
+  });
+
+  if (!value?.trim()) return;
+
+  await context.secrets.store(KILO_GATEWAY_SECRET, value.trim());
+  await context.globalState.update(KILO_ANONYMOUS_STATE, false);
+  state.gatewayKeyConfigured = true;
+  statusProvider.update(state.health, true, state.recovery);
+
+  await vscode.window.showInformationMessage(
+    "Kilo Gateway API key stored securely. Direct LLMatic agent and review are enabled.",
+  );
+}
+
+async function gatewayAccessOrPrompt(
+  context: vscode.ExtensionContext,
+  model: string,
+  state: ExtensionState,
+  statusProvider: LlmaticStatusProvider,
+): Promise<GatewayAccess | undefined> {
+  const existing = await context.secrets.get(KILO_GATEWAY_SECRET);
+  if (existing) return { apiKey: existing, anonymous: false };
+
+  const anonymousAllowed =
+    configuration().get<boolean>("allowAnonymousKiloFree", true) &&
+    isAnonymousFreeKiloModel(model);
+  if (anonymousAllowed) {
+    return { anonymous: true };
+  }
+
+  const action = await vscode.window.showWarningMessage(
+    "The selected Kilo model needs authenticated Gateway access. You can create an API key in the browser or paste an existing one.",
+    "Connect Kilo Gateway",
+    "Cancel",
+  );
+  if (action !== "Connect Kilo Gateway") return undefined;
+
+  await connectKiloGatewayInUi(context, state, statusProvider);
+  const apiKey = await context.secrets.get(KILO_GATEWAY_SECRET);
+  if (apiKey) return { apiKey, anonymous: false };
+
+  if (
+    configuration().get<boolean>("allowAnonymousKiloFree", true) &&
+    isAnonymousFreeKiloModel(model)
+  ) {
+    return { anonymous: true };
+  }
+
+  return undefined;
+}
+
+async function openConnectionCenter(
+  context: vscode.ExtensionContext,
+  state: ExtensionState,
+  statusProvider: LlmaticStatusProvider,
+  chatProvider: AgentChatViewProvider,
+  output: vscode.OutputChannel,
+): Promise<void> {
+  const jira = workspaceJiraProfile(context);
+  const kiloKey = await context.secrets.get(KILO_GATEWAY_SECRET);
+  const selected = await vscode.window.showQuickPick(
+    [
+      {
+        label: "$(issues) Jira",
+        description: jira
+          ? jira.projectKey + " · " +
+            (jira.workMode === "assigned_only" ? "assigned to me" : "project queue")
+          : "Not connected for this workspace",
+        detail: "Browser OAuth or manual fallback",
+        id: "jira" as const,
+      },
+      {
+        label: "$(sparkle) Kilo Gateway",
+        description: kiloKey ? "API key configured" : "Auto Free can run without a key",
+        detail: "Browser-assisted API key setup, secure paste, or anonymous Auto Free",
+        id: "kilo_gateway" as const,
+      },
+    ],
+    {
+      title: "LLMatic: External Connections",
+      placeHolder: "Choose a service to connect or reconfigure",
+      ignoreFocusOut: true,
+    },
+  );
+
+  if (!selected) return;
+  if (selected.id === "jira") {
+    await connectJiraWorkspace(context, state, statusProvider, chatProvider, output);
+  } else {
+    await connectKiloGatewayInUi(context, state, statusProvider);
+  }
 }
 
 async function runGatewayReview(
@@ -1674,11 +1842,10 @@ async function runGatewayReview(
     state.activeWorkspace = await attachWorkspace(context, folder);
   }
 
-  const apiKey = await gatewayApiKeyOrPrompt(context);
-  if (!apiKey) return undefined;
-
   const model =
     configuration().get<string>("agentModel", "kilo-auto/free").trim() || "kilo-auto/free";
+  const gatewayAccess = await gatewayAccessOrPrompt(context, model, state, statusProvider);
+  if (!gatewayAccess) return undefined;
   if (!(await confirmAutoFreeDataHandling(context, model))) return undefined;
 
   const root = folder.uri.fsPath;
@@ -1686,7 +1853,7 @@ async function runGatewayReview(
     LLMATIC_HOME: context.globalStorageUri.fsPath,
   });
   let store = new WorkflowStateStore(root, config);
-  const gateway = new KiloGatewayClient({ apiKey });
+  const gateway = new KiloGatewayClient({ apiKey: gatewayAccess.apiKey });
 
   output.clear();
   output.appendLine(fixLoop ? "LLMatic Review / Fix Loop" : "LLMatic Code Review");
@@ -1803,11 +1970,10 @@ async function runAgentChatTurn(
     state.activeWorkspace = await attachWorkspace(context, folder);
   }
 
-  const apiKey = await gatewayApiKeyOrPrompt(context);
-  if (!apiKey) return;
-
   const model =
     configuration().get<string>("agentModel", "kilo-auto/free").trim() || "kilo-auto/free";
+  const gatewayAccess = await gatewayAccessOrPrompt(context, model, state, statusProvider);
+  if (!gatewayAccess) return;
   if (!(await confirmAutoFreeDataHandling(context, model))) return;
 
   if (!state.recovery) {
@@ -1819,7 +1985,7 @@ async function runAgentChatTurn(
     LLMATIC_HOME: context.globalStorageUri.fsPath,
   });
   const store = new WorkflowStateStore(root, runtimeConfig);
-  const gateway = new KiloGatewayClient({ apiKey });
+  const gateway = new KiloGatewayClient({ apiKey: gatewayAccess.apiKey });
   const maxSteps = configuration().get<number>("agentMaxSteps", 20);
 
   chatProvider.setBusy(true);
