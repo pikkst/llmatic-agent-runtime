@@ -12,6 +12,7 @@
 - External PR changed-file inventory is read through paginated GitHub REST results so review coverage does not silently stop at a single GraphQL file page.
 - Agent Chat no longer receives or downloads raw external PR diff bytes; it gets secret-policy-filtered metadata only, while the explicit structured review path keeps per-file diff access behind the existing sensitive-path guard. Inline review threads on sensitive paths are also excluded from model context.
 - External review now rejects pull requests from a different repository than the opened workspace, preventing local Constitution/source context from being applied to an unrelated repository.
+- Structured review `read_file` calls now read immutable file content from the target PR head SHA through GitHub instead of the active local branch, preserving external-review isolation without checkout or worktree mutation.
 
 ## 0.2.0
 
