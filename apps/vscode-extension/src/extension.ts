@@ -173,6 +173,15 @@ function connectionBrokerUrl(): string | undefined {
   return value ? value.replace(/\/+$/, "") : undefined;
 }
 
+function anonymousKiloAccessAvailable(): boolean {
+  const model =
+    configuration().get<string>("agentModel", "kilo-auto/free").trim() || "kilo-auto/free";
+  return (
+    configuration().get<boolean>("allowAnonymousKiloFree", true) &&
+    isAnonymousFreeKiloModel(model)
+  );
+}
+
 function parseJiraOAuthCredential(raw: string | undefined): JiraOAuthCredential | undefined {
   if (!raw) return undefined;
   try {
@@ -3462,32 +3471,43 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       }
     }),
     vscode.commands.registerCommand("llmatic.setKiloGatewayApiKey", async () => {
-      const value = await vscode.window.showInputBox({
-        title: "LLMatic: Kilo Gateway API Key",
-        prompt:
-          "Required only for LLMatic direct agent/review orchestration. Stored in VS Code SecretStorage and never written to the repository or Kilo config.",
-        placeHolder: "Paste your Kilo Gateway API key",
-        password: true,
-        ignoreFocusOut: true,
-      });
-
-      if (!value?.trim()) return;
-
-      await context.secrets.store(KILO_GATEWAY_SECRET, value.trim());
-      state.gatewayKeyConfigured = true;
-      statusProvider.update(state.health, state.gatewayKeyConfigured);
-
-      await vscode.window.showInformationMessage(
-        "Kilo Gateway API key stored securely. Direct LLMatic agent and review are enabled.",
+      await connectKiloGatewayInUi(context, state, statusProvider);
+      statusProvider.setGatewayAccess(
+        state.gatewayKeyConfigured,
+        anonymousKiloAccessAvailable(),
+      );
+    }),
+    vscode.commands.registerCommand("llmatic.connectKiloGateway", async () => {
+      await connectKiloGatewayInUi(context, state, statusProvider);
+      statusProvider.setGatewayAccess(
+        state.gatewayKeyConfigured,
+        anonymousKiloAccessAvailable(),
+      );
+    }),
+    vscode.commands.registerCommand("llmatic.openConnectionCenter", async () => {
+      await openConnectionCenter(
+        context,
+        state,
+        statusProvider,
+        chatProvider,
+        output,
+      );
+      statusProvider.setGatewayAccess(
+        state.gatewayKeyConfigured,
+        anonymousKiloAccessAvailable(),
       );
     }),
     vscode.commands.registerCommand("llmatic.clearKiloGatewayApiKey", async () => {
       await context.secrets.delete(KILO_GATEWAY_SECRET);
       state.gatewayKeyConfigured = false;
       statusProvider.update(state.health, state.gatewayKeyConfigured);
+      statusProvider.setGatewayAccess(
+        state.gatewayKeyConfigured,
+        anonymousKiloAccessAvailable(),
+      );
 
       await vscode.window.showInformationMessage(
-        "Kilo Gateway API key cleared. Kilo MCP remains available; direct agent and review will ask for a key when needed.",
+        "Kilo Gateway API key cleared. Kilo MCP remains available; Auto Free can run anonymously when enabled.",
       );
     }),
     vscode.commands.registerCommand("llmatic.connectJiraWorkspace", async () => {
@@ -3618,6 +3638,10 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       if (event.affectsConfiguration("llmatic")) {
         await refresh(context, statusBar, state);
         statusProvider.update(state.health, state.gatewayKeyConfigured, state.recovery);
+        statusProvider.setGatewayAccess(
+          state.gatewayKeyConfigured,
+          anonymousKiloAccessAvailable(),
+        );
         await refreshJiraStatus(context, state, statusProvider);
         await refreshWorkspaceRecovery(
           context,
@@ -3638,6 +3662,10 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 
   await refresh(context, statusBar, state);
   statusProvider.update(state.health, state.gatewayKeyConfigured, state.recovery);
+  statusProvider.setGatewayAccess(
+    state.gatewayKeyConfigured,
+    anonymousKiloAccessAvailable(),
+  );
   await refreshJiraStatus(context, state, statusProvider);
   await vscode.commands.executeCommand("setContext", "llmatic.health", state.health?.status);
 
