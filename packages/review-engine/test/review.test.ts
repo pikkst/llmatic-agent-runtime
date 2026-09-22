@@ -72,6 +72,7 @@ async function repository(): Promise<string> {
 
 class ScriptedGateway implements GatewayChatClient {
   public readonly requests: GatewayChatRequest[] = [];
+  public readonly modelFailures: Array<{ model: string; task?: string; reason: string }> = [];
   public constructor(private readonly responses: GatewayChatResponse[]) {}
   public async createChatCompletion(request: GatewayChatRequest): Promise<GatewayChatResponse> {
     this.requests.push(request);
@@ -79,15 +80,23 @@ class ScriptedGateway implements GatewayChatClient {
     if (!response) throw new Error("No scripted review response remains.");
     return response;
   }
+  public reportModelFailure(feedback: {
+    model: string;
+    task?: string;
+    reason: string;
+  }): void {
+    this.modelFailures.push(feedback);
+  }
 }
 
 function response(
   content: string | null,
   toolCalls?: Array<{ id: string; name: string; arguments: Record<string, unknown> }>,
+  model = "kilo-auto/free",
 ): GatewayChatResponse {
   return {
     id: "review",
-    model: "kilo-auto/free",
+    model,
     choices: [
       {
         index: 0,
@@ -503,6 +512,51 @@ describe("review engine", () => {
     ]);
     expect(report.lensFailures[0]?.lens).toBe("general");
     expect(report.lensFailures[0]?.reason).toContain("1/2 review batch(es) incomplete");
+  });
+
+  it("reports empty structured output as a semantic model failure and repairs with another model", async () => {
+    const root = await repository();
+    const config = configFor(root);
+    const gateway = new ScriptedGateway([
+      response(null, undefined, "dots-studio/dots-3-note-preview:free"),
+      response(
+        JSON.stringify({
+          summary: "Replacement model returned a valid report.",
+          findings: [],
+        }),
+        undefined,
+        "nvidia/nemotron-3.5-lightning:free",
+      ),
+    ]);
+
+    const report = await runExternalPullRequestReview({
+      root,
+      config,
+      gateway,
+      lenses: ["general"],
+      maxSteps: 3,
+      material: {
+        reference: "42",
+        headRefOid: "head-42",
+        title: "Semantic model failure",
+        body: "",
+        ciState: "passing",
+        changedFiles: ["src/value.ts"],
+        diff: "diff --git a/src/value.ts b/src/value.ts\n--- a/src/value.ts\n+++ b/src/value.ts\n@@ -1 +1 @@\n-export const value = 1;\n+export const value = 2;\n",
+        diffTruncated: false,
+      },
+    });
+
+    expect(report.reviewStatus).toBe("complete");
+    expect(gateway.requests).toHaveLength(2);
+    expect(gateway.requests[1]?.routing?.avoidModels).toContain(
+      "dots-studio/dots-3-note-preview:free",
+    );
+    expect(gateway.modelFailures).toContainEqual({
+      model: "dots-studio/dots-3-note-preview:free",
+      task: "review_general",
+      reason: "empty structured review content",
+    });
   });
 
   it("accepts a prose-prefixed structured review object", async () => {
