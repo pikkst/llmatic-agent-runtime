@@ -93,13 +93,7 @@ describe("github adapter", () => {
     });
 
     await expect(
-      publishPullRequestReview(
-        "/repo",
-        config,
-        "7",
-        { body: "Review body" },
-        { runner },
-      ),
+      publishPullRequestReview("/repo", config, "7", { body: "Review body" }, { runner }),
     ).rejects.toThrow("requires approval");
   });
 
@@ -119,9 +113,7 @@ describe("github adapter", () => {
       { approved: true, runner },
     );
 
-    expect(calls).toEqual([
-      ["pr", "review", "7", "--comment", "--body", "Review body"],
-    ]);
+    expect(calls).toEqual([["pr", "review", "7", "--comment", "--body", "Review body"]]);
   });
 
   it("creates a pull request with structured gh arguments", async () => {

@@ -33,10 +33,7 @@ import {
   type BrokerResource,
 } from "@llmatic/external-connections";
 import { KiloGatewayClient } from "@llmatic/gateway-client";
-import {
-  getPullRequestReviewContext,
-  publishPullRequestReview,
-} from "@llmatic/github-adapter";
+import { getPullRequestReviewContext, publishPullRequestReview } from "@llmatic/github-adapter";
 import { verifyJiraConnectionFromEnvironment, type JiraWorkMode } from "@llmatic/jira-adapter";
 import {
   approveCurrentProjectPlan,
