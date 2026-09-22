@@ -128,13 +128,6 @@ describe("review engine", () => {
     const config = configFor(root);
     const events: ReviewActivityEvent[] = [];
     const gateway = new ScriptedGateway([
-      response(null, [
-        {
-          id: "read-pr-diff",
-          name: "read_diff",
-          arguments: { path: "src/value.ts" },
-        },
-      ]),
       response(
         JSON.stringify({
           summary: "One concrete external PR defect.",
@@ -189,11 +182,13 @@ describe("review engine", () => {
     expect(report.coverage).toBe("complete");
     expect(report.unreviewedFiles).toEqual([]);
     expect(report.blockingCount).toBe(1);
-    expect(gateway.requests[1]?.messages.at(-1)).toMatchObject({
-      role: "tool",
-      tool_call_id: "read-pr-diff",
-    });
-    expect(gateway.requests[1]?.messages.at(-1)?.content).toContain("+export const value = 2;");
+    expect(gateway.requests).toHaveLength(1);
+    expect(gateway.requests[0]?.tools?.map((tool) => tool.function.name)).not.toContain(
+      "read_diff",
+    );
+    expect(JSON.stringify(gateway.requests[0]?.messages[1])).toContain(
+      "+export const value = 2;",
+    );
     const system = JSON.stringify(gateway.requests[0]?.messages[0]);
     expect(system).toContain("external pull request");
     expect(system).toContain("untrusted project data");
@@ -207,8 +202,7 @@ describe("review engine", () => {
         "lens-start",
         "model-request",
         "model-response",
-        "tool-start",
-        "tool-complete",
+        "lens-batch-start",
         "lens-complete",
         "architecture-start",
         "architecture-complete",
