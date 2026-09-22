@@ -212,9 +212,7 @@ describe("github adapter", () => {
     expect(context.status.ciState).toBe("none");
     expect(context.title).toBe("Improve value handling");
     expect(context.authorLogin).toBe("contributor");
-    expect(context.changedFiles).toEqual([
-      { path: "src/value.ts", additions: 1, deletions: 0 },
-    ]);
+    expect(context.changedFiles).toEqual([{ path: "src/value.ts", additions: 1, deletions: 0 }]);
     expect(context.reviews[0]).toMatchObject({
       authorLogin: "reviewer",
       state: "COMMENTED",
