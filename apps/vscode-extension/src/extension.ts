@@ -4171,6 +4171,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   context.subscriptions.push(statusBar);
 
   const statusProvider = new LlmaticStatusProvider();
+  statusProvider.setAutoReviewStatus(autoReviewStatus(autoReviewWorkspaceState(context)));
   const startupOperation = statusProvider.beginOperation(
     "Loading LLMatic workspace",
     "Checking runtime, tools and external connections…",
@@ -4485,6 +4486,14 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         await vscode.window.showErrorMessage("LLMatic external PR review: " + message);
       }
     }),
+    vscode.commands.registerCommand("llmatic.configureAutoReview", async () => {
+      try {
+        await configureAutoReviewInUi(context, state, statusProvider, output);
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        await vscode.window.showErrorMessage("LLMatic Auto Review Agent: " + message);
+      }
+    }),
     vscode.commands.registerCommand("llmatic.generatePrDraft", async () => {
       try {
         await generatePrDraftInUi(context, state, statusProvider, chatProvider, output);
@@ -4611,6 +4620,18 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     }),
   );
 
+  const autoReviewTimer = setInterval(() => {
+    void runAutoReviewScan(context, state, statusProvider, output).catch((error) => {
+      output.appendLine(
+        "[AUTO REVIEW][WARN] Background scan failed: " +
+          (error instanceof Error ? error.message : String(error)),
+      );
+    });
+  }, AUTO_REVIEW_POLL_INTERVAL_MS);
+  context.subscriptions.push({
+    dispose: () => clearInterval(autoReviewTimer),
+  });
+
   startupOperation.update(
     "Loading LLMatic workspace",
     "Checking runtime, tools and Kilo integration…",
@@ -4632,6 +4653,13 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       );
     },
   );
+
+  void runAutoReviewScan(context, state, statusProvider, output).catch((error) => {
+    output.appendLine(
+      "[AUTO REVIEW][WARN] Initial scan failed: " +
+        (error instanceof Error ? error.message : String(error)),
+    );
+  });
 
   // Onboarding must never block extension activation. In headless Extension Host
   // acceptance there is no user available to answer the notification, and in
