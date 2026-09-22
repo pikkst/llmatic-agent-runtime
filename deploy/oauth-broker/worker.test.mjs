@@ -1,3 +1,4 @@
+import { readFile } from "node:fs/promises";
 import { describe, expect, it } from "vitest";
 import worker from "./worker.mjs";
 
@@ -134,4 +135,20 @@ describe("LLMatic OAuth broker", () => {
     expect(response.headers.get("Content-Security-Policy")).toContain("default-src 'none'");
     expect(response.headers.get("Referrer-Policy")).toBe("no-referrer");
   });
+  it("keeps the canonical Wrangler config deployable without committed account state", async () => {
+    const config = JSON.parse(
+      await readFile(new URL("./wrangler.jsonc", import.meta.url), "utf8"),
+    );
+
+    expect(config).toMatchObject({
+      name: "llmatic-oauth-broker",
+      main: "worker.mjs",
+      compatibility_date: "2026-09-22",
+      kv_namespaces: [{ binding: "CONNECTION_SESSIONS" }],
+    });
+    expect(config.kv_namespaces[0]).not.toHaveProperty("id");
+    expect(JSON.stringify(config)).not.toContain("ATLASSIAN_CLIENT_SECRET");
+    expect(JSON.stringify(config)).not.toContain("ATLASSIAN_CLIENT_ID");
+  });
+
 });
