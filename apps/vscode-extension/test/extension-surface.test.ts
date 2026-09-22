@@ -46,6 +46,8 @@ describe("VS Code extension activation surface", () => {
     expect(source).toContain("Configure Broker URL");
     expect(source).toContain("Use Manual Connection");
     expect(source).toContain("setJiraConnectionError");
+    expect(source).toContain("jiraConnectionError");
+    expect(source).toContain("state.jiraConnectionError = message");
     expect(source).toContain("checking OAuth broker…");
     expect(source).toContain("starting Atlassian sign-in…");
     expect(source).toContain("waiting for browser authorization…");
@@ -139,6 +141,10 @@ describe("VS Code extension activation surface", () => {
     );
     expect(source).toContain("onDidChangeVisibility");
     expect(source).toContain("onDidDispose");
+    expect(source).toContain("syncRetryCount");
+    expect(source).toContain("receivedState");
+    expect(source).toContain("if (!receivedState)");
+    expect(source).toContain("messages.map");
     expect(source).toContain("status-ok");
     expect(source).toContain("status-attention");
     expect(source).toContain("status-error");
