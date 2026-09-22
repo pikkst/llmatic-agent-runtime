@@ -18,6 +18,10 @@
 - Added read-only open-PR/CI diagnostics including bounded failed GitHub Actions logs.
 - Added provider-neutral task workflow start and safe local workflow advancement tools for Agent Chat.
 - Added evidence-backed PR draft generation covering task/DoD, validation, review, security, architecture and repository rules without fabricating missing evidence.
+- Added workspace-specific Jira connection profiles so separate VS Code workspaces can use different Jira sites/projects and credentials.
+- Added team-safe Jira `assigned_only` mode as the default and explicit `project_queue` mode for solo/full-project queues.
+- Enforced Jira task ownership at workflow start/validation, including when custom recovery JQL is configured.
+- Added green/yellow/red semantic status colors across Runtime Status and Agent Chat for healthy, attention and blocking/error states.
 
 ## 0.1.2
 
