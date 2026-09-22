@@ -17,6 +17,7 @@ import {
   getPullRequestStatus,
   mergePullRequest,
   mergeWorkflowPullRequest,
+  publishPullRequestReview,
   refreshWorkflowRemoteCi,
 } from "../src/github.js";
 import type { GitHubProcessRunner } from "../src/types.js";
@@ -81,6 +82,46 @@ describe("github adapter", () => {
     await expect(
       createPullRequest("/repo", config, { title: "Test PR", body: "" }, { runner }),
     ).rejects.toThrow("requires approval");
+  });
+
+  it("requires explicit approval before publishing a pull-request review comment", async () => {
+    const config = configFor("/repo");
+    const runner: GitHubProcessRunner = () => ({
+      exitCode: 0,
+      stdout: "",
+      stderr: "",
+    });
+
+    await expect(
+      publishPullRequestReview(
+        "/repo",
+        config,
+        "7",
+        { body: "Review body" },
+        { runner },
+      ),
+    ).rejects.toThrow("requires approval");
+  });
+
+  it("publishes an approved pull-request review as a comment", async () => {
+    const config = configFor("/repo");
+    const calls: string[][] = [];
+    const runner: GitHubProcessRunner = (_executable, args) => {
+      calls.push(args);
+      return { exitCode: 0, stdout: "", stderr: "" };
+    };
+
+    await publishPullRequestReview(
+      "/repo",
+      config,
+      "7",
+      { body: "Review body" },
+      { approved: true, runner },
+    );
+
+    expect(calls).toEqual([
+      ["pr", "review", "7", "--comment", "--body", "Review body"],
+    ]);
   });
 
   it("creates a pull request with structured gh arguments", async () => {
