@@ -2366,6 +2366,15 @@ function reviewActivityDescription(event: ReviewActivityEvent): {
         phase: event.lens.replaceAll("_", " ") + " · model step " + event.step,
         detail: "Waiting for model response…",
       };
+    case "report-repair":
+      return {
+        phase: event.lens.replaceAll("_", " ") + " · report repair",
+        detail:
+          "Structured report was " +
+          (event.reason === "invalid_json" ? "not valid JSON" : "outside the required schema") +
+          " · repair attempt " +
+          event.attempt,
+      };
     case "model-response":
       return {
         phase: event.lens.replaceAll("_", " ") + " · model step " + event.step,
