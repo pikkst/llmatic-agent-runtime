@@ -163,6 +163,8 @@ try {
       '    "llmatic.reviewFixLoop",',
       '    "llmatic.openAgentChat",',
       '    "llmatic.agentChatProbe",',
+      '    "llmatic.reviewExternalPullRequest",',
+      '    "llmatic.configureAutoReview",',
       '    "llmatic.checkForUpdates",',
       '    "llmatic.installUpdate",',
       "  ];",
