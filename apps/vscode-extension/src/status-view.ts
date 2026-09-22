@@ -17,6 +17,14 @@ interface StatusOperation {
   description?: string;
 }
 
+export interface AutoReviewStatus {
+  enabled: boolean;
+  repository?: string;
+  lastReviewedPr?: number;
+  lastReviewedAt?: string;
+  error?: string;
+}
+
 export interface WorkspaceJiraStatus {
   connected: boolean;
   required: boolean;
@@ -116,6 +124,7 @@ export class LlmaticStatusProvider implements vscode.TreeDataProvider<vscode.Tre
   private gatewayAnonymousAvailable = false;
   private recovery?: WorkspaceRecovery;
   private jiraStatus?: WorkspaceJiraStatus;
+  private autoReviewStatus?: AutoReviewStatus;
   private nextOperationId = 0;
   private readonly operations = new Map<number, StatusOperation>();
 
@@ -149,6 +158,16 @@ export class LlmaticStatusProvider implements vscode.TreeDataProvider<vscode.Tre
       "setContext",
       "llmatic.jiraConnected",
       Boolean(status?.connected),
+    );
+  }
+
+  public setAutoReviewStatus(status: AutoReviewStatus | undefined): void {
+    this.autoReviewStatus = status;
+    this.changed.fire(undefined);
+    void vscode.commands.executeCommand(
+      "setContext",
+      "llmatic.autoReviewEnabled",
+      Boolean(status?.enabled),
     );
   }
 
@@ -275,6 +294,40 @@ export class LlmaticStatusProvider implements vscode.TreeDataProvider<vscode.Tre
       };
     }
     recoveryItems.push(jira);
+
+    const autoReview = new vscode.TreeItem(
+      "Auto Review Agent",
+      vscode.TreeItemCollapsibleState.None,
+    );
+    decorateStatusItem(
+      autoReview,
+      this.autoReviewStatus?.error
+        ? "error"
+        : this.autoReviewStatus?.enabled
+          ? "ok"
+          : "attention",
+      "auto-review-agent",
+      this.autoReviewStatus?.enabled ? "eye" : "eye-closed",
+    );
+    autoReview.description = this.autoReviewStatus?.error
+      ? "error · click to configure"
+      : this.autoReviewStatus?.enabled
+        ? "ON · " +
+          (this.autoReviewStatus.repository ?? "current repository") +
+          (this.autoReviewStatus.lastReviewedPr
+            ? " · last PR #" + this.autoReviewStatus.lastReviewedPr
+            : "")
+        : "OFF · watch new/updated PRs while VS Code is open";
+    autoReview.tooltip =
+      this.autoReviewStatus?.error ??
+      (this.autoReviewStatus?.enabled
+        ? "LLMatic watches this repository for new or updated pull requests and runs structured review automatically. Review publication remains manual."
+        : "Enable repository-bound automatic review for new or updated pull requests.");
+    autoReview.command = {
+      command: "llmatic.configureAutoReview",
+      title: "Configure Auto Review Agent",
+    };
+    recoveryItems.push(autoReview);
 
     if (this.recovery) {
       const map = new vscode.TreeItem("Repository Map", vscode.TreeItemCollapsibleState.None);
@@ -461,6 +514,12 @@ export class LlmaticStatusProvider implements vscode.TreeDataProvider<vscode.Tre
         description: "re-index repo and recover task / PR / CI state",
         icon: "refresh",
         command: "llmatic.refreshWorkspaceRecovery",
+      },
+      {
+        label: "External PR Review",
+        description: "review one pull request without changing task ownership",
+        icon: "git-pull-request",
+        command: "llmatic.reviewExternalPullRequest",
       },
       {
         label: "Generate PR Draft",
