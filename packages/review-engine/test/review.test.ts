@@ -216,6 +216,7 @@ describe("review engine", () => {
     expect(report.coverage).toBe("partial");
     expect(report.unreviewedFiles).toEqual(["src/omitted.ts"]);
     expect(report.summary).toContain("Review coverage: partial");
+    expect(report.summary).toContain("was truncated or did not contain every changed file");
     expect(JSON.stringify(gateway.requests[0]?.messages[1])).toContain("src/value.ts");
     expect(JSON.stringify(gateway.requests[0]?.messages[1])).not.toContain("src/omitted.ts");
   });
