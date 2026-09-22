@@ -178,9 +178,7 @@ describe("review engine", () => {
       role: "tool",
       tool_call_id: "read-pr-diff",
     });
-    expect(gateway.requests[1]?.messages.at(-1)?.content).toContain(
-      "+export const value = 2;",
-    );
+    expect(gateway.requests[1]?.messages.at(-1)?.content).toContain("+export const value = 2;");
     const system = JSON.stringify(gateway.requests[0]?.messages[0]);
     expect(system).toContain("external pull request");
     expect(system).toContain("untrusted project data");
