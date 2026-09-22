@@ -88,10 +88,20 @@ export interface PullRequestReviewThreadSnapshot {
 
 export type PullRequestReviewEvent = "COMMENT";
 
+export type PullRequestReviewSide = "RIGHT" | "LEFT";
+
+export interface PullRequestInlineCommentInput {
+  path: string;
+  line: number;
+  side: PullRequestReviewSide;
+  body: string;
+}
+
 export interface PublishPullRequestReviewInput {
   body: string;
   event?: PullRequestReviewEvent;
   expectedHeadOid?: string;
+  inlineComments?: PullRequestInlineCommentInput[];
 }
 
 export interface PullRequestReviewMetadata {
