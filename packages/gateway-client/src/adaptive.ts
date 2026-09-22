@@ -1,6 +1,7 @@
 import {
   KiloGatewayClient,
   type GatewayChatClient,
+  type GatewayModelFailureFeedback,
   type KiloGatewayClientOptions,
 } from "./client.js";
 import type { GatewayChatRequest, GatewayChatResponse, GatewayModelInfo } from "./types.js";
@@ -68,6 +69,14 @@ function fallbackEligible(error: unknown): boolean {
   );
 }
 
+function cooldownForFailure(reason: string, fallbackMs: number): number {
+  if (/daily limit|limit_rpd|per day|rpd/i.test(reason)) return 24 * 60 * 60_000;
+  if (/rate.?limit|too many requests|\b429\b/i.test(reason)) {
+    return Math.max(fallbackMs, 30 * 60_000);
+  }
+  return fallbackMs;
+}
+
 function modelContextLength(model: GatewayModelInfo): number {
   return typeof model.context_length === "number" && Number.isFinite(model.context_length)
     ? model.context_length
@@ -91,6 +100,32 @@ export class AdaptiveFreeGatewayClient implements GatewayChatClient {
     this.catalogTtlMs = Math.max(30_000, Math.trunc(options.catalogTtlMs ?? 5 * 60_000));
     this.modelCooldownMs = Math.max(30_000, Math.trunc(options.modelCooldownMs ?? 5 * 60_000));
     this.onRoute = options.onRoute;
+  }
+
+  public async reportModelFailure(
+    feedback: GatewayModelFailureFeedback,
+  ): Promise<void> {
+    const model = feedback.model.trim();
+    if (!model) return;
+
+    const task = feedback.task?.trim() || "generic";
+    this.record(task, model, false, 0);
+
+    if (model !== "kilo-auto/free" && isFreeModelId(model)) {
+      this.unhealthyUntil.set(
+        model,
+        Date.now() + cooldownForFailure(feedback.reason, this.modelCooldownMs),
+      );
+    }
+
+    await this.onRoute?.({
+      type: "failure",
+      task,
+      candidateModel: model,
+      attempt: 0,
+      latencyMs: 0,
+      reason: "semantic contract failure: " + feedback.reason,
+    });
   }
 
   public async createChatCompletion(request: GatewayChatRequest): Promise<GatewayChatResponse> {
@@ -147,7 +182,10 @@ export class AdaptiveFreeGatewayClient implements GatewayChatClient {
 
         if (!fallbackEligible(error)) throw error;
         if (candidateModel !== "kilo-auto/free") {
-          this.unhealthyUntil.set(candidateModel, Date.now() + this.modelCooldownMs);
+          this.unhealthyUntil.set(
+            candidateModel,
+            Date.now() + cooldownForFailure(reason, this.modelCooldownMs),
+          );
         }
       }
     }
