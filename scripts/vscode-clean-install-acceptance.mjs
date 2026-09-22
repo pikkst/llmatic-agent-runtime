@@ -165,6 +165,8 @@ try {
       '    "llmatic.agentChatProbe",',
       '    "llmatic.reviewExternalPullRequest",',
       '    "llmatic.configureAutoReview",',
+      '    "llmatic.openReviewLog",',
+      '    "llmatic.toggleReviewActivityLogging",',
       '    "llmatic.checkForUpdates",',
       '    "llmatic.installUpdate",',
       "  ];",
