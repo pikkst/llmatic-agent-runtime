@@ -284,6 +284,21 @@ export type ReviewActivityEvent =
     }
   | { type: "lens-start"; lens: ReviewLens }
   | {
+      type: "lens-batch-start";
+      lens: ReviewLens;
+      batch: number;
+      totalBatches: number;
+      files: string[];
+    }
+  | {
+      type: "lens-batch-failed";
+      lens: ReviewLens;
+      batch: number;
+      totalBatches: number;
+      reason: string;
+      durationMs: number;
+    }
+  | {
       type: "lens-failed";
       lens: ReviewLens;
       reason: string;
@@ -1096,7 +1111,9 @@ async function runReviewLens(
     pullRequestDiff: material?.diff,
     readFile: options.readFile,
   };
-  const maxSteps = Math.max(1, Math.min(30, options.maxSteps ?? 12));
+  const maxSteps = material
+    ? Math.max(1, Math.min(3, options.maxSteps ?? 3))
+    : Math.max(1, Math.min(30, options.maxSteps ?? 12));
   let reportRepairAttempts = 0;
   const maxReportRepairAttempts = 2;
 
@@ -1303,31 +1320,93 @@ export async function runExternalPullRequestReview(
   for (const lens of lenses) {
     const lensStartedAt = Date.now();
     options.onActivity?.({ type: "lens-start", lens });
-    try {
-      const result = await runReviewLens(
-        options,
-        constitution,
-        reviewableFiles,
-        lens,
-        options.material,
-      );
+
+    const lensFiles = externalLensFiles(lens, reviewableFiles);
+    const batches = externalReviewBatches(options.material, lensFiles);
+    const batchResults: Array<{ summary: string; findings: ReviewFinding[] }> = [];
+    const batchFailures: string[] = [];
+
+    for (let index = 0; index < batches.length; index += 1) {
+      const batch = batches[index]!;
+      const batchNumber = index + 1;
+      const batchStartedAt = Date.now();
       options.onActivity?.({
-        type: "lens-complete",
+        type: "lens-batch-start",
         lens,
-        findingCount: result.findings.length,
-        durationMs: Date.now() - lensStartedAt,
+        batch: batchNumber,
+        totalBatches: batches.length,
+        files: batch.files,
       });
-      lensResults.push({ lens, result });
-    } catch (error) {
-      const reason = error instanceof Error ? error.message : String(error);
-      lensFailures.push({ lens, reason });
-      options.onActivity?.({
-        type: "lens-failed",
-        lens,
-        reason,
-        durationMs: Date.now() - lensStartedAt,
-      });
+
+      try {
+        batchResults.push(
+          await runReviewLens(
+            options,
+            constitution,
+            batch.files,
+            lens,
+            options.material,
+            batch.packet,
+          ),
+        );
+      } catch (error) {
+        const reason = error instanceof Error ? error.message : String(error);
+        batchFailures.push(
+          "batch " + batchNumber + "/" + batches.length + ": " + reason,
+        );
+        options.onActivity?.({
+          type: "lens-batch-failed",
+          lens,
+          batch: batchNumber,
+          totalBatches: batches.length,
+          reason,
+          durationMs: Date.now() - batchStartedAt,
+        });
+      }
     }
+
+    if (batchResults.length > 0) {
+      const result = {
+        summary: batchResults.map((item) => item.summary).join(" "),
+        findings: batchResults.flatMap((item) => item.findings),
+      };
+      lensResults.push({ lens, result });
+      if (batchFailures.length > 0) {
+        const reason =
+          String(batchFailures.length) +
+          "/" +
+          String(batches.length) +
+          " review batch(es) incomplete: " +
+          batchFailures.join(" | ");
+        lensFailures.push({ lens, reason });
+        options.onActivity?.({
+          type: "lens-failed",
+          lens,
+          reason,
+          durationMs: Date.now() - lensStartedAt,
+        });
+      } else {
+        options.onActivity?.({
+          type: "lens-complete",
+          lens,
+          findingCount: result.findings.length,
+          durationMs: Date.now() - lensStartedAt,
+        });
+      }
+      continue;
+    }
+
+    const reason =
+      batches.length === 0
+        ? "No bounded changed-code batch was available for this lens."
+        : batchFailures.join(" | ");
+    lensFailures.push({ lens, reason });
+    options.onActivity?.({
+      type: "lens-failed",
+      lens,
+      reason,
+      durationMs: Date.now() - lensStartedAt,
+    });
   }
 
   if (lensResults.length === 0) {
