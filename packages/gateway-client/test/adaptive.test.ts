@@ -96,6 +96,14 @@ describe("AdaptiveFreeGatewayClient", () => {
         }),
       ]),
     );
+
+    requestedModels.length = 0;
+    await client.createChatCompletion({
+      model: "kilo-auto/free",
+      messages: [{ role: "user", content: "security review" }],
+      routing: { task: "review_security" },
+    });
+    expect(requestedModels[0]).toBe("z-ai/medium:free");
   });
 
   it("honors per-request avoided models after an invalid structured response", async () => {
