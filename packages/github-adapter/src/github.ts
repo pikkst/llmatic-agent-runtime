@@ -383,7 +383,7 @@ export async function getPullRequestReviewContext(
   const rawDiff = requireSuccess(run(root, diffArgs, runner), diffArgs).stdout;
   const diffTruncated = rawDiff.length > MAX_PULL_REQUEST_REVIEW_DIFF_CHARS;
   const files = Array.isArray(raw.files) ? raw.files : [];
-  const reviewThreads = readPullRequestReviewThreads(root, status.pullRequest.number, runner);
+  const reviewThreads = readPullRequestReviewThreads(root, status.pullRequest, runner);
 
   return {
     status,
