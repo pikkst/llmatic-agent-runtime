@@ -25,6 +25,7 @@ import {
 } from "@llmatic/discovery-engine";
 import {
   externalConnectionProvider,
+  getBrokerHealth,
   pollBrokerConnection,
   refreshBrokerCredential,
   startBrokerConnection,
@@ -345,7 +346,24 @@ async function refreshJiraStatus(
   state: ExtensionState,
   statusProvider: LlmaticStatusProvider,
 ): Promise<void> {
-  statusProvider.setJiraStatus(await workspaceJiraStatus(context, state));
+  try {
+    statusProvider.setJiraStatus(await workspaceJiraStatus(context, state));
+  } catch (error) {
+    const profile = workspaceJiraProfile(context);
+    statusProvider.setJiraStatus({
+      connected: false,
+      required:
+        Boolean(profile) || configuration().get<string>("taskSource", "auto") === "jira",
+      label: profile?.projectKey,
+      detail: profile?.siteUrl
+        ? new URL(profile.siteUrl).host
+        : profile?.baseUrl
+          ? new URL(profile.baseUrl).host
+          : undefined,
+      workMode: profile?.workMode,
+      error: error instanceof Error ? error.message : String(error),
+    });
+  }
 }
 
 function delay(milliseconds: number): Promise<void> {
@@ -537,6 +555,29 @@ async function connectJiraWithBrowser(
       }
     } else if (action === "Open Setup Guide" && provider.documentationUrl) {
       await vscode.env.openExternal(vscode.Uri.parse(provider.documentationUrl));
+    }
+
+    return action !== "Use Manual Connection";
+  }
+
+  const health = await getBrokerHealth(brokerUrl);
+  const providerHealth = health.providers[provider.brokerProvider ?? "atlassian"];
+  if (!health.ready || !providerHealth?.ready) {
+    const missing = providerHealth?.missing ?? [];
+    const action = await vscode.window.showErrorMessage(
+      "LLMatic OAuth broker is reachable but Atlassian is not ready" +
+        (missing.length > 0 ? ": missing " + missing.join(", ") : "."),
+      "Open Broker Setup Guide",
+      "Use Manual Connection",
+    );
+
+    if (action === "Open Broker Setup Guide") {
+      await vscode.env.openExternal(
+        vscode.Uri.parse(
+          "https://github.com/pikkst/llmatic-agent-runtime/tree/main/deploy/oauth-broker",
+        ),
+      );
+      return true;
     }
 
     return action !== "Use Manual Connection";
