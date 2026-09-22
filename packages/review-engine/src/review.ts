@@ -252,6 +252,12 @@ export type ReviewActivityEvent =
       coverage: "complete" | "partial";
     }
   | { type: "lens-start"; lens: ReviewLens }
+  | {
+      type: "lens-failed";
+      lens: ReviewLens;
+      reason: string;
+      durationMs: number;
+    }
   | { type: "model-request"; lens: ReviewLens; step: number }
   | {
       type: "report-repair";
@@ -267,12 +273,19 @@ export type ReviewActivityEvent =
       toolCallCount: number;
       durationMs: number;
     }
-  | { type: "tool-start"; lens: ReviewLens; step: number; tool: string }
+  | {
+      type: "tool-start";
+      lens: ReviewLens;
+      step: number;
+      tool: string;
+      target?: string;
+    }
   | {
       type: "tool-complete";
       lens: ReviewLens;
       step: number;
       tool: string;
+      target?: string;
       success: boolean;
       durationMs: number;
     }
@@ -330,6 +343,11 @@ export interface ExternalPullRequestReviewOptions extends ReviewExecutionOptions
   material: PullRequestReviewMaterial;
 }
 
+export interface ReviewLensFailure {
+  lens: ReviewLens;
+  reason: string;
+}
+
 export interface ExternalPullRequestReviewReport extends CodeReviewReport {
   source: "external_pull_request";
   reference: string;
@@ -339,6 +357,8 @@ export interface ExternalPullRequestReviewReport extends CodeReviewReport {
   ciState: string;
   diffTruncated: boolean;
   coverage: "complete" | "partial";
+  reviewStatus: "complete" | "partial";
+  lensFailures: ReviewLensFailure[];
   unreviewedFiles: string[];
 }
 
@@ -486,6 +506,22 @@ async function repositorySearch(context: ReviewToolContext, query: string, limit
     index = await buildRepositoryIndex(context.root, context.config);
   }
   return searchRepositoryIndex(index, query, limit);
+}
+
+function reviewToolTarget(call: GatewayToolCall): string | undefined {
+  try {
+    const args = parseArguments(call);
+    if (call.function.name === "read_file" || call.function.name === "read_diff") {
+      const path = typeof args.path === "string" ? args.path.replaceAll("\\", "/") : "";
+      if (!path) return undefined;
+      return isWorkspacePathSensitive(path) ? "[blocked sensitive path]" : path;
+    }
+    if (call.function.name === "repo_search") return "repository index";
+  } catch {
+    return undefined;
+  }
+
+  return undefined;
 }
 
 async function executeReviewTool(
@@ -839,11 +875,13 @@ async function runReviewLens(
     if (calls.length > 0) {
       for (const call of calls) {
         const toolStartedAt = Date.now();
+        const toolTarget = reviewToolTarget(call);
         options.onActivity?.({
           type: "tool-start",
           lens,
           step,
           tool: call.function.name,
+          target: toolTarget,
         });
         try {
           const value = await executeReviewTool(context, call);
@@ -852,6 +890,7 @@ async function runReviewLens(
             lens,
             step,
             tool: call.function.name,
+            target: toolTarget,
             success: true,
             durationMs: Date.now() - toolStartedAt,
           });
@@ -866,6 +905,7 @@ async function runReviewLens(
             lens,
             step,
             tool: call.function.name,
+            target: toolTarget,
             success: false,
             durationMs: Date.now() - toolStartedAt,
           });
@@ -993,27 +1033,52 @@ export async function runExternalPullRequestReview(
     coverage,
   });
 
-  const lensResults = [];
+  const lensResults: Array<{
+    lens: ReviewLens;
+    result: { summary: string; findings: ReviewFinding[] };
+  }> = [];
+  const lensFailures: ReviewLensFailure[] = [];
+
   for (const lens of lenses) {
     const lensStartedAt = Date.now();
     options.onActivity?.({ type: "lens-start", lens });
-    const result = await runReviewLens(
-      options,
-      constitution,
-      reviewableFiles,
-      lens,
-      options.material,
-    );
-    options.onActivity?.({
-      type: "lens-complete",
-      lens,
-      findingCount: result.findings.length,
-      durationMs: Date.now() - lensStartedAt,
-    });
-    lensResults.push(result);
+    try {
+      const result = await runReviewLens(
+        options,
+        constitution,
+        reviewableFiles,
+        lens,
+        options.material,
+      );
+      options.onActivity?.({
+        type: "lens-complete",
+        lens,
+        findingCount: result.findings.length,
+        durationMs: Date.now() - lensStartedAt,
+      });
+      lensResults.push({ lens, result });
+    } catch (error) {
+      const reason = error instanceof Error ? error.message : String(error);
+      lensFailures.push({ lens, reason });
+      options.onActivity?.({
+        type: "lens-failed",
+        lens,
+        reason,
+        durationMs: Date.now() - lensStartedAt,
+      });
+    }
   }
 
-  const findings = deduplicateFindings(lensResults.flatMap((result) => result.findings));
+  if (lensResults.length === 0) {
+    throw new Error(
+      "All review lenses failed: " +
+        lensFailures.map((failure) => failure.lens + ": " + failure.reason).join(" | "),
+    );
+  }
+
+  const findings = deduplicateFindings(
+    lensResults.flatMap(({ result }) => result.findings),
+  );
   const codeBlockingCount = findings.filter((finding) => finding.severity === "blocking").length;
   options.onActivity?.({ type: "architecture-start" });
   const architectureStartedAt = Date.now();
@@ -1026,8 +1091,14 @@ export async function runExternalPullRequestReview(
   const blockingCount = codeBlockingCount + architectureImpact.unresolvedCount;
   const impactSummary = architectureImpactSummary(architectureImpact);
   const reviewSummary = lensResults
-    .map((result, index) => lenses[index] + ": " + result.summary)
+    .map(({ lens, result }) => lens + ": " + result.summary)
     .join(" ");
+  const failedLensSummary =
+    lensFailures.length > 0
+      ? " Incomplete lenses: " +
+        lensFailures.map((failure) => failure.lens + " (" + failure.reason + ")").join("; ") +
+        "."
+      : "";
   const coverageSummary =
     coverage === "complete"
       ? " Review coverage: complete."
@@ -1044,9 +1115,12 @@ export async function runExternalPullRequestReview(
     ciState: options.material.ciState,
     diffTruncated: options.material.diffTruncated,
     coverage,
+    reviewStatus: lensFailures.length === 0 ? "complete" : "partial",
+    lensFailures,
     unreviewedFiles,
     summary:
       reviewSummary +
+      failedLensSummary +
       coverageSummary +
       (architectureImpact.baselineDetected ? " Living architecture: " + impactSummary : ""),
     findings,
