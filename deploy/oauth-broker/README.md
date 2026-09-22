@@ -75,7 +75,6 @@ Atlassian: ready
 
 The session poll token is never stored in plaintext by the broker. Browser authorization sessions expire after 10 minutes and successful session material is returned once, then removed from KV.
 
-
 ## Public-endpoint hardening
 
 The Worker intentionally exposes only the browser authorization/session endpoints. Production deployment should also apply platform-level abuse controls:

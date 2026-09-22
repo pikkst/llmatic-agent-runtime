@@ -125,17 +125,13 @@ describe("LLMatic OAuth broker", () => {
 
   it("protects OAuth callback pages against framing and external content", async () => {
     const response = await worker.fetch(
-      new Request(
-        "https://oauth.example/v1/connections/callback/atlassian?state=missing",
-      ),
+      new Request("https://oauth.example/v1/connections/callback/atlassian?state=missing"),
       completeEnv(),
     );
 
     expect(response.status).toBe(400);
     expect(response.headers.get("X-Frame-Options")).toBe("DENY");
-    expect(response.headers.get("Content-Security-Policy")).toContain(
-      "default-src 'none'",
-    );
+    expect(response.headers.get("Content-Security-Policy")).toContain("default-src 'none'");
     expect(response.headers.get("Referrer-Policy")).toBe("no-referrer");
   });
 });
