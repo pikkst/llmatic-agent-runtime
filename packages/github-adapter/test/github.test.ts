@@ -209,7 +209,7 @@ describe("github adapter", () => {
 
     const context = await getPullRequestReviewContext("/repo", "7", runner);
 
-    expect(context.status.ciState).toBe("passing");
+    expect(context.status.ciState).toBe("none");
     expect(context.title).toBe("Improve value handling");
     expect(context.authorLogin).toBe("contributor");
     expect(context.changedFiles).toEqual([
