@@ -1122,6 +1122,7 @@ async function runReviewLens(
     : Math.max(1, Math.min(30, options.maxSteps ?? 12));
   let reportRepairAttempts = 0;
   const maxReportRepairAttempts = 2;
+  const avoidedModels = new Set<string>();
 
   for (let step = 1; step <= maxSteps; step += 1) {
     options.onActivity?.({ type: "model-request", lens, step });
@@ -1133,6 +1134,12 @@ async function runReviewLens(
       tools: material ? undefined : REVIEW_TOOLS,
       tool_choice: material ? "none" : undefined,
       response_format: material ? { type: "json_object" } : undefined,
+      routing: material
+        ? {
+            task: "review_" + lens,
+            avoidModels: [...avoidedModels],
+          }
+        : undefined,
       max_tokens: 3000,
       temperature: 0,
     });
@@ -1224,6 +1231,9 @@ async function runReviewLens(
     } catch (error) {
       const reason =
         error instanceof SyntaxError ? ("invalid_json" as const) : ("invalid_schema" as const);
+      if (response.model?.trim()) {
+        avoidedModels.add(response.model.trim());
+      }
 
       if (reportRepairAttempts >= maxReportRepairAttempts || step >= maxSteps) {
         throw new Error(
