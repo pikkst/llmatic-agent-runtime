@@ -52,6 +52,38 @@ export interface PullRequestStatus {
   ciState: RemoteCiState;
 }
 
+export interface PullRequestChangedFile {
+  path: string;
+  additions: number;
+  deletions: number;
+}
+
+export interface PullRequestReviewSnapshot {
+  authorLogin?: string;
+  state?: string;
+  body: string;
+  submittedAt?: string;
+}
+
+export interface PullRequestCommentSnapshot {
+  authorLogin?: string;
+  body: string;
+  createdAt?: string;
+  url?: string;
+}
+
+export interface PullRequestReviewContext {
+  status: PullRequestStatus;
+  title: string;
+  body: string;
+  authorLogin?: string;
+  changedFiles: PullRequestChangedFile[];
+  reviews: PullRequestReviewSnapshot[];
+  comments: PullRequestCommentSnapshot[];
+  diff: string;
+  diffTruncated: boolean;
+}
+
 export type MergeMethod = "squash" | "merge" | "rebase";
 
 export interface MergePullRequestOptions extends GitHubMutationOptions {
