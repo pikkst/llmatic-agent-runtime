@@ -131,6 +131,7 @@ interface ExtensionState {
   kiloReloadRecommended: boolean;
   gatewayKeyConfigured: boolean;
   recovery?: WorkspaceRecovery;
+  jiraConnectionError?: string;
   lastError?: string;
 }
 
@@ -346,8 +347,16 @@ async function refreshJiraStatus(
   state: ExtensionState,
   statusProvider: LlmaticStatusProvider,
 ): Promise<void> {
+  if (state.jiraConnectionError) {
+    const profile = workspaceJiraProfile(context);
+    setJiraConnectionError(statusProvider, state.jiraConnectionError, profile);
+    return;
+  }
+
   try {
-    statusProvider.setJiraStatus(await workspaceJiraStatus(context, state));
+    const status = await workspaceJiraStatus(context, state);
+    if (status.connected) state.jiraConnectionError = undefined;
+    statusProvider.setJiraStatus(status);
   } catch (error) {
     const profile = workspaceJiraProfile(context);
     statusProvider.setJiraStatus({
@@ -581,6 +590,7 @@ async function persistJiraWorkspaceConnection(
       setJiraConnectionProgress(statusProvider, "refreshing repository context…", profile);
       progress.report({ message: "Refreshing repository context…" });
       await refreshWorkspaceRecovery(context, state, statusProvider, chatProvider, output, true);
+      state.jiraConnectionError = undefined;
       await refreshJiraStatus(context, state, statusProvider);
 
       return verifiedUser;
@@ -921,6 +931,7 @@ async function connectJiraWorkspace(
   chatProvider: AgentChatViewProvider,
   output: vscode.OutputChannel,
 ): Promise<void> {
+  state.jiraConnectionError = undefined;
   const folder = firstWorkspaceFolder();
   if (!folder) {
     await vscode.window.showWarningMessage("Open a repository workspace before connecting Jira.");
@@ -1016,6 +1027,7 @@ async function disconnectJiraWorkspace(
     await context.secrets.delete(jiraSecretKey(state.activeWorkspace.id, "oauth_broker"));
   }
   await context.workspaceState.update(JIRA_PROFILE_STATE_KEY, undefined);
+  state.jiraConnectionError = undefined;
 
   await refreshJiraStatus(context, state, statusProvider);
   await refreshWorkspaceRecovery(context, state, statusProvider, chatProvider, output, true).catch(
@@ -3634,6 +3646,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         await connectJiraWorkspace(context, state, statusProvider, chatProvider, output);
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
+        state.jiraConnectionError = message;
         const profile = workspaceJiraProfile(context);
         setJiraConnectionError(statusProvider, message, profile);
 
@@ -3662,6 +3675,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
               ).catch((retryError) => {
                 const retryMessage =
                   retryError instanceof Error ? retryError.message : String(retryError);
+                state.jiraConnectionError = retryMessage;
                 setJiraConnectionError(statusProvider, retryMessage, profile);
                 void vscode.window.showErrorMessage("LLMatic Jira connection: " + retryMessage);
               });
