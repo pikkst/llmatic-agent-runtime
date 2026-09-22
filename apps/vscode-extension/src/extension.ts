@@ -1256,7 +1256,15 @@ async function refreshWorkspaceRecovery(
   output?: vscode.OutputChannel,
   rebuildIndex = false,
 ): Promise<WorkspaceRecovery | undefined> {
-  const folder = firstWorkspaceFolder();
+  const operation = statusProvider.beginOperation(
+    rebuildIndex ? "Refreshing repository context" : "Loading repository context",
+    rebuildIndex
+      ? "Re-indexing files, symbols, imports and task / PR state…"
+      : "Recovering repository, task and PR state…",
+  );
+
+  try {
+    const folder = firstWorkspaceFolder();
   if (!folder) {
     state.recovery = undefined;
     statusProvider.update(state.health, state.gatewayKeyConfigured, undefined);
@@ -1334,7 +1342,10 @@ async function refreshWorkspaceRecovery(
     );
   }
 
-  return recovery;
+    return recovery;
+  } finally {
+    operation.dispose();
+  }
 }
 
 function nodeVersion(nodeCommand: string): string | undefined {
@@ -1691,6 +1702,40 @@ function formatAgentEvent(event: CodingAgentEvent): string {
     return "[" + (event.success ? "PASS" : "FAIL") + "] " + event.name;
   }
   return "[INFO] " + event.message;
+}
+
+function formatAgentActivity(event: CodingAgentEvent): string {
+  if (event.type === "model") return "Thinking…";
+  if (event.type === "info") return event.message;
+
+  if (event.type === "tool-result") {
+    return event.success ? "Reviewing tool results…" : "Tool failed; deciding what to do next…";
+  }
+
+  const labels: Record<string, string> = {
+    repository_rules: "Reading repository rules…",
+    propose_repository_rule: "Preparing a repository rule proposal…",
+    repo_search: "Searching the repository…",
+    task_start: "Starting the selected task workflow…",
+    workflow_analyze_repository: "Analyzing the repository…",
+    workflow_create_branch: "Creating the workflow branch…",
+    workflow_begin_implementation: "Starting implementation…",
+    task_sources: "Checking available task sources…",
+    task_list: "Reading the task queue…",
+    task_get: "Reading task details…",
+    task_next: "Finding the next task…",
+    read_file: "Reading repository files…",
+    replace_in_file: "Updating repository files…",
+    create_file: "Creating a repository file…",
+    run_capability: "Running a project quality check…",
+    validate_workflow: "Validating the workflow…",
+    pull_request_status: "Checking the pull request and CI…",
+    pull_request_failed_logs: "Reading failed CI diagnostics…",
+    git_status: "Checking Git state…",
+    workflow_status: "Checking workflow state…",
+  };
+
+  return labels[event.name] ?? "Using " + event.name.replaceAll("_", " ") + "…";
 }
 
 async function confirmAutoFreeDataHandling(
@@ -2218,7 +2263,11 @@ async function runAgentChatTurn(
   const gateway = new KiloGatewayClient({ apiKey: gatewayAccess.apiKey });
   const maxSteps = configuration().get<number>("agentMaxSteps", 20);
 
-  chatProvider.setBusy(true, "LLMatic agent is working…");
+  chatProvider.setBusy(true, "Thinking…");
+  const agentOperation = statusProvider.beginOperation(
+    "Agent working",
+    "Thinking and deciding what to do…",
+  );
   output.appendLine("");
   output.appendLine("[CHAT] User: " + instruction);
 
@@ -2236,8 +2285,10 @@ async function runAgentChatTurn(
       maxSteps,
       onEvent: (event) => {
         const line = formatAgentEvent(event);
+        const activity = formatAgentActivity(event);
         output.appendLine(line);
-        chatProvider.appendActivity(line, event.type === "tool-result" ? event.success : undefined);
+        chatProvider.setBusy(true, activity);
+        agentOperation.update("Agent working", activity);
       },
     });
 
@@ -2246,6 +2297,7 @@ async function runAgentChatTurn(
 
     await refreshWorkspaceRecovery(context, state, statusProvider, chatProvider, output, true);
   } finally {
+    agentOperation.dispose();
     chatProvider.setBusy(false);
   }
 }
@@ -3444,6 +3496,10 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   context.subscriptions.push(statusBar);
 
   const statusProvider = new LlmaticStatusProvider();
+  const startupOperation = statusProvider.beginOperation(
+    "Loading LLMatic workspace",
+    "Checking runtime, tools and external connections…",
+  );
   context.subscriptions.push(
     vscode.window.registerTreeDataProvider("llmatic.status", statusProvider),
     vscode.window.registerFileDecorationProvider(new LlmaticStatusDecorationProvider()),
@@ -3458,10 +3514,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     send: (text) => runAgentChatTurn(context, state, statusProvider, chatProvider, output, text),
     refresh: async () => {
       chatProvider.setBusy(true, "Refreshing repository context…");
-      chatProvider.appendActivity("Refreshing repository map and workspace recovery…");
       try {
         await refreshWorkspaceRecovery(context, state, statusProvider, chatProvider, output, true);
-        chatProvider.appendActivity("Repository context refreshed.", true);
       } finally {
         chatProvider.setBusy(false);
       }
@@ -3874,11 +3928,21 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     }),
   );
 
+  startupOperation.update(
+    "Loading LLMatic workspace",
+    "Checking runtime, tools and Kilo integration…",
+  );
   await refresh(context, statusBar, state);
   statusProvider.update(state.health, state.gatewayKeyConfigured, state.recovery);
   statusProvider.setGatewayAccess(state.gatewayKeyConfigured, anonymousKiloAccessAvailable());
+
+  startupOperation.update(
+    "Loading LLMatic workspace",
+    "Checking workspace connections…",
+  );
   await refreshJiraStatus(context, state, statusProvider);
   await vscode.commands.executeCommand("setContext", "llmatic.health", state.health?.status);
+  startupOperation.dispose();
 
   void refreshWorkspaceRecovery(context, state, statusProvider, chatProvider, output, false).catch(
     (error) => {
