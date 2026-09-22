@@ -160,10 +160,7 @@ export class AdaptiveFreeGatewayClient implements GatewayChatClient {
       : new Error("All adaptive free-model candidates failed for " + task + ".");
   }
 
-  private async modelCandidates(
-    request: GatewayChatRequest,
-    task: string,
-  ): Promise<string[]> {
+  private async modelCandidates(request: GatewayChatRequest, task: string): Promise<string[]> {
     const avoided = new Set(request.routing?.avoidModels ?? []);
     const requested = request.model.trim() || "kilo-auto/free";
     const candidates: string[] = [];
@@ -177,9 +174,7 @@ export class AdaptiveFreeGatewayClient implements GatewayChatClient {
       const now = Date.now();
       const ranked = [...models]
         .filter(
-          (model) =>
-            !avoided.has(model.id) &&
-            (this.unhealthyUntil.get(model.id) ?? 0) <= now,
+          (model) => !avoided.has(model.id) && (this.unhealthyUntil.get(model.id) ?? 0) <= now,
         )
         .sort((left, right) => this.score(task, right) - this.score(task, left));
 

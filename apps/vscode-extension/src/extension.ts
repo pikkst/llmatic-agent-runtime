@@ -3146,10 +3146,7 @@ async function runAutoReviewScan(
       }
 
       const pendingRetry = retry[key];
-      if (
-        pendingRetry?.fingerprint === fingerprint &&
-        pendingRetry.retryAfter > now
-      ) {
+      if (pendingRetry?.fingerprint === fingerprint && pendingRetry.retryAfter > now) {
         continue;
       }
 

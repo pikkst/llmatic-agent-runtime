@@ -153,19 +153,16 @@ export class KiloGatewayClient implements GatewayChatClient {
         throw new Error("Kilo Gateway model catalog did not return a data array.");
       }
 
-      return parsed.data.filter(
-        (model): model is GatewayModelInfo =>
-          Boolean(
-            model &&
-              typeof model === "object" &&
-              typeof (model as Record<string, unknown>).id === "string",
-          ),
+      return parsed.data.filter((model): model is GatewayModelInfo =>
+        Boolean(
+          model &&
+          typeof model === "object" &&
+          typeof (model as Record<string, unknown>).id === "string",
+        ),
       );
     } catch (error) {
       if (controller.signal.aborted) {
-        throw new Error(
-          "Kilo Gateway model catalog timed out after " + catalogTimeoutMs + "ms.",
-        );
+        throw new Error("Kilo Gateway model catalog timed out after " + catalogTimeoutMs + "ms.");
       }
       throw error;
     } finally {

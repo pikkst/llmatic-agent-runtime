@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { AdaptiveFreeGatewayClient } from "../src/adaptive.js";
 
-function completion(model: string, content = "{\"summary\":\"ok\",\"findings\":[]}") {
+function completion(model: string, content = '{"summary":"ok","findings":[]}') {
   return new Response(
     JSON.stringify({
       id: "completion-" + model,
