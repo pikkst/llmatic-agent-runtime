@@ -40,6 +40,9 @@ import { isWorkspacePathSensitive, readWorkspaceFile } from "@llmatic/workspace-
 
 const MAX_DIFF_CHARS = 64000;
 const MAX_TOOL_RESULT_CHARS = 64000;
+const MAX_EXTERNAL_REVIEW_BATCH_CHARS = 24000;
+const MAX_EXTERNAL_REVIEW_FILE_CHARS = 8000;
+const MAX_EXTERNAL_REVIEW_BATCH_FILES = 6;
 
 function latestReviewPath(root: string, config: AgentConfig): string {
   return resolve(root, config.runtime.cacheDirectory, "latest-review.json");
@@ -458,6 +461,84 @@ const REVIEW_TOOLS: GatewayTool[] = [
     },
   },
 ];
+
+const EXTERNAL_REVIEW_TOOLS: GatewayTool[] = REVIEW_TOOLS.filter(
+  (tool) => tool.function.name !== "read_diff",
+);
+
+interface ExternalReviewBatch {
+  files: string[];
+  packet: string;
+}
+
+function reviewableCodePath(path: string): boolean {
+  return /\.(?:[cm]?[jt]sx?|json|sql|ya?ml)$/i.test(path) && !/(?:^|\/)(?:dist|build)\//i.test(path);
+}
+
+function externalLensFiles(lens: ReviewLens, files: string[]): string[] {
+  if (lens === "general") return files;
+
+  const codeFiles = files.filter(reviewableCodePath);
+  if (lens === "bug_hunter") return codeFiles.length > 0 ? codeFiles : files;
+
+  const securityPriority = codeFiles.filter((path) =>
+    /auth|oauth|token|secret|permission|github|gateway|external|connection|webhook|api|security|config|extension|orchestrator/i.test(
+      path,
+    ),
+  );
+  return securityPriority.length > 0 ? securityPriority : codeFiles.length > 0 ? codeFiles : files;
+}
+
+function externalReviewBatches(
+  material: PullRequestReviewMaterial,
+  files: string[],
+): ExternalReviewBatch[] {
+  const batches: ExternalReviewBatch[] = [];
+  let currentFiles: string[] = [];
+  let currentSections: string[] = [];
+  let currentChars = 0;
+
+  const flush = () => {
+    if (currentFiles.length === 0) return;
+    batches.push({
+      files: currentFiles,
+      packet: currentSections.join("\n\n"),
+    });
+    currentFiles = [];
+    currentSections = [];
+    currentChars = 0;
+  };
+
+  for (const path of files) {
+    let diff: string;
+    try {
+      diff = pullRequestDiffForPath(material.diff, path);
+    } catch {
+      continue;
+    }
+
+    const boundedDiff =
+      diff.length <= MAX_EXTERNAL_REVIEW_FILE_CHARS
+        ? diff
+        : diff.slice(0, MAX_EXTERNAL_REVIEW_FILE_CHARS) + "\n[FILE DIFF TRUNCATED]";
+    const section = "### " + path + "\n" + boundedDiff;
+
+    if (
+      currentFiles.length > 0 &&
+      (currentFiles.length >= MAX_EXTERNAL_REVIEW_BATCH_FILES ||
+        currentChars + section.length > MAX_EXTERNAL_REVIEW_BATCH_CHARS)
+    ) {
+      flush();
+    }
+
+    currentFiles.push(path);
+    currentSections.push(section);
+    currentChars += section.length;
+  }
+
+  flush();
+  return batches;
+}
 
 function runGit(root: string, args: string[]): string {
   const result = spawnSync("git", args, {
@@ -966,6 +1047,7 @@ async function runReviewLens(
   changedFiles: string[],
   lens: ReviewLens,
   material?: PullRequestReviewMaterial,
+  externalPacket?: string,
 ): Promise<{ summary: string; findings: ReviewFinding[] }> {
   const model = options.model?.trim() || "kilo-auto/free";
   const messages: GatewayMessage[] = [
@@ -988,8 +1070,18 @@ async function runReviewLens(
               comments: material.comments ?? [],
               reviewThreads: safePullRequestReviewThreads(material.reviewThreads),
             }).slice(0, MAX_TOOL_RESULT_CHARS),
-            "Changed non-secret files:",
+            "Changed non-secret files in this bounded batch:",
             changedFiles.map((path) => "- " + path).join("\n"),
+            externalPacket
+              ? [
+                  "",
+                  "Authoritative bounded changed-code packet:",
+                  "Use this packet as the primary evidence. Do not request read_diff; it is already provided.",
+                  externalPacket,
+                  "",
+                  "Only use read_file or repo_search when a concrete finding cannot be verified from this packet alone.",
+                ].join("\n")
+              : "",
           ].join("\n")
         : "Review the current working-tree change with lens " +
           lens +
@@ -1015,8 +1107,8 @@ async function runReviewLens(
       model,
       mode: "code",
       messages: [...messages],
-      tools: REVIEW_TOOLS,
-      max_tokens: 4000,
+      tools: material ? EXTERNAL_REVIEW_TOOLS : REVIEW_TOOLS,
+      max_tokens: 3000,
       temperature: 0,
     });
     const assistant = response.choices[0]?.message;
