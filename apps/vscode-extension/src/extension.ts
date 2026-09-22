@@ -2810,76 +2810,76 @@ async function runAutomaticExternalPullRequestReview(
       throw new Error("Open a repository workspace before running Auto Review Agent.");
     }
 
-  if (!state.activeWorkspace) {
-    state.activeWorkspace = await attachWorkspace(context, folder);
-  }
+    if (!state.activeWorkspace) {
+      state.activeWorkspace = await attachWorkspace(context, folder);
+    }
 
-  const model =
-    configuration().get<string>("agentModel", "kilo-auto/free").trim() || "kilo-auto/free";
-  const gatewayAccess = await automaticGatewayAccess(context, model);
-  if (!gatewayAccess) {
-    throw new Error(
-      "Auto Review Agent needs an available Kilo Gateway model. Connect Kilo Gateway or accept Auto Free data handling first.",
-    );
-  }
-
-  const root = folder.uri.fsPath;
-  const config = await loadAgentConfig(root, {
-    LLMATIC_HOME: context.globalStorageUri.fsPath,
-  });
-  const gateway = new KiloGatewayClient({
-    apiKey: gatewayAccess.apiKey,
-    onRetry: (event) => {
-      output.appendLine(
-        "[AUTO REVIEW][RETRY] Kilo Gateway " +
-          event.nextAttempt +
-          "/" +
-          event.maxAttempts +
-          ": " +
-          event.reason,
+    const model =
+      configuration().get<string>("agentModel", "kilo-auto/free").trim() || "kilo-auto/free";
+    const gatewayAccess = await automaticGatewayAccess(context, model);
+    if (!gatewayAccess) {
+      throw new Error(
+        "Auto Review Agent needs an available Kilo Gateway model. Connect Kilo Gateway or accept Auto Free data handling first.",
       );
-    },
-  });
+    }
 
-  const reviewContext = await getPullRequestReviewContext(root, pullRequest.number);
-  const fileCache = new Map<string, unknown>();
-  return runExternalPullRequestReview({
-    root,
-    config,
-    gateway,
-    readFile: (path, options) => {
-      const key =
-        path + ":" + String(options.startLine ?? "") + ":" + String(options.endLine ?? "");
-      const cached = fileCache.get(key);
-      if (cached) return cached;
+    const root = folder.uri.fsPath;
+    const config = await loadAgentConfig(root, {
+      LLMATIC_HOME: context.globalStorageUri.fsPath,
+    });
+    const gateway = new KiloGatewayClient({
+      apiKey: gatewayAccess.apiKey,
+      onRetry: (event) => {
+        output.appendLine(
+          "[AUTO REVIEW][RETRY] Kilo Gateway " +
+            event.nextAttempt +
+            "/" +
+            event.maxAttempts +
+            ": " +
+            event.reason,
+        );
+      },
+    });
 
-      const value = readPullRequestFileAtHead(
-        root,
-        reviewContext.status.pullRequest,
-        path,
-        options,
-      );
-      fileCache.set(key, value);
-      return value;
-    },
-    model,
-    maxSteps: configuration().get<number>("agentMaxSteps", 20),
-    lenses: ["general", "bug_hunter", "security"],
-    material: {
-      reference: String(reviewContext.status.pullRequest.number),
-      headRefOid: reviewContext.status.pullRequest.headRefOid,
-      title: reviewContext.title,
-      body: reviewContext.body,
-      authorLogin: reviewContext.authorLogin,
-      ciState: reviewContext.status.ciState,
-      changedFiles: reviewContext.changedFiles.map((file) => file.path),
-      diff: reviewContext.diff,
-      diffTruncated: reviewContext.diffTruncated,
-      reviews: reviewContext.reviews,
-      comments: reviewContext.comments,
-      reviewThreads: reviewContext.reviewThreads,
-    },
-  });
+    const reviewContext = await getPullRequestReviewContext(root, pullRequest.number);
+    const fileCache = new Map<string, unknown>();
+    return runExternalPullRequestReview({
+      root,
+      config,
+      gateway,
+      readFile: (path, options) => {
+        const key =
+          path + ":" + String(options.startLine ?? "") + ":" + String(options.endLine ?? "");
+        const cached = fileCache.get(key);
+        if (cached) return cached;
+
+        const value = readPullRequestFileAtHead(
+          root,
+          reviewContext.status.pullRequest,
+          path,
+          options,
+        );
+        fileCache.set(key, value);
+        return value;
+      },
+      model,
+      maxSteps: configuration().get<number>("agentMaxSteps", 20),
+      lenses: ["general", "bug_hunter", "security"],
+      material: {
+        reference: String(reviewContext.status.pullRequest.number),
+        headRefOid: reviewContext.status.pullRequest.headRefOid,
+        title: reviewContext.title,
+        body: reviewContext.body,
+        authorLogin: reviewContext.authorLogin,
+        ciState: reviewContext.status.ciState,
+        changedFiles: reviewContext.changedFiles.map((file) => file.path),
+        diff: reviewContext.diff,
+        diffTruncated: reviewContext.diffTruncated,
+        reviews: reviewContext.reviews,
+        comments: reviewContext.comments,
+        reviewThreads: reviewContext.reviewThreads,
+      },
+    });
   } finally {
     state.activeExternalReviewPrNumbers.delete(pullRequest.number);
   }
