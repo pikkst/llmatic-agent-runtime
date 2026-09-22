@@ -1,6 +1,7 @@
 import type { AgentConfig, WorkflowRun, WorkflowStateStore } from "@llmatic/core";
 import { recordActionCheckpoint, startWorkflow, transitionWorkflow } from "@llmatic/core";
 import type {
+  TaskConnectionInfo,
   TaskProvider,
   TaskProviderOperationOptions,
   TaskRecord,
@@ -366,6 +367,33 @@ export class JiraTaskProvider implements TaskProvider {
       accountId,
       displayName: typeof raw.displayName === "string" ? raw.displayName : undefined,
       emailAddress: typeof raw.emailAddress === "string" ? raw.emailAddress : undefined,
+    };
+  }
+
+  public async getConnectionInfo(
+    options: TaskProviderOperationOptions = {},
+  ): Promise<TaskConnectionInfo> {
+    const currentUser = await this.getCurrentUser(options);
+    const projectKey = this.environment.LLMATIC_JIRA_PROJECT_KEY?.trim()?.toUpperCase();
+    const siteUrl = (this.connection.siteUrl ?? this.connection.baseUrl).replace(/\/+$/, "");
+
+    return {
+      provider: this.id,
+      connected: true,
+      identity: {
+        id: currentUser.accountId,
+        ...(currentUser.displayName ? { label: currentUser.displayName } : {}),
+        ...(currentUser.emailAddress ? { email: currentUser.emailAddress } : {}),
+      },
+      target: {
+        label: projectKey ? "Jira project " + projectKey : "Jira",
+        url: siteUrl,
+      },
+      metadata: {
+        ...(projectKey ? { projectKey } : {}),
+        workMode: this.workMode(),
+        siteUrl,
+      },
     };
   }
 
