@@ -194,6 +194,50 @@ describe("gateway coding agent", () => {
     expect(JSON.stringify(gateway.requests[1]?.messages.at(-1))).toContain("TASK-001");
   });
 
+  it("lets the agent inspect safe task connection context without guessing identity", async () => {
+    const root = await mkdtemp(join(tmpdir(), "llmatic-agent-"));
+    temporaryDirectories.push(root);
+    await mkdir(join(root, ".git"));
+    await writeFile(
+      join(root, "TASKS.md"),
+      ["## TASK-001 — First task", "", "Status: Todo", ""].join("\n"),
+    );
+
+    const config = configFor(root);
+    const store = new WorkflowStateStore(root, config);
+    const gateway = new ScriptedGateway([
+      response(null, [{ id: "call-task-connection", name: "task_connection", arguments: {} }]),
+      response("The markdown task provider has no remote account identity."),
+    ]);
+
+    const result = await runCodingAgent({
+      root,
+      config,
+      store,
+      gateway,
+      instruction: "Who is the authenticated task user and which project is connected?",
+    });
+
+    expect(result.finalText).toContain("no remote account identity");
+    expect(gateway.requests[0]?.tools).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          function: expect.objectContaining({ name: "task_connection" }),
+        }),
+      ]),
+    );
+    expect(JSON.stringify(gateway.requests[0]?.messages[0])).toContain(
+      "Do not infer connection identity or URLs from repository documentation",
+    );
+    expect(gateway.requests[1]?.messages.at(-1)).toMatchObject({
+      role: "tool",
+      tool_call_id: "call-task-connection",
+    });
+    expect(JSON.stringify(gateway.requests[1]?.messages.at(-1))).toContain(
+      '"supported":false',
+    );
+  });
+
   it("returns tool failures to the model instead of bypassing ask permissions", async () => {
     const root = await mkdtemp(join(tmpdir(), "llmatic-agent-"));
     temporaryDirectories.push(root);
