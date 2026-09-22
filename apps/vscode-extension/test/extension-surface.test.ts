@@ -132,10 +132,10 @@ describe("VS Code extension activation surface", () => {
     expect(source).toContain("Continue recommended");
     expect(source).toContain("Refresh context");
     expect(source).toContain("conversationHistory");
-    expect(source).toContain("Repository map");
-    expect(source).toContain("Repository rules");
-    expect(source).toContain("Latest review");
     const clientSource = await readFile(new URL("../media/agent-chat.js", import.meta.url), "utf8");
+    expect(clientSource).toContain("Repository map");
+    expect(clientSource).toContain("Repository rules");
+    expect(clientSource).toContain("Latest review");
     expect(() => new Function(clientSource)).not.toThrow();
     expect(clientSource).toContain('type: "continue"');
     expect(clientSource).toContain('type: "ready"');
