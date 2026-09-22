@@ -44,6 +44,25 @@ export interface TaskTransition {
   toStatus?: string;
 }
 
+export interface TaskConnectionIdentity {
+  id: string;
+  label?: string;
+  email?: string;
+}
+
+export interface TaskConnectionTarget {
+  label?: string;
+  url?: string;
+}
+
+export interface TaskConnectionInfo {
+  provider: string;
+  connected: boolean;
+  identity?: TaskConnectionIdentity;
+  target?: TaskConnectionTarget;
+  metadata?: Record<string, string>;
+}
+
 export interface TaskProvider {
   readonly id: string;
 
@@ -52,6 +71,8 @@ export interface TaskProvider {
   listTasks?(options?: TaskProviderOperationOptions): Promise<TaskRecord[]>;
 
   getNextTask?(options?: TaskProviderOperationOptions): Promise<TaskRecord | undefined>;
+
+  getConnectionInfo?(options?: TaskProviderOperationOptions): Promise<TaskConnectionInfo>;
 
   assertSelectableTask?(reference: string, options?: TaskProviderOperationOptions): Promise<void>;
 
