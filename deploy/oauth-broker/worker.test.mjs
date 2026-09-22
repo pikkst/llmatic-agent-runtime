@@ -136,9 +136,7 @@ describe("LLMatic OAuth broker", () => {
     expect(response.headers.get("Referrer-Policy")).toBe("no-referrer");
   });
   it("keeps the canonical Wrangler config deployable without committed account state", async () => {
-    const config = JSON.parse(
-      await readFile(new URL("./wrangler.jsonc", import.meta.url), "utf8"),
-    );
+    const config = JSON.parse(await readFile(new URL("./wrangler.jsonc", import.meta.url), "utf8"));
 
     expect(config).toMatchObject({
       name: "llmatic-oauth-broker",
@@ -150,5 +148,4 @@ describe("LLMatic OAuth broker", () => {
     expect(JSON.stringify(config)).not.toContain("ATLASSIAN_CLIENT_SECRET");
     expect(JSON.stringify(config)).not.toContain("ATLASSIAN_CLIENT_ID");
   });
-
 });

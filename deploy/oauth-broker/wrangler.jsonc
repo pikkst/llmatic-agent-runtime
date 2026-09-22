@@ -4,7 +4,7 @@
   "compatibility_date": "2026-09-22",
   "kv_namespaces": [
     {
-      "binding": "CONNECTION_SESSIONS"
-    }
-  ]
+      "binding": "CONNECTION_SESSIONS",
+    },
+  ],
 }
