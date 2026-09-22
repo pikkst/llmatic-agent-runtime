@@ -9,3 +9,4 @@ dist/
 artifacts/
 .kilo/worktrees/
 apps/vscode-extension/lib/
+.vscode/settings.json
