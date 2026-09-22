@@ -216,6 +216,24 @@ const TOOLS: GatewayTool[] = [
   {
     type: "function",
     function: {
+      name: "task_connection",
+      description:
+        "Read safe live connection identity and target context for the canonical task source when supported. Use this for the authenticated user, site, project or work-mode questions. Credentials are never returned.",
+      parameters: {
+        type: "object",
+        properties: {
+          provider: {
+            type: "string",
+            enum: ["auto", "markdown", "jira", "github"],
+          },
+        },
+        additionalProperties: false,
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
       name: "task_list",
       description:
         "List live task candidates from the canonical task source (or an explicitly selected source). Use this for Jira/local/GitHub work ordering.",
@@ -543,6 +561,21 @@ async function executeTool(context: ToolExecutionContext, call: GatewayToolCall)
     case "task_sources":
       return detectTaskSources(context.root, context.environment);
 
+    case "task_connection": {
+      const provider = await taskProviderFor(context, args);
+      if (!provider.getConnectionInfo) {
+        return {
+          provider: provider.id,
+          supported: false,
+          detail: "This task provider does not expose live connection identity.",
+        };
+      }
+      return {
+        supported: true,
+        ...(await provider.getConnectionInfo()),
+      };
+    }
+
     case "task_list": {
       const provider = await taskProviderFor(context, args);
       if (!provider.listTasks) {
@@ -674,6 +707,7 @@ function systemPrompt(root: string): string {
     "For casual or test messages, respond naturally and briefly instead of reciting repository readiness unless that context is directly relevant.",
     "Use repo_search before broad exploration and read files before editing them.",
     "For task ordering or Jira/local/GitHub work selection, use task_sources/task_list/task_get/task_next instead of guessing task state.",
+    "For questions about the authenticated task user, connected site/project or adapter work mode, use task_connection and report its live result. Do not infer connection identity or URLs from repository documentation.",
     "When the user asks to continue a new actionable task, use task_start, workflow_analyze_repository, workflow_create_branch and workflow_begin_implementation in order before editing code.",
     "Use repository_rules when project-specific policy matters.",
     "You may propose a repository rule when repeated evidence suggests a durable convention, but proposals are never active until a human approves them.",
