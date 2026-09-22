@@ -79,7 +79,10 @@ import {
   type WorkspaceRecovery,
 } from "@llmatic/workspace-recovery";
 import { AgentChatViewProvider } from "./agent-chat-view.js";
-import { LlmaticStatusProvider } from "./status-view.js";
+import {
+  LlmaticStatusDecorationProvider,
+  LlmaticStatusProvider,
+} from "./status-view.js";
 
 const KILO_EXTENSION_ID = "kilocode.kilo-code";
 const KILO_GATEWAY_SECRET = "llmatic.kiloGatewayApiKey";
@@ -2299,6 +2302,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   const statusProvider = new LlmaticStatusProvider();
   context.subscriptions.push(
     vscode.window.registerTreeDataProvider("llmatic.status", statusProvider),
+    vscode.window.registerFileDecorationProvider(new LlmaticStatusDecorationProvider()),
   );
 
   const chatProvider = new AgentChatViewProvider();
