@@ -155,6 +155,24 @@ function assertPermission(
   }
 }
 
+async function assertPullRequestHeadStable(
+  root: string,
+  ref: string | number,
+  expectedHeadOid: string,
+  runner: GitHubProcessRunner,
+): Promise<void> {
+  const current = await getPullRequestSummary(root, ref, runner);
+  if (current.headRefOid !== expectedHeadOid) {
+    throw new Error(
+      "Pull-request head changed during review. Expected " +
+        expectedHeadOid +
+        " but found " +
+        current.headRefOid +
+        ". Refresh the review before continuing.",
+    );
+  }
+}
+
 function normalizeRef(ref?: string | number): string | undefined {
   if (ref === undefined) return undefined;
   const value = String(ref).trim();
@@ -464,6 +482,7 @@ export async function getPullRequestReviewMetadata(
   );
   const changedFiles = readPullRequestChangedFiles(root, status.pullRequest, runner);
   const reviewThreads = readPullRequestReviewThreads(root, status.pullRequest, runner);
+  await assertPullRequestHeadStable(root, ref, status.pullRequest.headRefOid, runner);
 
   return {
     status,
@@ -557,6 +576,12 @@ export async function getPullRequestReviewContext(
   const diffArgs = [...prArgs("diff", target), "--color", "never"];
   const rawDiff = requireSuccess(run(root, diffArgs, runner), diffArgs).stdout;
   const diffTruncated = rawDiff.length > MAX_PULL_REQUEST_REVIEW_DIFF_CHARS;
+  await assertPullRequestHeadStable(
+    root,
+    ref,
+    metadata.status.pullRequest.headRefOid,
+    runner,
+  );
 
   return {
     ...metadata,
@@ -662,8 +687,18 @@ export async function publishPullRequestReview(
     throw new Error("Pull-request review reference is required.");
   }
 
+  const runner = runnerFor(options);
+  if (input.expectedHeadOid?.trim()) {
+    await assertPullRequestHeadStable(
+      root,
+      target,
+      input.expectedHeadOid.trim(),
+      runner,
+    );
+  }
+
   const args = ["pr", "review", target, "--comment", "--body", body];
-  requireSuccess(run(root, args, runnerFor(options)), args);
+  requireSuccess(run(root, args, runner), args);
 }
 
 export async function createPullRequest(
