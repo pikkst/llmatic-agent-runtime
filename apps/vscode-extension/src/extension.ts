@@ -2393,10 +2393,7 @@ function reviewActivityDescription(event: ReviewActivityEvent): {
     case "lens-complete":
       return {
         phase: event.lens.replaceAll("_", " ") + " complete",
-        detail:
-          event.findingCount +
-          " finding(s) · " +
-          formatElapsedDuration(event.durationMs),
+        detail: event.findingCount + " finding(s) · " + formatElapsedDuration(event.durationMs),
       };
     case "architecture-start":
       return {
@@ -2552,8 +2549,7 @@ async function reviewExternalPullRequestInUi(
     type: "session",
     phase: "Review started",
     detail:
-      "Manual external PR review · telemetry " +
-      (reviewActivityLoggingEnabled() ? "ON" : "OFF"),
+      "Manual external PR review · telemetry " + (reviewActivityLoggingEnabled() ? "ON" : "OFF"),
   });
 
   if (reviewActivityLoggingEnabled()) {
@@ -4744,13 +4740,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       async (options?: { probe?: boolean }) => {
         if (options?.probe) return true;
         try {
-          await reviewExternalPullRequestInUi(
-            context,
-            state,
-            statusProvider,
-            output,
-            reviewLog,
-          );
+          await reviewExternalPullRequestInUi(context, state, statusProvider, output, reviewLog);
         } catch (error) {
           const message = error instanceof Error ? error.message : String(error);
           await vscode.window.showErrorMessage("LLMatic external PR review: " + message);
@@ -4777,9 +4767,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         "LLMatic review activity logging " +
           (next ? "enabled" : "disabled") +
           "." +
-          (next
-            ? " Sanitized telemetry is written to " + reviewTelemetryPath(context) + "."
-            : ""),
+          (next ? " Sanitized telemetry is written to " + reviewTelemetryPath(context) + "." : ""),
       );
       return next;
     }),

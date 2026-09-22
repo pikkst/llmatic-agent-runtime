@@ -190,9 +190,7 @@ export class LlmaticStatusProvider implements vscode.TreeDataProvider<vscode.Tre
     this.changed.fire(undefined);
   }
 
-  public beginExternalReview(
-    reference: string,
-  ): {
+  public beginExternalReview(reference: string): {
     update: (phase: string, detail?: string) => void;
     complete: (durationMs: number) => void;
     fail: (message: string, durationMs: number) => void;
