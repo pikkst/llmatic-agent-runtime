@@ -1245,7 +1245,14 @@ export async function runExternalPullRequestReview(
     );
   }
 
-  const findings = deduplicateFindings(lensResults.flatMap(({ result }) => result.findings));
+  const acceptanceEvidence = pullRequestAcceptanceEvidence(options.material.body);
+  const findings = deduplicateFindings(
+    strictExternalFindings(
+      lensResults.flatMap(({ result }) => result.findings),
+      options.material,
+      acceptanceEvidence,
+    ),
+  );
   const codeBlockingCount = findings.filter((finding) => finding.severity === "blocking").length;
   options.onActivity?.({ type: "architecture-start" });
   const architectureStartedAt = Date.now();
@@ -1257,9 +1264,16 @@ export async function runExternalPullRequestReview(
   });
   const blockingCount = codeBlockingCount + architectureImpact.unresolvedCount;
   const impactSummary = architectureImpactSummary(architectureImpact);
-  const reviewSummary = lensResults
-    .map(({ lens, result }) => lens + ": " + result.summary)
-    .join(" ");
+  const dodFindingCount = findings.filter((finding) => finding.basis === "dod").length;
+  const defectFindingCount = findings.filter(
+    (finding) => finding.basis === "defect" || finding.basis === "repository_rule",
+  ).length;
+  const reviewSummary =
+    "Focused review: " +
+    dodFindingCount +
+    " documented DoD/acceptance violation(s), " +
+    defectFindingCount +
+    " concrete defect/rule violation(s).";
   const failedLensSummary =
     lensFailures.length > 0
       ? " Incomplete lenses: " +
