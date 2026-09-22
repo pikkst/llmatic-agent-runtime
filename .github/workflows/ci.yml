@@ -30,18 +30,13 @@ jobs:
       - name: Install dependencies
         run: pnpm install --no-frozen-lockfile
 
-      - name: Canonical format OAuth broker hardening
-        run: >
-          pnpm exec prettier --write
-          apps/vscode-extension/src/extension.ts
-          deploy/oauth-broker/README.md
-          deploy/oauth-broker/worker.test.mjs
-          scripts/oauth-broker-smoke.mjs
+      - name: Canonical format M26 release acceptance
+        run: pnpm exec prettier --write scripts/release-acceptance.mjs
 
-      - name: Commit canonical OAuth broker hardening
+      - name: Commit canonical M26 release acceptance
         shell: bash
         run: |
-          if git diff --quiet
+          if git diff --quiet -- scripts/release-acceptance.mjs
           then
             echo "No canonical formatting changes to commit."
             exit 0
@@ -49,8 +44,8 @@ jobs:
 
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add             apps/vscode-extension/src/extension.ts             deploy/oauth-broker/README.md             deploy/oauth-broker/worker.test.mjs             scripts/oauth-broker-smoke.mjs
-          git commit -m "style: format OAuth broker hardening"
+          git add scripts/release-acceptance.mjs
+          git commit -m "style: format M26 release acceptance"
           git push origin HEAD:"${{ github.head_ref || github.ref_name }}"
 
       - name: Validate
