@@ -2349,11 +2349,7 @@ async function reviewExternalPullRequestInUi(
         gateway,
         readFile: (path, options) => {
           const key =
-            path +
-            ":" +
-            String(options.startLine ?? "") +
-            ":" +
-            String(options.endLine ?? "");
+            path + ":" + String(options.startLine ?? "") + ":" + String(options.endLine ?? "");
           const cached = fileCache.get(key);
           if (cached) return cached;
 

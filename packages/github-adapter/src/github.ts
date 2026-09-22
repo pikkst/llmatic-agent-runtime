@@ -513,7 +513,9 @@ export function readPullRequestFileAtHead(
   );
 
   if (raw.type !== "file" || raw.encoding !== "base64" || typeof raw.content !== "string") {
-    throw new Error("Target pull-request path is not a readable text file: " + normalizedPath + ".");
+    throw new Error(
+      "Target pull-request path is not a readable text file: " + normalizedPath + ".",
+    );
   }
 
   const decoded = Buffer.from(raw.content.replace(/\s+/g, ""), "base64").toString("utf8");

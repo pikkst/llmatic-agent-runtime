@@ -393,10 +393,7 @@ describe("github adapter", () => {
       content: "line two\nline three",
       truncated: false,
     });
-    expect(calls).toContainEqual([
-      "api",
-      "repos/example/repo/contents/src/value.ts?ref=abc123",
-    ]);
+    expect(calls).toContainEqual(["api", "repos/example/repo/contents/src/value.ts?ref=abc123"]);
   });
 
   it("rejects external PR review when the target belongs to another repository", async () => {
