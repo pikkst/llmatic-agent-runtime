@@ -80,7 +80,7 @@ interface StoredRuleProposalFile {
 const MAX_POLICY_FILE_BYTES = 256 * 1024;
 const MAX_POLICY_FILES = 160;
 
-const EXPLICIT_POLICY_NAMES = new Set([
+const AUTHORITATIVE_POLICY_NAMES = new Set([
   "agents.md",
   "agent.md",
   "contributing.md",
@@ -89,10 +89,15 @@ const EXPLICIT_POLICY_NAMES = new Set([
   "code_review.md",
   "code-review.md",
   "review.md",
-  "readme.md",
   "claude.md",
   "copilot.md",
 ]);
+
+const POLICY_LIKE_PATH =
+  /(?:^|\/)(?:policy|policies|rules?|guidelines?|standards?|guardrails?|review|security|development|contributing|definition[-_ ]?of[-_ ]?done|dod)(?:[._/-]|$)/i;
+
+const POLICY_HEADING =
+  /\b(rule|rules|policy|policies|guideline|guidelines|standard|standards|requirement|requirements|definition of done|dod|guardrail|guardrails|review policy|security|constraints?)\b/i;
 
 const BLOCKING_TERMS =
   /\b(must|required|shall|do not|don't|never|always|only|cannot|can't|prohibited|forbidden)\b/i;
@@ -203,9 +208,12 @@ function isPolicyCandidate(file: RepositoryFileEntry): boolean {
   const name = basename(lower);
 
   if (file.size > MAX_POLICY_FILE_BYTES) return false;
-  if (EXPLICIT_POLICY_NAMES.has(name)) return true;
-  if (lower.startsWith("docs/") && /\.(?:md|mdx|txt)$/i.test(lower)) return true;
-  if (lower.startsWith(".github/") && /\.(?:md|yml|yaml)$/i.test(lower)) return true;
+  if (!/\.(?:md|mdx|txt)$/i.test(lower)) return false;
+  if (AUTHORITATIVE_POLICY_NAMES.has(name)) return true;
+  if (lower === "readme.md") return true;
+  if ((lower.startsWith("docs/") || lower.startsWith(".github/")) && POLICY_LIKE_PATH.test(lower)) {
+    return true;
+  }
   return false;
 }
 
@@ -223,10 +231,16 @@ function sourcePriority(path: string): number {
   return 40;
 }
 
+function isAuthoritativePolicyFile(path: string): boolean {
+  return AUTHORITATIVE_POLICY_NAMES.has(basename(path.toLowerCase()));
+}
+
 function extractRulesFromText(path: string, raw: string): ConstitutionEntry[] {
   const rules: ConstitutionEntry[] = [];
   const lines = raw.split(/\r?\n/);
+  const authoritative = isAuthoritativePolicyFile(path);
   let fenced = false;
+  let policySectionDepth: number | undefined;
 
   for (let index = 0; index < lines.length; index += 1) {
     const rawLine = lines[index] ?? "";
@@ -236,9 +250,23 @@ function extractRulesFromText(path: string, raw: string): ConstitutionEntry[] {
     }
     if (fenced) continue;
 
+    const heading = /^(#{1,6})\s+(.+?)\s*$/.exec(rawLine.trim());
+    if (heading) {
+      const depth = heading[1]?.length ?? 0;
+      const title = heading[2]?.trim() ?? "";
+
+      if (POLICY_HEADING.test(title)) {
+        policySectionDepth = depth;
+      } else if (policySectionDepth !== undefined && depth <= policySectionDepth) {
+        policySectionDepth = undefined;
+      }
+      continue;
+    }
+
+    if (!authoritative && policySectionDepth === undefined) continue;
+
     const text = normalizedLine(rawLine);
     if (text.length < 18 || text.length > 600) continue;
-    if (/^#{1,6}\s/.test(rawLine.trim())) continue;
     if (/^https?:\/\//i.test(text)) continue;
 
     const blocking = BLOCKING_TERMS.test(text);
