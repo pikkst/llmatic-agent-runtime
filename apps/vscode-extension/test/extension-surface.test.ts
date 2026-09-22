@@ -145,6 +145,12 @@ describe("VS Code extension activation surface", () => {
     expect(packageJson.contributes.configuration.properties).toHaveProperty(
       "llmatic.reviewActivityLogging",
     );
+    expect(packageJson.contributes.configuration.properties).toHaveProperty(
+      "llmatic.reviewMaxSteps",
+    );
+    expect(packageJson.contributes.configuration.properties).toHaveProperty(
+      "llmatic.reviewRequestTimeoutMs",
+    );
 
     const connectionSource = await readFile(
       new URL("../../../packages/external-connections/src/index.ts", import.meta.url),
