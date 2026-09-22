@@ -194,6 +194,11 @@
         "category": "LLMatic"
       },
       {
+        "command": "llmatic.configureAutoReview",
+        "title": "Configure Auto Review Agent",
+        "category": "LLMatic"
+      },
+      {
         "command": "llmatic.connectJiraWorkspace",
         "title": "Connect Jira Workspace",
         "category": "LLMatic"
