@@ -180,17 +180,13 @@ describe("VS Code extension activation surface", () => {
     expect(clientSource).toContain("Agent Chat client failed to start");
   });
   it("packages one fresh VSIX candidate under generic and versioned names", async () => {
-    const source = await readFile(
-      new URL("../scripts/package-vsix.mjs", import.meta.url),
-      "utf8",
-    );
+    const source = await readFile(new URL("../scripts/package-vsix.mjs", import.meta.url), "utf8");
 
-    expect(source).toContain('rm(output, { force: true })');
-    expect(source).toContain('rm(versionedOutput, { force: true })');
+    expect(source).toContain("rm(output, { force: true })");
+    expect(source).toContain("rm(versionedOutput, { force: true })");
     expect(source).toContain("copyFile(output, versionedOutput)");
     expect(source).toContain("VSIX CANDIDATE PACKAGED");
     expect(source).toContain("VSIX SHA-256");
     expect(source).toContain('spawnSync("git", ["rev-parse", "HEAD"]');
   });
-
 });

@@ -6,23 +6,15 @@ import { spawnSync } from "node:child_process";
 const extensionRoot = resolve(import.meta.dirname, "..");
 const repositoryRoot = resolve(extensionRoot, "..", "..");
 const artifactsRoot = resolve(repositoryRoot, "artifacts");
-const packageJson = JSON.parse(
-  await readFile(resolve(extensionRoot, "package.json"), "utf8"),
-);
+const packageJson = JSON.parse(await readFile(resolve(extensionRoot, "package.json"), "utf8"));
 const version = String(packageJson.version);
 const output = resolve(artifactsRoot, "llmatic-agent-runtime.vsix");
-const versionedOutput = resolve(
-  artifactsRoot,
-  "llmatic-agent-runtime-" + version + ".vsix",
-);
+const versionedOutput = resolve(artifactsRoot, "llmatic-agent-runtime-" + version + ".vsix");
 
 await mkdir(dirname(output), { recursive: true });
 
 // Never leave an older candidate under either canonical install name.
-await Promise.all([
-  rm(output, { force: true }),
-  rm(versionedOutput, { force: true }),
-]);
+await Promise.all([rm(output, { force: true }), rm(versionedOutput, { force: true })]);
 
 const result = spawnSync(
   "pnpm",
@@ -49,9 +41,7 @@ const commitResult = spawnSync("git", ["rev-parse", "HEAD"], {
   shell: false,
 });
 const commit =
-  !commitResult.error && commitResult.status === 0
-    ? String(commitResult.stdout).trim()
-    : "unknown";
+  !commitResult.error && commitResult.status === 0 ? String(commitResult.stdout).trim() : "unknown";
 
 console.log("");
 console.log("========================================");
