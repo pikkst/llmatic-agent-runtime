@@ -11,6 +11,7 @@ import type {
   MergePullRequestResult,
   PullRequestCheck,
   PullRequestCommentSnapshot,
+  PublishPullRequestReviewInput,
   PullRequestReviewContext,
   PullRequestReviewSnapshot,
   PullRequestReviewThreadSnapshot,
@@ -479,6 +480,33 @@ export async function getFailedPullRequestDiagnostics(
   }
 
   return { status, failed };
+}
+
+export async function publishPullRequestReview(
+  root: string,
+  config: AgentConfig,
+  ref: string | number,
+  input: PublishPullRequestReviewInput,
+  options: GitHubMutationOptions = {},
+): Promise<void> {
+  const body = input.body.trim();
+  if (!body) {
+    throw new Error("Pull-request review body is required.");
+  }
+
+  assertPermission(
+    config.permissions.pullRequestReview,
+    "Pull-request review publication",
+    options.approved === true,
+  );
+
+  const target = normalizeRef(ref);
+  if (!target) {
+    throw new Error("Pull-request review reference is required.");
+  }
+
+  const args = ["pr", "review", target, "--comment", "--body", body];
+  requireSuccess(run(root, args, runnerFor(options)), args);
 }
 
 export async function createPullRequest(
