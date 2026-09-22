@@ -161,7 +161,7 @@ describe("jira adapter", () => {
 
     expect(tasks.map((task) => task.key)).toEqual(["KT-201", "KT-202"]);
     expect(requests[0]?.method).toBe("POST");
-    expect(requests[0]?.url).toEndWith("/rest/api/3/search/jql");
+    expect(requests[0]?.url.endsWith("/rest/api/3/search/jql")).toBe(true);
     expect(JSON.parse(requests[0]?.body ?? "{}")).toMatchObject({
       maxResults: 50,
       jql: expect.stringContaining('project = "KT"'),
