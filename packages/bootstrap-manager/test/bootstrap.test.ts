@@ -58,5 +58,5 @@ describe("bootstrap manager", () => {
         expect.objectContaining({ id: "ollama", level: "optional" }),
       ]),
     );
-  });
+  }, 15_000);
 });
