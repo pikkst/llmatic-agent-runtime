@@ -9,6 +9,7 @@ import type {
   MergeMethod,
   MergePullRequestOptions,
   MergePullRequestResult,
+  OpenPullRequestSummary,
   PullRequestChangedFile,
   PullRequestCheck,
   PullRequestFileReadOptions,
@@ -37,6 +38,7 @@ const PR_VIEW_FIELDS = [
   "baseRefName",
 ].join(",");
 
+const PR_LIST_FIELDS = [PR_VIEW_FIELDS, "title", "author"].join(",");
 const PR_CHECK_FIELDS = ["name", "state", "bucket", "workflow", "link"].join(",");
 const PR_REVIEW_FIELDS = [
   "number",
@@ -243,6 +245,39 @@ export async function getPullRequestSummary(
   return normalizePullRequest(parseJson<Record<string, unknown>>(result, args));
 }
 
+export function getGitHubRepositoryName(
+  root: string,
+  runner: GitHubProcessRunner = defaultRunner,
+): string {
+  const args = ["repo", "view", "--json", "nameWithOwner"];
+  const repository = parseJson<{ nameWithOwner?: string }>(
+    requireSuccess(run(root, args, runner), args),
+    args,
+  );
+  const nameWithOwner = String(repository.nameWithOwner ?? "").trim();
+  if (!nameWithOwner || !nameWithOwner.includes("/")) {
+    throw new Error("GitHub repository owner/name could not be resolved.");
+  }
+  return nameWithOwner;
+}
+
+export function listOpenPullRequests(
+  root: string,
+  runner: GitHubProcessRunner = defaultRunner,
+): OpenPullRequestSummary[] {
+  const args = ["pr", "list", "--state", "open", "--limit", "100", "--json", PR_LIST_FIELDS];
+  const raw = parseJson<Record<string, unknown>[]>(
+    requireSuccess(run(root, args, runner), args),
+    args,
+  );
+
+  return raw.map((item) => ({
+    ...normalizePullRequest(item),
+    title: typeof item.title === "string" ? item.title : "",
+    authorLogin: actorLogin(item.author),
+  }));
+}
+
 export async function getPullRequestStatus(
   root: string,
   ref?: string | number,
@@ -376,12 +411,7 @@ function assertPullRequestMatchesWorkspaceRepository(
   runner: GitHubProcessRunner,
 ): void {
   const target = pullRequestCoordinates(pullRequest);
-  const args = ["repo", "view", "--json", "nameWithOwner"];
-  const repository = parseJson<{ nameWithOwner?: string }>(
-    requireSuccess(run(root, args, runner), args),
-    args,
-  );
-  const workspaceNameWithOwner = String(repository.nameWithOwner ?? "").trim();
+  const workspaceNameWithOwner = getGitHubRepositoryName(root, runner);
   const targetNameWithOwner = target.owner + "/" + target.name;
 
   if (
