@@ -129,6 +129,9 @@ importers:
       '@llmatic/gateway-client':
         specifier: workspace:*
         version: link:../../packages/gateway-client
+      '@llmatic/github-adapter':
+        specifier: workspace:*
+        version: link:../../packages/github-adapter
       '@llmatic/jira-adapter':
         specifier: workspace:*
         version: link:../../packages/jira-adapter
