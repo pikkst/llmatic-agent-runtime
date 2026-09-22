@@ -161,12 +161,22 @@ try {
       '    "llmatic.getReady",',
       '    "llmatic.repairRuntime",',
       '    "llmatic.reviewFixLoop",',
+      '    "llmatic.openAgentChat",',
+      '    "llmatic.agentChatProbe",',
       '    "llmatic.checkForUpdates",',
       '    "llmatic.installUpdate",',
       "  ];",
       "  for (const command of requiredCommands) {",
       '    assert.ok(commands.has(command), "missing installed command " + command);',
       "  }",
+      "",
+      '  await vscode.commands.executeCommand("llmatic.openAgentChat");',
+      '  const agentChatReady = await vscode.commands.executeCommand("llmatic.agentChatProbe");',
+      "  assert.equal(",
+      "    agentChatReady,",
+      "    true,",
+      '    "installed Agent Chat webview client did not execute its ready handshake",',
+      "  );",
       "",
       "  const folder = vscode.workspace.workspaceFolders?.[0];",
       '  assert.ok(folder, "acceptance workspace did not open");',
@@ -264,6 +274,7 @@ try {
   console.log("Install source: isolated VSIX extensions directory");
   console.log("Activation: verified");
   console.log("Critical commands: verified");
+  console.log("Agent Chat webview bootstrap: verified");
   console.log("Zero-repo footprint: verified");
   console.log("========================================");
 } finally {
