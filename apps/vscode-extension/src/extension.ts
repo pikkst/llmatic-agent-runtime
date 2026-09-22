@@ -352,8 +352,7 @@ async function refreshJiraStatus(
     const profile = workspaceJiraProfile(context);
     statusProvider.setJiraStatus({
       connected: false,
-      required:
-        Boolean(profile) || configuration().get<string>("taskSource", "auto") === "jira",
+      required: Boolean(profile) || configuration().get<string>("taskSource", "auto") === "jira",
       label: profile?.projectKey,
       detail: profile?.siteUrl
         ? new URL(profile.siteUrl).host

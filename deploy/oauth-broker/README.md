@@ -32,7 +32,6 @@ After deployment, configure the extension setting `llmatic.connectionBrokerUrl` 
 
 Manual Jira authentication remains available as an explicit fallback for development and legacy environments.
 
-
 ## Readiness contract
 
 The broker exposes:

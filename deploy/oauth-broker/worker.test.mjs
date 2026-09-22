@@ -21,18 +21,14 @@ function completeEnv() {
   return {
     ATLASSIAN_CLIENT_ID: "client-id",
     ATLASSIAN_CLIENT_SECRET: "client-secret",
-    ATLASSIAN_REDIRECT_URI:
-      "https://oauth.example/v1/connections/callback/atlassian",
+    ATLASSIAN_REDIRECT_URI: "https://oauth.example/v1/connections/callback/atlassian",
     CONNECTION_SESSIONS: memoryKv(),
   };
 }
 
 describe("LLMatic OAuth broker", () => {
   it("reports missing provider configuration without exposing secrets", async () => {
-    const response = await worker.fetch(
-      new Request("https://oauth.example/health"),
-      {},
-    );
+    const response = await worker.fetch(new Request("https://oauth.example/health"), {});
     const body = await response.json();
 
     expect(response.status).toBe(200);
@@ -57,10 +53,7 @@ describe("LLMatic OAuth broker", () => {
   });
 
   it("reports ready when Atlassian and session storage are configured", async () => {
-    const response = await worker.fetch(
-      new Request("https://oauth.example/health"),
-      completeEnv(),
-    );
+    const response = await worker.fetch(new Request("https://oauth.example/health"), completeEnv());
 
     await expect(response.json()).resolves.toMatchObject({
       ok: true,

@@ -41,11 +41,7 @@ try {
 }
 
 const atlassian = health?.providers?.atlassian;
-if (
-  health?.ok !== true ||
-  health?.ready !== true ||
-  atlassian?.ready !== true
-) {
+if (health?.ok !== true || health?.ready !== true || atlassian?.ready !== true) {
   console.error("FAIL: broker is reachable but not ready.");
   console.error(JSON.stringify(health, null, 2));
   process.exit(1);
