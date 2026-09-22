@@ -11,6 +11,13 @@
 - Added configurable canonical task source plus optional Jira project/JQL recovery scope.
 - Added ad-hoc Review / Fix Loop support for existing repositories without an active CODE_REVIEW workflow.
 - Run Gateway Agent now opens Agent Chat rather than a one-shot modal prompt.
+- Added a provenance-based Repository Constitution that learns explicit project rules from repository docs/tooling while keeping inferred conventions advisory.
+- Added human-reviewed rule proposals; repeated review findings require three separate occurrences before LLMatic proposes a durable rule, and proposals never self-activate.
+- Added General, Bug Hunter and Security review lenses with rule-ID/source attribution for concrete policy violations.
+- Persist the latest structured review and show findings in Agent Chat.
+- Added read-only open-PR/CI diagnostics including bounded failed GitHub Actions logs.
+- Added provider-neutral task workflow start and safe local workflow advancement tools for Agent Chat.
+- Added evidence-backed PR draft generation covering task/DoD, validation, review, security, architecture and repository rules without fabricating missing evidence.
 
 ## 0.1.2
 
