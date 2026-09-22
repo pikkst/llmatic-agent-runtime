@@ -1,19 +1,29 @@
 import { describe, expect, it } from "vitest";
 import worker from "./worker.mjs";
 
+function memoryKv() {
+  const values = new Map();
+  return {
+    values,
+    async get(key) {
+      return values.get(key) ?? null;
+    },
+    async put(key, value) {
+      values.set(key, value);
+    },
+    async delete(key) {
+      values.delete(key);
+    },
+  };
+}
+
 function completeEnv() {
   return {
     ATLASSIAN_CLIENT_ID: "client-id",
     ATLASSIAN_CLIENT_SECRET: "client-secret",
     ATLASSIAN_REDIRECT_URI:
       "https://oauth.example/v1/connections/callback/atlassian",
-    CONNECTION_SESSIONS: {
-      async get() {
-        return null;
-      },
-      async put() {},
-      async delete() {},
-    },
+    CONNECTION_SESSIONS: memoryKv(),
   };
 }
 
@@ -78,5 +88,42 @@ describe("LLMatic OAuth broker", () => {
     await expect(response.json()).resolves.toMatchObject({
       error: "Atlassian OAuth provider is not configured.",
     });
+  });
+
+  it("stores only a hash of the poll credential and rejects the wrong credential", async () => {
+    const env = completeEnv();
+    const startResponse = await worker.fetch(
+      new Request("https://oauth.example/v1/connections/start", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ provider: "atlassian", returnLabel: "Krunditark" }),
+      }),
+      env,
+    );
+    const started = await startResponse.json();
+
+    expect(startResponse.status).toBe(200);
+    expect(started.authorizeUrl).toContain("https://auth.atlassian.com/authorize");
+    expect(started.authorizeUrl).toContain("client_id=client-id");
+    expect(started.pollToken).toBeTruthy();
+
+    const stored = Array.from(env.CONNECTION_SESSIONS.values.entries()).find(([key]) =>
+      key.startsWith("session:"),
+    );
+    expect(stored).toBeTruthy();
+    expect(stored[1]).not.toContain(started.pollToken);
+    expect(JSON.parse(stored[1]).pollTokenHash).toMatch(/^[a-f0-9]{64}$/);
+
+    const denied = await worker.fetch(
+      new Request(
+        "https://oauth.example/v1/connections/status?session=" +
+          encodeURIComponent(started.sessionId),
+        {
+          headers: { Authorization: "Bearer wrong-token" },
+        },
+      ),
+      env,
+    );
+    expect(denied.status).toBe(403);
   });
 });
