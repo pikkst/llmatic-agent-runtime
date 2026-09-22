@@ -32,7 +32,11 @@ import {
   type BrokerCredential,
   type BrokerResource,
 } from "@llmatic/external-connections";
-import { KiloGatewayClient } from "@llmatic/gateway-client";
+import {
+  AdaptiveFreeGatewayClient,
+  KiloGatewayClient,
+  type AdaptiveGatewayRouteEvent,
+} from "@llmatic/gateway-client";
 import {
   getGitHubRepositoryName,
   getPullRequestReviewContext,
@@ -2317,6 +2321,49 @@ async function runGatewayReview(
   return report;
 }
 
+function adaptiveRouteDescription(event: AdaptiveGatewayRouteEvent): string {
+  switch (event.type) {
+    case "catalog":
+      return (
+        "Live free-model catalog: " +
+        event.freeModelCount +
+        " candidate(s) · " +
+        formatElapsedDuration(event.durationMs)
+      );
+    case "attempt":
+      return (
+        event.task +
+        " → " +
+        event.candidateModel +
+        " · candidate " +
+        event.attempt +
+        "/" +
+        event.maxAttempts
+      );
+    case "success":
+      return (
+        event.task +
+        " → " +
+        event.candidateModel +
+        " · success in " +
+        formatElapsedDuration(event.latencyMs) +
+        (event.responseModel !== event.candidateModel
+          ? " · response model " + event.responseModel
+          : "")
+      );
+    case "failure":
+      return (
+        event.task +
+        " → " +
+        event.candidateModel +
+        " · failed in " +
+        formatElapsedDuration(event.latencyMs) +
+        " · " +
+        event.reason
+      );
+  }
+}
+
 function formatElapsedDuration(durationMs: number): string {
   const totalSeconds = Math.max(0, Math.floor(durationMs / 1000));
   const hours = Math.floor(totalSeconds / 3600);
@@ -2673,25 +2720,19 @@ async function reviewExternalPullRequestInUi(
     const config = await loadAgentConfig(root, {
       LLMATIC_HOME: context.globalStorageUri.fsPath,
     });
-    const gateway = new KiloGatewayClient({
+    const gateway = new AdaptiveFreeGatewayClient({
       apiKey: gatewayAccess.apiKey,
       maxRetries: 0,
+      maxModelAttempts: configuration().get<number>("reviewFreeModelFallbacks", 4),
       requestTimeoutMs: configuration().get<number>("reviewRequestTimeoutMs", 90_000),
-      onRetry: (event) => {
-        const retryDetail =
-          "Gateway retry " +
-          event.nextAttempt +
-          "/" +
-          event.maxAttempts +
-          " after " +
-          event.delayMs +
-          "ms: " +
-          event.reason;
-        output.appendLine("[RETRY] " + retryDetail);
+      onRoute: (event) => {
+        const detail = adaptiveRouteDescription(event);
+        output.appendLine("[MODEL ROUTER] " + detail);
+        reviewStatus.update("Model router", detail);
         appendReviewActivity(context, reviewLog, sessionId, normalizedReference, startedAt, {
           type: "session",
-          phase: "Gateway retry",
-          detail: retryDetail,
+          phase: "Model router",
+          detail,
         });
       },
     });
@@ -2950,17 +2991,13 @@ async function runAutomaticExternalPullRequestReview(
     const config = await loadAgentConfig(root, {
       LLMATIC_HOME: context.globalStorageUri.fsPath,
     });
-    const gateway = new KiloGatewayClient({
+    const gateway = new AdaptiveFreeGatewayClient({
       apiKey: gatewayAccess.apiKey,
-      onRetry: (event) => {
-        output.appendLine(
-          "[AUTO REVIEW][RETRY] Kilo Gateway " +
-            event.nextAttempt +
-            "/" +
-            event.maxAttempts +
-            ": " +
-            event.reason,
-        );
+      maxRetries: 0,
+      maxModelAttempts: configuration().get<number>("reviewFreeModelFallbacks", 4),
+      requestTimeoutMs: configuration().get<number>("reviewRequestTimeoutMs", 90_000),
+      onRoute: (event) => {
+        output.appendLine("[AUTO REVIEW][MODEL] " + adaptiveRouteDescription(event));
       },
     });
 
@@ -2986,7 +3023,7 @@ async function runAutomaticExternalPullRequestReview(
         return value;
       },
       model,
-      maxSteps: configuration().get<number>("agentMaxSteps", 20),
+      maxSteps: configuration().get<number>("reviewMaxSteps", 3),
       lenses: ["general", "bug_hunter", "security"],
       material: {
         reference: String(reviewContext.status.pullRequest.number),
