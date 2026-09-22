@@ -142,6 +142,7 @@ describe("review engine", () => {
             {
               severity: "blocking",
               category: "correctness",
+              basis: "defect",
               title: "Unexpected exported value",
               path: "src/value.ts",
               line: 1,
@@ -510,6 +511,7 @@ describe("review engine", () => {
         {
           severity: "blocking",
           category: "tests",
+              basis: "defect",
           title: "Missing regression coverage",
           path: "src/value.ts",
           line: 1,
@@ -553,6 +555,7 @@ describe("review engine", () => {
             {
               severity: "blocking",
               category: "correctness",
+              basis: "defect",
               title: "Incorrect value",
               path: "src/value.ts",
               line: 1,
