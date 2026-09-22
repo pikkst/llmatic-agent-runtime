@@ -113,6 +113,20 @@ auto | jira | markdown | github
 
 For Jira, optional `llmatic.jiraProjectKey` and `llmatic.jiraRecoveryJql` settings scope the recovery queue. Live Jira task candidates are exposed to Agent Chat so the Kilo model can help sequence work without guessing task state.
 
+LLMatic also builds a **Repository Constitution** from repository documentation and tooling evidence. Explicit rules preserve source provenance; inferred conventions stay advisory. Repeated review patterns may be proposed as new rules, but only a human can approve them.
+
+Code review runs General, Bug Hunter and Security lenses in VS Code and keeps the latest findings visible in Agent Chat.
+
+Useful actions:
+
+```text
+LLMatic: Show Repository Rules
+LLMatic: Review Repository Rule Proposals
+LLMatic: Generate PR Draft
+```
+
+The PR draft uses captured engineering evidence and marks missing evidence instead of fabricating claims.
+
 ## Kilo Code
 
 Kilo Code is the default coding-agent integration.
@@ -157,6 +171,9 @@ LLMatic: Review Project Plan
 LLMatic: Review & Approve Project Plan
 LLMatic: Open Agent Chat
 LLMatic: Refresh Repository Context
+LLMatic: Show Repository Rules
+LLMatic: Review Repository Rule Proposals
+LLMatic: Generate PR Draft
 LLMatic: Run Code Review
 LLMatic: Run Review / Fix Loop
 LLMatic: Check for Updates
