@@ -152,6 +152,119 @@ describe("AdaptiveFreeGatewayClient", () => {
     expect(requestedModels[0]).toBe("provider/b:free");
   });
 
+  it("cools down a semantically invalid model for subsequent review requests", async () => {
+    const requestedModels: string[] = [];
+
+    const client = new AdaptiveFreeGatewayClient({
+      maxRetries: 0,
+      maxModelAttempts: 3,
+      modelCooldownMs: 60_000,
+      fetch: async (input, init) => {
+        if (String(input).endsWith("/models")) {
+          return new Response(
+            JSON.stringify({
+              data: [
+                {
+                  id: "dots/model:free",
+                  owned_by: "dots",
+                  context_length: 200000,
+                },
+                {
+                  id: "other/model:free",
+                  owned_by: "other",
+                  context_length: 100000,
+                },
+              ],
+            }),
+            { status: 200, headers: { "Content-Type": "application/json" } },
+          );
+        }
+
+        const body = JSON.parse(String(init?.body ?? "{}")) as { model?: string };
+        requestedModels.push(String(body.model));
+        return completion(String(body.model));
+      },
+    });
+
+    await client.reportModelFailure({
+      model: "dots/model:free",
+      task: "review_general",
+      reason: "empty structured review content",
+    });
+
+    await client.createChatCompletion({
+      model: "kilo-auto/free",
+      messages: [{ role: "user", content: "review" }],
+      routing: { task: "review_general" },
+    });
+
+    expect(requestedModels[0]).toBe("other/model:free");
+  });
+
+  it("uses a 24-hour cooldown for provider daily-limit failures", async () => {
+    const requestedModels: string[] = [];
+
+    const client = new AdaptiveFreeGatewayClient({
+      maxRetries: 0,
+      maxModelAttempts: 3,
+      fetch: async (input, init) => {
+        if (String(input).endsWith("/models")) {
+          return new Response(
+            JSON.stringify({
+              data: [
+                {
+                  id: "daily/model:free",
+                  owned_by: "daily",
+                  context_length: 200000,
+                },
+                {
+                  id: "fallback/model:free",
+                  owned_by: "fallback",
+                  context_length: 100000,
+                },
+              ],
+            }),
+            { status: 200, headers: { "Content-Type": "application/json" } },
+          );
+        }
+
+        const body = JSON.parse(String(init?.body ?? "{}")) as { model?: string };
+        requestedModels.push(String(body.model));
+        if (body.model === "daily/model:free") {
+          return new Response(
+            JSON.stringify({
+              error: {
+                message:
+                  "Rate limit exceeded: limit_rpd/daily-model. Daily limit reached for daily/model:free.",
+              },
+            }),
+            {
+              status: 429,
+              statusText: "Too Many Requests",
+              headers: { "Content-Type": "application/json" },
+            },
+          );
+        }
+        return completion(String(body.model));
+      },
+    });
+
+    await client.createChatCompletion({
+      model: "kilo-auto/free",
+      messages: [{ role: "user", content: "first" }],
+      routing: { task: "review_general" },
+    });
+
+    requestedModels.length = 0;
+    await client.createChatCompletion({
+      model: "kilo-auto/free",
+      messages: [{ role: "user", content: "second" }],
+      routing: { task: "review_general" },
+    });
+
+    expect(requestedModels).not.toContain("daily/model:free");
+  });
+
   it("falls back to configured Auto Free when live catalog discovery fails", async () => {
     const requestedModels: string[] = [];
 
