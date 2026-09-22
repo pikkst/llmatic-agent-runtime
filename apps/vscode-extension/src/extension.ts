@@ -3276,7 +3276,11 @@ async function runAutoReviewScan(
             report.blockingCount +
             " blocking / " +
             report.nonBlockingCount +
-            " non-blocking finding(s).",
+            " non-blocking finding(s)" +
+            (report.reviewStatus === "partial"
+              ? " · incomplete; retry scheduled after cooldown"
+              : "") +
+            ".",
           "Open Review Output",
         );
         if (action === "Open Review Output") output.show(true);
@@ -3369,6 +3373,7 @@ async function configureAutoReviewInUi(
       ...current,
       repository,
       seenFingerprints,
+      retry: {},
       lastError: undefined,
     });
     await runAutoReviewScan(context, state, statusProvider, output, true);
@@ -3414,6 +3419,7 @@ async function configureAutoReviewInUi(
     enabled: true,
     repository,
     seenFingerprints,
+    retry: {},
     lastError: undefined,
   });
 
