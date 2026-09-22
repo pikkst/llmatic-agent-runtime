@@ -1132,7 +1132,6 @@ async function runReviewLens(
       mode: "code",
       messages: [...messages],
       tools: material ? undefined : REVIEW_TOOLS,
-      tool_choice: material ? "none" : undefined,
       response_format: material ? { type: "json_object" } : undefined,
       routing: material
         ? {
