@@ -22,6 +22,8 @@ export class AgentChatViewProvider implements vscode.WebviewViewProvider {
   private readonly messages: ChatMessage[] = [];
   private busy = false;
   private busyLabel = "LLMatic is working…";
+  private stateRevision = 0;
+  private acknowledgedRevision = 0;
   private syncRetryCount = 0;
   private syncRetry?: ReturnType<typeof setTimeout>;
   private handlers?: AgentChatHandlers;
@@ -51,6 +53,11 @@ export class AgentChatViewProvider implements vscode.WebviewViewProvider {
     view.webview.onDidReceiveMessage(async (message: unknown) => {
       if (!message || typeof message !== "object") return;
       const input = message as Record<string, unknown>;
+
+      if (input.type === "state-applied" && typeof input.revision === "number") {
+        this.acknowledgeState(input.revision);
+        return;
+      }
 
       if (input.type === "ready") {
         this.sync();
@@ -152,10 +159,21 @@ export class AgentChatViewProvider implements vscode.WebviewViewProvider {
   private sync(): void {
     if (!this.view) return;
 
+    this.stateRevision += 1;
+    this.syncRetryCount = 0;
+    if (this.syncRetry) clearTimeout(this.syncRetry);
+    this.syncRetry = undefined;
+    this.postState(this.stateRevision);
+  }
+
+  private postState(revision: number): void {
+    if (!this.view || revision !== this.stateRevision) return;
+
     const view = this.view;
     const recovery = this.currentRecovery();
     const message = {
       type: "state",
+      revision,
       busy: this.busy,
       busyLabel: this.busyLabel,
       review: this.review
@@ -232,35 +250,44 @@ export class AgentChatViewProvider implements vscode.WebviewViewProvider {
     };
 
     void view.webview.postMessage(message).then(
-      (delivered) => {
-        if (this.view !== view) return;
-        if (delivered) {
-          this.syncRetryCount = 0;
-          if (this.syncRetry) clearTimeout(this.syncRetry);
-          this.syncRetry = undefined;
-          return;
-        }
-
-        if (this.syncRetryCount >= 5) return;
-        const delays = [50, 150, 400, 900, 1800];
-        const delay = delays[this.syncRetryCount] ?? 1800;
-        this.syncRetryCount += 1;
-        if (this.syncRetry) clearTimeout(this.syncRetry);
-        this.syncRetry = setTimeout(() => {
-          this.syncRetry = undefined;
-          this.sync();
-        }, delay);
+      () => {
+        this.scheduleStateRetry(view, revision);
       },
       () => {
-        if (this.view !== view || this.syncRetryCount >= 5) return;
-        this.syncRetryCount += 1;
-        if (this.syncRetry) clearTimeout(this.syncRetry);
-        this.syncRetry = setTimeout(() => {
-          this.syncRetry = undefined;
-          this.sync();
-        }, 250);
+        this.scheduleStateRetry(view, revision);
       },
     );
+  }
+
+  private scheduleStateRetry(view: vscode.WebviewView, revision: number): void {
+    if (
+      this.view !== view ||
+      revision !== this.stateRevision ||
+      this.acknowledgedRevision >= revision ||
+      this.syncRetryCount >= 7
+    ) {
+      return;
+    }
+
+    const delays = [50, 150, 400, 900, 1800, 3000, 5000];
+    const delay = delays[this.syncRetryCount] ?? 5000;
+    this.syncRetryCount += 1;
+    if (this.syncRetry) clearTimeout(this.syncRetry);
+    this.syncRetry = setTimeout(() => {
+      this.syncRetry = undefined;
+      this.postState(revision);
+    }, delay);
+  }
+
+  private acknowledgeState(revision: number): void {
+    if (!Number.isSafeInteger(revision) || revision < 0) return;
+
+    this.acknowledgedRevision = Math.max(this.acknowledgedRevision, revision);
+    if (revision !== this.stateRevision) return;
+
+    this.syncRetryCount = 0;
+    if (this.syncRetry) clearTimeout(this.syncRetry);
+    this.syncRetry = undefined;
   }
 
   private html(webview: vscode.Webview): string {
@@ -649,6 +676,9 @@ export class AgentChatViewProvider implements vscode.WebviewViewProvider {
       busyLabel.textContent = state.busyLabel || "LLMatic is working…";
       send.textContent = busy ? "Working…" : "Send";
       if (busy) continueButton.disabled = true;
+      if (typeof state.revision === "number") {
+        vscode.postMessage({ type: "state-applied", revision: state.revision });
+      }
     });
 
     vscode.postMessage({ type: "ready" });
