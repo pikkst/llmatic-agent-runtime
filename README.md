@@ -132,6 +132,34 @@ LLMatic: Doctor
 
 Runtime state and the repository intelligence cache stay outside tracked repository files.
 
+### Repository constitution
+
+Existing repositories are also analyzed for project-specific engineering rules. LLMatic distinguishes:
+
+```text
+facts
+explicit repository rules
+inferred conventions
+human-approved rules
+rule proposals awaiting review
+```
+
+Explicit rules keep source-path/line provenance. Inferred conventions are advisory and cannot become blocking policy by themselves.
+
+Repeated review findings may become **rule proposals** after three separate occurrences. A proposal is never enforced until you explicitly approve it with:
+
+```text
+LLMatic: Review Repository Rule Proposals
+```
+
+Inspect the current policy with:
+
+```text
+LLMatic: Show Repository Rules
+```
+
+See [Repository Constitution and Engineering Policy](docs/REPOSITORY_CONSTITUTION.md) for the provenance and human-control model.
+
 ## Task sources
 
 LLMatic task workflows do not require Jira.
@@ -201,6 +229,26 @@ LLMatic: Run Review / Fix Loop
 ```
 
 Review uses changed-files-first context. Review results are schema-validated before workflow state changes. When no task workflow is active, Review / Fix Loop can run in ad-hoc existing-repository mode without inventing workflow transitions.
+
+The VS Code review path runs three evidence-driven lenses:
+
+```text
+General Engineering Review
+Bug Hunter
+Security
+```
+
+Findings remain visible in Agent Chat. When a finding is a concrete violation of an explicit or human-approved repository rule, it includes the rule ID and source provenance.
+
+For pull-request preparation, use:
+
+```text
+LLMatic: Generate PR Draft
+```
+
+The draft is generated from captured task/workflow/check/review/security/architecture/rule evidence. Missing evidence is marked as not captured rather than invented.
+
+When recovery finds a failing GitHub PR, Agent Chat can read PR check state and bounded failed GitHub Actions logs through read-only tools before proposing a fix.
 
 ## Living architecture
 
