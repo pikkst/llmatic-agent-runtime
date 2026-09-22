@@ -2625,18 +2625,19 @@ async function runAutoReviewScan(
     const repository = getGitHubRepositoryName(root);
 
     if (profile.repository && profile.repository.toLowerCase() !== repository.toLowerCase()) {
+      const mismatchMessage =
+        "Auto Review Agent was bound to " +
+        profile.repository +
+        " but this workspace now points to " +
+        repository +
+        ". Re-enable it for the new repository.";
       profile = {
         ...profile,
         enabled: false,
-        lastError:
-          "Auto Review Agent was bound to " +
-          profile.repository +
-          " but this workspace now points to " +
-          repository +
-          ". Re-enable it for the new repository.",
+        lastError: mismatchMessage,
       };
       await storeAutoReviewWorkspaceState(context, statusProvider, profile);
-      await vscode.window.showWarningMessage(profile.lastError);
+      await vscode.window.showWarningMessage(mismatchMessage);
       return;
     }
 
