@@ -16,6 +16,7 @@ describe("VS Code extension activation surface", () => {
     expect(source).toContain('vscode.commands.registerCommand("llmatic.setKiloGatewayApiKey"');
     expect(source).toContain('vscode.commands.registerCommand("llmatic.reviewFixLoop"');
     expect(source).toContain('vscode.commands.registerCommand("llmatic.openAgentChat"');
+    expect(source).toContain('vscode.commands.registerCommand("llmatic.agentChatProbe"');
     expect(source).toContain('vscode.commands.registerCommand("llmatic.connectJiraWorkspace"');
     expect(source).toContain('vscode.commands.registerCommand("llmatic.disconnectJiraWorkspace"');
     expect(source).toContain('vscode.commands.registerCommand("llmatic.connectKiloGateway"');
@@ -134,8 +135,10 @@ describe("VS Code extension activation surface", () => {
     expect(source).toContain("Repository map");
     expect(source).toContain("Repository rules");
     expect(source).toContain("Latest review");
-    expect(source).toContain('type: "continue"');
-    expect(source).toContain('type: "ready"');
+    const clientSource = await readFile(new URL("../media/agent-chat.js", import.meta.url), "utf8");
+    expect(() => new Function(clientSource)).not.toThrow();
+    expect(clientSource).toContain('type: "continue"');
+    expect(clientSource).toContain('type: "ready"');
     expect(source).toContain('input.type === "ready"');
     expect(source.indexOf("onDidReceiveMessage")).toBeLessThan(
       source.indexOf("view.webview.html = this.html"),
@@ -147,20 +150,26 @@ describe("VS Code extension activation surface", () => {
     expect(source).toContain("acknowledgedRevision");
     expect(source).toContain("scheduleStateRetry");
     expect(source).toContain('input.type === "state-applied"');
-    expect(source).toContain(
+    expect(clientSource).toContain(
       'vscode.postMessage({ type: "state-applied", revision: state.revision })',
     );
     expect(source).toContain("this.acknowledgedRevision >= revision");
+    expect(source).toContain("localResourceRoots");
+    expect(source).toContain("agent-chat.js");
+    expect(source).toContain("asWebviewUri");
+    expect(source).toContain("waitUntilClientReady");
     expect(source).toContain("setRecoverySource");
     expect(source).toContain("currentRecovery");
-    expect(source).toContain("receivedState");
-    expect(source).toContain("if (!receivedState)");
+    expect(clientSource).toContain("receivedState");
+    expect(clientSource).toContain("if (!receivedState)");
     expect(source).toContain("messages.map");
     expect(source).toContain("status-ok");
     expect(source).toContain("status-attention");
     expect(source).toContain("status-error");
     expect(source).toContain("busy-indicator");
     expect(source).toContain("llmatic-spin");
-    expect(source).toContain("Working…");
+    expect(clientSource).toContain("Working…");
+    expect(clientSource).toContain("acquireVsCodeApi");
+    expect(clientSource).toContain("Agent Chat client failed to start");
   });
 });
