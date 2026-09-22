@@ -100,13 +100,22 @@ function brokerEndpoint(baseUrl: string, path: string): string {
 async function brokerJson<T>(response: Response, operation: string): Promise<T> {
   const raw = await response.text();
   if (!response.ok) {
+    const contentType = response.headers.get("content-type")?.toLowerCase() ?? "";
     let detail = raw.trim();
-    try {
-      const parsed = JSON.parse(raw) as { error?: string; message?: string };
-      detail = parsed.error ?? parsed.message ?? detail;
-    } catch {
-      // Preserve non-JSON broker diagnostics.
+
+    if (contentType.includes("text/html") || /^\s*<!doctype html/i.test(raw)) {
+      detail =
+        "The configured URL does not appear to be an LLMatic OAuth broker. " +
+        "Check llmatic.connectionBrokerUrl.";
+    } else {
+      try {
+        const parsed = JSON.parse(raw) as { error?: string; message?: string };
+        detail = parsed.error ?? parsed.message ?? detail;
+      } catch {
+        // Preserve bounded non-JSON broker diagnostics.
+      }
     }
+
     throw new Error(
       operation +
         " failed with " +
