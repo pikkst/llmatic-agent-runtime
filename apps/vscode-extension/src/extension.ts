@@ -1731,6 +1731,7 @@ function formatAgentActivity(event: CodingAgentEvent): string {
     run_capability: "Running a project quality check…",
     validate_workflow: "Validating the workflow…",
     pull_request_status: "Checking the pull request and CI…",
+    pull_request_review_context: "Reading external pull request review context…",
     pull_request_failed_logs: "Reading failed CI diagnostics…",
     git_status: "Checking Git state…",
     workflow_status: "Checking workflow state…",
