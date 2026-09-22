@@ -8,6 +8,8 @@ function json(body, init = {}) {
   const headers = new Headers(init.headers || {});
   headers.set("Content-Type", "application/json");
   headers.set("Cache-Control", "no-store");
+  headers.set("X-Content-Type-Options", "nosniff");
+  headers.set("Referrer-Policy", "no-referrer");
   return new Response(JSON.stringify(body), { ...init, headers });
 }
 
@@ -22,6 +24,11 @@ function html(body, status = 200) {
       headers: {
         "Content-Type": "text/html; charset=utf-8",
         "Cache-Control": "no-store",
+        "Content-Security-Policy":
+          "default-src 'none'; style-src 'unsafe-inline'; base-uri 'none'; frame-ancestors 'none'",
+        "Referrer-Policy": "no-referrer",
+        "X-Content-Type-Options": "nosniff",
+        "X-Frame-Options": "DENY",
       },
     },
   );
