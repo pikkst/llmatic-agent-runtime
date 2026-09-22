@@ -53,10 +53,23 @@ export interface GatewayChatResponse {
   usage?: GatewayUsage;
 }
 
+export type GatewayResponseFormat =
+  | { type: "json_object" }
+  | {
+      type: "json_schema";
+      json_schema: {
+        name: string;
+        strict?: boolean;
+        schema: Record<string, unknown>;
+      };
+    };
+
 export interface GatewayChatRequest {
   model: string;
   messages: GatewayMessage[];
   tools?: GatewayTool[];
+  tool_choice?: "none" | "auto" | "required";
+  response_format?: GatewayResponseFormat;
   max_tokens?: number;
   temperature?: number;
   mode?: string;
