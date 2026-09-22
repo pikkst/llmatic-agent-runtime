@@ -37,6 +37,11 @@ export class AgentChatViewProvider implements vscode.WebviewViewProvider {
       if (!message || typeof message !== "object") return;
       const input = message as Record<string, unknown>;
 
+      if (input.type === "ready") {
+        this.sync();
+        return;
+      }
+
       if (input.type === "refresh") {
         if (!this.busy) await this.handlers?.refresh();
         return;
@@ -490,6 +495,8 @@ export class AgentChatViewProvider implements vscode.WebviewViewProvider {
       refresh.disabled = Boolean(state.busy);
       if (state.busy) continueButton.disabled = true;
     });
+
+    vscode.postMessage({ type: "ready" });
   </script>
 </body>
 </html>`;
