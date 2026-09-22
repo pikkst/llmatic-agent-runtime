@@ -30,13 +30,14 @@ jobs:
       - name: Install dependencies
         run: pnpm install --no-frozen-lockfile
 
-      - name: Canonical format M26 release acceptance
-        run: pnpm exec prettier --write scripts/release-acceptance.mjs
+      - name: Canonical format semantic model-health files
+        run: |
+          pnpm exec prettier --write             scripts/release-acceptance.mjs             packages/gateway-client/src/adaptive.ts             packages/gateway-client/src/client.ts             packages/review-engine/src/review.ts             packages/review-engine/test/review.test.ts
 
-      - name: Commit canonical M26 release acceptance
+      - name: Commit canonical semantic model-health formatting
         shell: bash
         run: |
-          if git diff --quiet -- scripts/release-acceptance.mjs
+          if git diff --quiet
           then
             echo "No canonical formatting changes to commit."
             exit 0
@@ -44,8 +45,8 @@ jobs:
 
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add scripts/release-acceptance.mjs
-          git commit -m "style: format M26 release acceptance"
+          git add             scripts/release-acceptance.mjs             packages/gateway-client/src/adaptive.ts             packages/gateway-client/src/client.ts             packages/review-engine/src/review.ts             packages/review-engine/test/review.test.ts
+          git commit -m "style: format semantic model-health files"
           git push origin HEAD:"${{ github.head_ref || github.ref_name }}"
 
       - name: Validate
