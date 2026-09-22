@@ -61,6 +61,10 @@ describe("VS Code extension activation surface", () => {
     expect(source).toContain('"project_queue"');
     expect(source).toContain("AgentChatViewProvider");
     expect(source).toContain("runAgentChatTurn");
+    expect(source).toContain("formatAgentActivity");
+    expect(source).toContain('"Thinking…"');
+    expect(source).toContain('"Searching the repository…"');
+    expect(source).not.toContain("chatProvider.appendActivity(line");
     expect(source).toContain("decideRepositoryRuleProposal");
     expect(source).toContain("buildPullRequestDraft");
     expect(source).toContain("loadLatestReviewReport");
@@ -91,6 +95,9 @@ describe("VS Code extension activation surface", () => {
     expect(source).toContain("connection error · reconnect required");
     expect(source).toContain("loading~spin");
     expect(source).toContain("connecting…");
+    expect(source).toContain("beginOperation");
+    expect(source).toContain("active-operation");
+    expect(source).toContain("LLMatic is working…");
   });
   it("contributes a persistent Agent Chat webview with repository recovery controls", async () => {
     const packageJson = JSON.parse(
