@@ -13,6 +13,7 @@ import {
   createPullRequest,
   createWorkflowPullRequest,
   getFailedPullRequestDiagnostics,
+  getPullRequestReviewContext,
   getPullRequestStatus,
   mergePullRequest,
   mergeWorkflowPullRequest,
@@ -151,6 +152,77 @@ describe("github adapter", () => {
 
     expect(status.ciState).toBe("pending");
     expect(status.checks).toHaveLength(1);
+  });
+
+  it("reads external pull-request review context without mutations", async () => {
+    const calls: string[][] = [];
+    const runner: GitHubProcessRunner = (_executable, args) => {
+      calls.push(args);
+
+      if (args[1] === "checks") {
+        return { exitCode: 0, stdout: "[]", stderr: "" };
+      }
+
+      if (args[1] === "diff") {
+        return {
+          exitCode: 0,
+          stdout: "diff --git a/src/value.ts b/src/value.ts\n+export const value = 2;\n",
+          stderr: "",
+        };
+      }
+
+      if (args[1] === "view" && String(args.at(-1)).includes("title")) {
+        return {
+          exitCode: 0,
+          stdout: pullRequestJson({
+            title: "Improve value handling",
+            body: "PR body",
+            author: { login: "contributor" },
+            files: [{ path: "src/value.ts", additions: 1, deletions: 0 }],
+            reviews: [
+              {
+                author: { login: "reviewer" },
+                state: "COMMENTED",
+                body: "Please verify the edge case.",
+                submittedAt: "2026-09-22T10:00:00Z",
+              },
+            ],
+            comments: [
+              {
+                author: { login: "maintainer" },
+                body: "CI is green.",
+                createdAt: "2026-09-22T11:00:00Z",
+                url: "https://github.com/example/repo/pull/7#issuecomment-1",
+              },
+            ],
+          }),
+          stderr: "",
+        };
+      }
+
+      if (args[1] === "view") {
+        return { exitCode: 0, stdout: pullRequestJson(), stderr: "" };
+      }
+
+      return { exitCode: 1, stdout: "", stderr: "unexpected command" };
+    };
+
+    const context = await getPullRequestReviewContext("/repo", "7", runner);
+
+    expect(context.status.ciState).toBe("passing");
+    expect(context.title).toBe("Improve value handling");
+    expect(context.authorLogin).toBe("contributor");
+    expect(context.changedFiles).toEqual([
+      { path: "src/value.ts", additions: 1, deletions: 0 },
+    ]);
+    expect(context.reviews[0]).toMatchObject({
+      authorLogin: "reviewer",
+      state: "COMMENTED",
+    });
+    expect(context.comments[0]?.authorLogin).toBe("maintainer");
+    expect(context.diff).toContain("+export const value = 2;");
+    expect(context.diffTruncated).toBe(false);
+    expect(calls).toContainEqual(["pr", "diff", "7", "--color", "never"]);
   });
 
   it("returns bounded failed GitHub Actions logs for PR diagnostics", async () => {
