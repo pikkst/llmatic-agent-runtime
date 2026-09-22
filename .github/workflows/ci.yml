@@ -30,13 +30,14 @@ jobs:
       - name: Install dependencies
         run: pnpm install --no-frozen-lockfile
 
-      - name: Canonical format M26 release acceptance
-        run: pnpm exec prettier --write scripts/release-acceptance.mjs
+      - name: Canonical format active M29 files
+        run: |
+          pnpm exec prettier --write             scripts/release-acceptance.mjs             apps/vscode-extension/package.json             apps/vscode-extension/CHANGELOG.md             apps/vscode-extension/src/extension.ts             apps/vscode-extension/test/extension-surface.test.ts             packages/core/src/config.ts             packages/agent-orchestrator/src/orchestrator.ts             packages/github-adapter/src/types.ts             packages/github-adapter/src/github.ts             packages/github-adapter/test/github.test.ts             packages/review-engine/src/review.ts             packages/review-engine/test/review.test.ts             docs/ROADMAP.md
 
-      - name: Commit canonical M26 release acceptance
+      - name: Commit canonical M29 formatting
         shell: bash
         run: |
-          if git diff --quiet -- scripts/release-acceptance.mjs
+          if git diff --quiet
           then
             echo "No canonical formatting changes to commit."
             exit 0
@@ -44,8 +45,8 @@ jobs:
 
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add scripts/release-acceptance.mjs
-          git commit -m "style: format M26 release acceptance"
+          git add             scripts/release-acceptance.mjs             apps/vscode-extension/package.json             apps/vscode-extension/CHANGELOG.md             apps/vscode-extension/src/extension.ts             apps/vscode-extension/test/extension-surface.test.ts             packages/core/src/config.ts             packages/agent-orchestrator/src/orchestrator.ts             packages/github-adapter/src/types.ts             packages/github-adapter/src/github.ts             packages/github-adapter/test/github.test.ts             packages/review-engine/src/review.ts             packages/review-engine/test/review.test.ts             docs/ROADMAP.md
+          git commit -m "style: apply canonical M29 formatting"
           git push origin HEAD:"${{ github.head_ref || github.ref_name }}"
 
       - name: Validate
