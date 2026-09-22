@@ -202,8 +202,16 @@ describe("github adapter", () => {
       "POST",
       "repos/example/repo/pulls/7/comments",
       "-f",
-      "**BLOCKING** Incorrect value\n\nEvidence: changed contract.",
-    ].map((value, index) => (index === 5 ? "body=" + value : value)));
+      "body=**BLOCKING** Incorrect value\n\nEvidence: changed contract.",
+      "-f",
+      "commit_id=abc123",
+      "-f",
+      "path=src/value.ts",
+      "-F",
+      "line=1",
+      "-f",
+      "side=RIGHT",
+    ]);
     expect(calls).toContainEqual([
       "pr",
       "review",
