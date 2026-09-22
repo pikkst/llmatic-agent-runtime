@@ -19,6 +19,7 @@ import {
   mergePullRequest,
   mergeWorkflowPullRequest,
   publishPullRequestReview,
+  readPullRequestFileAtHead,
   refreshWorkflowRemoteCi,
 } from "../src/github.js";
 import type { GitHubProcessRunner } from "../src/types.js";
@@ -345,6 +346,56 @@ describe("github adapter", () => {
       "--paginate",
       "--slurp",
       "repos/example/repo/pulls/7/files?per_page=100",
+    ]);
+  });
+
+  it("reads bounded file context from the target pull-request head SHA", () => {
+    const calls: string[][] = [];
+    const runner: GitHubProcessRunner = (_executable, args) => {
+      calls.push(args);
+
+      if (args[0] === "repo" && args[1] === "view") {
+        return {
+          exitCode: 0,
+          stdout: JSON.stringify({ nameWithOwner: "example/repo" }),
+          stderr: "",
+        };
+      }
+
+      if (args[0] === "api" && args[1]?.startsWith("repos/example/repo/contents/")) {
+        return {
+          exitCode: 0,
+          stdout: JSON.stringify({
+            type: "file",
+            encoding: "base64",
+            content: Buffer.from("line one\nline two\nline three\n").toString("base64"),
+          }),
+          stderr: "",
+        };
+      }
+
+      return { exitCode: 1, stdout: "", stderr: "unexpected command" };
+    };
+
+    const result = readPullRequestFileAtHead(
+      "/repo",
+      JSON.parse(pullRequestJson()),
+      "src/value.ts",
+      { startLine: 2, endLine: 3 },
+      runner,
+    );
+
+    expect(result).toMatchObject({
+      path: "src/value.ts",
+      ref: "abc123",
+      startLine: 2,
+      endLine: 3,
+      content: "line two\nline three",
+      truncated: false,
+    });
+    expect(calls).toContainEqual([
+      "api",
+      "repos/example/repo/contents/src/value.ts?ref=abc123",
     ]);
   });
 
