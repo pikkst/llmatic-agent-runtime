@@ -22,7 +22,10 @@
     "release:acceptance": "node scripts/release-acceptance.mjs",
     "product:acceptance": "node scripts/product-acceptance.mjs",
     "vscode:acceptance": "node scripts/vscode-clean-install-acceptance.mjs",
-    "broker:smoke": "node scripts/oauth-broker-smoke.mjs"
+    "broker:smoke": "node scripts/oauth-broker-smoke.mjs",
+    "broker:deploy": "pnpm dlx wrangler@latest deploy --config deploy/oauth-broker/wrangler.jsonc",
+    "broker:whoami": "pnpm dlx wrangler@latest whoami",
+    "broker:secret:atlassian": "pnpm dlx wrangler@latest secret put ATLASSIAN_CLIENT_SECRET --config deploy/oauth-broker/wrangler.jsonc"
   },
   "devDependencies": {
     "@types/node": "^22.10.0",
