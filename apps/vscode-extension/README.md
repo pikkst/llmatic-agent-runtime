@@ -111,7 +111,7 @@ Task sources can be auto-detected or explicitly selected with `llmatic.taskSourc
 auto | jira | markdown | github
 ```
 
-For Jira, use **LLMatic: Connect Jira Workspace**. Each workspace keeps its own Jira site/project/work-mode profile and workspace-ID-scoped SecretStorage credential, so different repositories can safely connect to different Jira environments in separate VS Code windows.
+For Jira, use **LLMatic: Connect Jira Workspace**. The preferred path is **Continue with Atlassian**, which opens a browser OAuth flow when the LLMatic connection broker is configured. Authorized Jira sites and projects are discovered interactively, while manual API-token/bearer authentication remains a fallback. Each workspace keeps its own Jira site/project/work-mode profile and workspace-ID-scoped SecretStorage credential, so different repositories can safely connect to different Jira environments in separate VS Code windows.
 
 The default team-safe mode is `assigned_only`: LLMatic can list/order your assigned work but cannot start another user's task. `project_queue` is an explicit solo/full-project mode and requires a scoped project key or custom JQL.
 
@@ -149,17 +149,17 @@ llmatic.agentModel
 
 LLMatic shows a data-handling warning before first use of Auto Free. Use an appropriate model/provider for confidential repositories.
 
-### Gateway API key
+### Gateway access
 
-Kilo Code MCP connectivity works without a Gateway API key. The key is needed only for LLMatic's direct Gateway Agent and automated review/fix orchestration.
+Kilo Code MCP connectivity works without a Gateway API key. `kilo-auto/free` and explicit `:free` models can also run through Kilo's anonymous Gateway access when enabled.
 
-Use **Set Kilo Gateway API Key** in the LLMatic Activity Bar or run:
+For authenticated or paid model access run:
 
 ```text
-LLMatic: Set Kilo Gateway API Key
+LLMatic: Connect Kilo Gateway
 ```
 
-LLMatic opens a password input and stores the value only in VS Code SecretStorage. Starting a direct agent or review without a key also offers this setup automatically.
+The connection UI can open the Kilo account page in your browser, explain where the Gateway key is created, and then stores the pasted key only in VS Code SecretStorage.
 
 ## Core commands
 
@@ -173,8 +173,10 @@ LLMatic: Review Project Plan
 LLMatic: Review & Approve Project Plan
 LLMatic: Open Agent Chat
 LLMatic: Refresh Repository Context
+LLMatic: External Connections
 LLMatic: Connect Jira Workspace
 LLMatic: Disconnect Jira Workspace
+LLMatic: Connect Kilo Gateway
 LLMatic: Show Repository Rules
 LLMatic: Review Repository Rule Proposals
 LLMatic: Generate PR Draft
