@@ -27,8 +27,17 @@ export interface KiloGatewayClientOptions {
   onRetry?: (event: GatewayRetryEvent) => void | Promise<void>;
 }
 
+export interface GatewayModelFailureFeedback {
+  model: string;
+  task?: string;
+  reason: string;
+}
+
 export interface GatewayChatClient {
   createChatCompletion(request: GatewayChatRequest): Promise<GatewayChatResponse>;
+  reportModelFailure?(
+    feedback: GatewayModelFailureFeedback,
+  ): void | Promise<void>;
 }
 
 class RetryableGatewayError extends Error {
