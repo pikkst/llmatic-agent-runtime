@@ -41,6 +41,9 @@
       "path": "./packages/runtime-tools"
     },
     {
+      "path": "./packages/external-connections"
+    },
+    {
       "path": "./packages/gateway-client"
     },
     {
