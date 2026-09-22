@@ -14,6 +14,7 @@ import type {
   PullRequestCommentSnapshot,
   PublishPullRequestReviewInput,
   PullRequestReviewContext,
+  PullRequestReviewMetadata,
   PullRequestReviewSnapshot,
   PullRequestReviewThreadSnapshot,
   PullRequestStatus,
@@ -348,6 +349,34 @@ function pullRequestCoordinates(pullRequest: PullRequestSummary): PullRequestCoo
   return { owner, name, number };
 }
 
+function assertPullRequestMatchesWorkspaceRepository(
+  root: string,
+  pullRequest: PullRequestSummary,
+  runner: GitHubProcessRunner,
+): void {
+  const target = pullRequestCoordinates(pullRequest);
+  const args = ["repo", "view", "--json", "nameWithOwner"];
+  const repository = parseJson<{ nameWithOwner?: string }>(
+    requireSuccess(run(root, args, runner), args),
+    args,
+  );
+  const workspaceNameWithOwner = String(repository.nameWithOwner ?? "").trim();
+  const targetNameWithOwner = target.owner + "/" + target.name;
+
+  if (
+    !workspaceNameWithOwner ||
+    workspaceNameWithOwner.toLowerCase() !== targetNameWithOwner.toLowerCase()
+  ) {
+    throw new Error(
+      "External pull-request review must target the opened repository. Workspace: " +
+        (workspaceNameWithOwner || "unknown") +
+        "; target: " +
+        targetNameWithOwner +
+        ".",
+    );
+  }
+}
+
 function readPullRequestChangedFiles(
   root: string,
   pullRequest: PullRequestSummary,
@@ -413,25 +442,23 @@ function readPullRequestReviewThreads(
 }
 
 /**
- * Reads a target pull request for explicit external review without mutating
- * workflow state, task ownership, the working tree, or the remote pull request.
+ * Reads bounded pull-request metadata for explicit external review without
+ * downloading unified diff bytes or mutating local/remote workflow state.
  */
-export async function getPullRequestReviewContext(
+export async function getPullRequestReviewMetadata(
   root: string,
   ref: string | number,
   runner: GitHubProcessRunner = defaultRunner,
-): Promise<PullRequestReviewContext> {
+): Promise<PullRequestReviewMetadata> {
   const status = await getPullRequestStatus(root, ref, runner);
+  assertPullRequestMatchesWorkspaceRepository(root, status.pullRequest, runner);
+
   const target = ref || status.pullRequest.number;
   const viewArgs = [...prArgs("view", target), "--json", PR_REVIEW_FIELDS];
   const raw = parseJson<Record<string, unknown>>(
     requireSuccess(run(root, viewArgs, runner), viewArgs),
     viewArgs,
   );
-
-  const diffArgs = [...prArgs("diff", target), "--color", "never"];
-  const rawDiff = requireSuccess(run(root, diffArgs, runner), diffArgs).stdout;
-  const diffTruncated = rawDiff.length > MAX_PULL_REQUEST_REVIEW_DIFF_CHARS;
   const changedFiles = readPullRequestChangedFiles(root, status.pullRequest, runner);
   const reviewThreads = readPullRequestReviewThreads(root, status.pullRequest, runner);
 
@@ -444,6 +471,25 @@ export async function getPullRequestReviewContext(
     reviews: normalizeReviewSnapshots(raw.reviews),
     comments: normalizeCommentSnapshots(raw.comments),
     reviewThreads,
+  };
+}
+
+/**
+ * Adds the bounded unified diff used by the explicit structured review flow.
+ */
+export async function getPullRequestReviewContext(
+  root: string,
+  ref: string | number,
+  runner: GitHubProcessRunner = defaultRunner,
+): Promise<PullRequestReviewContext> {
+  const metadata = await getPullRequestReviewMetadata(root, ref, runner);
+  const target = ref || metadata.status.pullRequest.number;
+  const diffArgs = [...prArgs("diff", target), "--color", "never"];
+  const rawDiff = requireSuccess(run(root, diffArgs, runner), diffArgs).stdout;
+  const diffTruncated = rawDiff.length > MAX_PULL_REQUEST_REVIEW_DIFF_CHARS;
+
+  return {
+    ...metadata,
     diff: diffTruncated
       ? rawDiff.slice(0, MAX_PULL_REQUEST_REVIEW_DIFF_CHARS) + "\n[DIFF TRUNCATED]"
       : rawDiff,
