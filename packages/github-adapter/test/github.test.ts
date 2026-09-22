@@ -159,11 +159,21 @@ describe("github adapter", () => {
     ).rejects.toThrow("requires approval");
   });
 
-  it("publishes an approved pull-request review as a comment", async () => {
+  it("publishes an approved focused review with inline comments", async () => {
     const config = configFor("/repo");
     const calls: string[][] = [];
     const runner: GitHubProcessRunner = (_executable, args) => {
       calls.push(args);
+      if (args[0] === "pr" && args[1] === "view") {
+        return { exitCode: 0, stdout: pullRequestJson(), stderr: "" };
+      }
+      if (args[0] === "repo" && args[1] === "view") {
+        return {
+          exitCode: 0,
+          stdout: JSON.stringify({ nameWithOwner: "example/repo" }),
+          stderr: "",
+        };
+      }
       return { exitCode: 0, stdout: "", stderr: "" };
     };
 
@@ -171,11 +181,37 @@ describe("github adapter", () => {
       "/repo",
       config,
       "7",
-      { body: "Review body" },
+      {
+        body: "Focused review summary",
+        expectedHeadOid: "abc123",
+        inlineComments: [
+          {
+            path: "src/value.ts",
+            line: 1,
+            side: "RIGHT",
+            body: "**BLOCKING** Incorrect value\n\nEvidence: changed contract.",
+          },
+        ],
+      },
       { approved: true, runner },
     );
 
-    expect(calls).toEqual([["pr", "review", "7", "--comment", "--body", "Review body"]]);
+    expect(calls).toContainEqual([
+      "api",
+      "--method",
+      "POST",
+      "repos/example/repo/pulls/7/comments",
+      "-f",
+      "**BLOCKING** Incorrect value\n\nEvidence: changed contract.",
+    ].map((value, index) => (index === 5 ? "body=" + value : value)));
+    expect(calls).toContainEqual([
+      "pr",
+      "review",
+      "7",
+      "--comment",
+      "--body",
+      "Focused review summary",
+    ]);
   });
 
   it("rejects publishing a stale pull-request review snapshot", async () => {
@@ -185,6 +221,13 @@ describe("github adapter", () => {
         return {
           exitCode: 0,
           stdout: pullRequestJson({ headRefOid: "new-head" }),
+          stderr: "",
+        };
+      }
+      if (args[0] === "repo" && args[1] === "view") {
+        return {
+          exitCode: 0,
+          stdout: JSON.stringify({ nameWithOwner: "example/repo" }),
           stderr: "",
         };
       }
