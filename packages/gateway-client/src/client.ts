@@ -129,7 +129,8 @@ export class KiloGatewayClient implements GatewayChatClient {
 
   public async listModels(): Promise<GatewayModelInfo[]> {
     const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), this.requestTimeoutMs);
+    const catalogTimeoutMs = Math.min(this.requestTimeoutMs, 10_000);
+    const timeout = setTimeout(() => controller.abort(), catalogTimeoutMs);
 
     try {
       const response = await this.request(this.baseUrl + "/models", {
@@ -163,7 +164,7 @@ export class KiloGatewayClient implements GatewayChatClient {
     } catch (error) {
       if (controller.signal.aborted) {
         throw new Error(
-          "Kilo Gateway model catalog timed out after " + this.requestTimeoutMs + "ms.",
+          "Kilo Gateway model catalog timed out after " + catalogTimeoutMs + "ms.",
         );
       }
       throw error;
