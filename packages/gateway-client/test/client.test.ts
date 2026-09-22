@@ -122,5 +122,4 @@ describe("KiloGatewayClient", () => {
       "Kilo Gateway returned a 2xx response without choices[0].message (model=kilo-auto/free; object=chat.completion; choices=0; keys=id,object,model,choices,provider).",
     );
   });
-
 });
