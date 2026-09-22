@@ -206,7 +206,9 @@ describe("gateway coding agent", () => {
     const config = configFor(root);
     const store = new WorkflowStateStore(root, config);
     const gateway = new ScriptedGateway([
-      response(null, [{ id: "call-task-connection", name: "task_connection", arguments: {} }]),
+      response(null, [
+        { id: "call-task-connection", name: "task_connection", arguments: {} },
+      ]),
       response("The markdown task provider has no remote account identity."),
     ]);
 
@@ -233,9 +235,7 @@ describe("gateway coding agent", () => {
       role: "tool",
       tool_call_id: "call-task-connection",
     });
-    expect(JSON.stringify(gateway.requests[1]?.messages.at(-1))).toContain(
-      '"supported":false',
-    );
+    expect(JSON.stringify(gateway.requests[1]?.messages.at(-1))).toContain('"supported":false');
   });
 
   it("returns tool failures to the model instead of bypassing ask permissions", async () => {
