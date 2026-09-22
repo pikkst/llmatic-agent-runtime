@@ -264,6 +264,20 @@
           "maximum": 50,
           "description": "Maximum model/tool rounds for one direct LLMatic agent run."
         },
+        "llmatic.reviewMaxSteps": {
+          "type": "number",
+          "default": 8,
+          "minimum": 2,
+          "maximum": 20,
+          "description": "Maximum model/tool rounds per external PR review lens before that lens is marked incomplete and the remaining lenses continue."
+        },
+        "llmatic.reviewRequestTimeoutMs": {
+          "type": "number",
+          "default": 90000,
+          "minimum": 30000,
+          "maximum": 300000,
+          "description": "Hard timeout for one external PR review model request. External review uses no automatic request retries so one stalled lens cannot block the full review for multiple timeout windows."
+        },
         "llmatic.releaseRepository": {
           "type": "string",
           "default": "pikkst/llmatic-agent-runtime",
