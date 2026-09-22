@@ -183,9 +183,9 @@ describe("review engine", () => {
     expect(report.unreviewedFiles).toEqual([]);
     expect(report.blockingCount).toBe(1);
     expect(gateway.requests).toHaveLength(1);
-    expect(gateway.requests[0]?.tools?.map((tool) => tool.function.name)).not.toContain(
-      "read_diff",
-    );
+    expect(gateway.requests[0]?.tools).toBeUndefined();
+    expect(gateway.requests[0]?.tool_choice).toBe("none");
+    expect(gateway.requests[0]?.response_format).toEqual({ type: "json_object" });
     expect(JSON.stringify(gateway.requests[0]?.messages[1])).toContain("+export const value = 2;");
     const system = JSON.stringify(gateway.requests[0]?.messages[0]);
     expect(system).toContain("external pull request");
