@@ -2,15 +2,52 @@ import type { GatewayChatRequest, GatewayChatResponse, GatewayFetch } from "./ty
 
 const DEFAULT_BASE_URL = "https://api.kilo.ai/api/gateway";
 
+export interface GatewayRetryEvent {
+  nextAttempt: number;
+  maxAttempts: number;
+  delayMs: number;
+  reason: string;
+  status?: number;
+}
+
 export interface KiloGatewayClientOptions {
   apiKey?: string;
   baseUrl?: string;
   organizationId?: string;
   fetch?: GatewayFetch;
+  maxRetries?: number;
+  retryBaseDelayMs?: number;
+  sleep?: (delayMs: number) => Promise<void>;
+  onRetry?: (event: GatewayRetryEvent) => void | Promise<void>;
 }
 
 export interface GatewayChatClient {
   createChatCompletion(request: GatewayChatRequest): Promise<GatewayChatResponse>;
+}
+
+class RetryableGatewayError extends Error {
+  public constructor(
+    message: string,
+    public readonly retryable: boolean,
+    public readonly status?: number,
+  ) {
+    super(message);
+    this.name = "RetryableGatewayError";
+  }
+}
+
+function isTransientStatus(status: number): boolean {
+  return status === 408 || status === 425 || status === 429 || status >= 500;
+}
+
+function isTransientGatewayMessage(message: string): boolean {
+  return /temporar(?:y|ily)|overload(?:ed)?|rate.?limit|too many requests|timeout|timed out|upstream.*unavailable|service.*unavailable|try again/i.test(
+    message,
+  );
+}
+
+function defaultSleep(delayMs: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, delayMs));
 }
 
 function responseErrorMessage(value: unknown): string | undefined {
@@ -63,15 +100,55 @@ export class KiloGatewayClient implements GatewayChatClient {
   private readonly baseUrl: string;
   private readonly organizationId?: string;
   private readonly request: GatewayFetch;
+  private readonly maxRetries: number;
+  private readonly retryBaseDelayMs: number;
+  private readonly sleep: (delayMs: number) => Promise<void>;
+  private readonly onRetry?: (event: GatewayRetryEvent) => void | Promise<void>;
 
   public constructor(options: KiloGatewayClientOptions) {
     this.apiKey = options.apiKey?.trim() || undefined;
     this.baseUrl = (options.baseUrl?.trim() || DEFAULT_BASE_URL).replace(/\/+$/, "");
     this.organizationId = options.organizationId?.trim() || undefined;
     this.request = options.fetch ?? fetch;
+    this.maxRetries = Math.max(0, Math.min(5, Math.trunc(options.maxRetries ?? 2)));
+    this.retryBaseDelayMs = Math.max(0, Math.trunc(options.retryBaseDelayMs ?? 500));
+    this.sleep = options.sleep ?? defaultSleep;
+    this.onRetry = options.onRetry;
   }
 
   public async createChatCompletion(request: GatewayChatRequest): Promise<GatewayChatResponse> {
+    const maxAttempts = this.maxRetries + 1;
+
+    for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+      try {
+        return await this.createChatCompletionAttempt(request);
+      } catch (error) {
+        const retryable = error instanceof RetryableGatewayError && error.retryable;
+        if (!retryable || attempt >= maxAttempts) throw error;
+
+        const delayMs = Math.min(
+          this.retryBaseDelayMs * 2 ** (attempt - 1),
+          Math.max(this.retryBaseDelayMs, 4_000),
+        );
+        const reason = error instanceof Error ? error.message : String(error);
+
+        await this.onRetry?.({
+          nextAttempt: attempt + 1,
+          maxAttempts,
+          delayMs,
+          reason,
+          status: error instanceof RetryableGatewayError ? error.status : undefined,
+        });
+        await this.sleep(delayMs);
+      }
+    }
+
+    throw new Error("Kilo Gateway retry loop exited unexpectedly.");
+  }
+
+  private async createChatCompletionAttempt(
+    request: GatewayChatRequest,
+  ): Promise<GatewayChatResponse> {
     const headers: Record<string, string> = {
       "Content-Type": "application/json",
       Accept: "application/json",
@@ -85,18 +162,28 @@ export class KiloGatewayClient implements GatewayChatClient {
       headers["x-kilocode-mode"] = request.mode.trim();
     }
 
-    const response = await this.request(this.baseUrl + "/chat/completions", {
-      method: "POST",
-      headers,
-      body: JSON.stringify({
-        model: request.model,
-        messages: request.messages,
-        tools: request.tools,
-        max_tokens: request.max_tokens,
-        temperature: request.temperature,
-        stream: false,
-      }),
-    });
+    let response: Response;
+
+    try {
+      response = await this.request(this.baseUrl + "/chat/completions", {
+        method: "POST",
+        headers,
+        body: JSON.stringify({
+          model: request.model,
+          messages: request.messages,
+          tools: request.tools,
+          max_tokens: request.max_tokens,
+          temperature: request.temperature,
+          stream: false,
+        }),
+      });
+    } catch (error) {
+      throw new RetryableGatewayError(
+        "Kilo Gateway network request failed: " +
+          (error instanceof Error ? error.message : String(error)),
+        true,
+      );
+    }
 
     const raw = await response.text();
 
@@ -110,12 +197,17 @@ export class KiloGatewayClient implements GatewayChatClient {
         // Preserve the raw response when the gateway did not return JSON.
       }
 
-      throw new Error(
+      const message =
         "Kilo Gateway request failed with " +
-          response.status +
-          " " +
-          response.statusText +
-          (detail ? ": " + detail.slice(0, 500) : ""),
+        response.status +
+        " " +
+        response.statusText +
+        (detail ? ": " + detail.slice(0, 500) : "");
+
+      throw new RetryableGatewayError(
+        message,
+        isTransientStatus(response.status) || isTransientGatewayMessage(detail),
+        response.status,
       );
     }
 
@@ -132,15 +224,21 @@ export class KiloGatewayClient implements GatewayChatClient {
 
     const gatewayError = responseErrorMessage(parsed);
     if (gatewayError) {
-      throw new Error("Kilo Gateway returned an error payload: " + gatewayError.slice(0, 500));
+      throw new RetryableGatewayError(
+        "Kilo Gateway returned an error payload: " + gatewayError.slice(0, 500),
+        isTransientGatewayMessage(gatewayError),
+        response.status,
+      );
     }
 
     const responseBody = parsed as Partial<GatewayChatResponse>;
     if (!responseBody.choices?.[0]?.message) {
-      throw new Error(
+      throw new RetryableGatewayError(
         "Kilo Gateway returned a 2xx response without choices[0].message (" +
           responseShape(parsed) +
           ").",
+        true,
+        response.status,
       );
     }
 
