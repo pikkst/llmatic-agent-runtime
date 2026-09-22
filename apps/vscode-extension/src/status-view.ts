@@ -301,11 +301,7 @@ export class LlmaticStatusProvider implements vscode.TreeDataProvider<vscode.Tre
     );
     decorateStatusItem(
       autoReview,
-      this.autoReviewStatus?.error
-        ? "error"
-        : this.autoReviewStatus?.enabled
-          ? "ok"
-          : "attention",
+      this.autoReviewStatus?.error ? "error" : this.autoReviewStatus?.enabled ? "ok" : "attention",
       "auto-review-agent",
       this.autoReviewStatus?.enabled ? "eye" : "eye-closed",
     );

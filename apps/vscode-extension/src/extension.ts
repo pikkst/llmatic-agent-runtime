@@ -2624,10 +2624,7 @@ async function runAutoReviewScan(
     const root = folder.uri.fsPath;
     const repository = getGitHubRepositoryName(root);
 
-    if (
-      profile.repository &&
-      profile.repository.toLowerCase() !== repository.toLowerCase()
-    ) {
+    if (profile.repository && profile.repository.toLowerCase() !== repository.toLowerCase()) {
       profile = {
         ...profile,
         enabled: false,
@@ -2820,8 +2817,7 @@ async function configureAutoReviewInUi(
       if (!pullRequest.isDraft) {
         delete seenFingerprints[String(pullRequest.number)];
       } else {
-        seenFingerprints[String(pullRequest.number)] =
-          pullRequestWatchFingerprint(pullRequest);
+        seenFingerprints[String(pullRequest.number)] = pullRequestWatchFingerprint(pullRequest);
       }
     }
     await storeAutoReviewWorkspaceState(context, statusProvider, {
@@ -2865,8 +2861,7 @@ async function configureAutoReviewInUi(
   const seenFingerprints: Record<string, string> = {};
   for (const pullRequest of pullRequests) {
     if (choice.action === "future" || pullRequest.isDraft) {
-      seenFingerprints[String(pullRequest.number)] =
-        pullRequestWatchFingerprint(pullRequest);
+      seenFingerprints[String(pullRequest.number)] = pullRequestWatchFingerprint(pullRequest);
     }
   }
 
