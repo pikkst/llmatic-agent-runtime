@@ -33,6 +33,7 @@ import {
   type BrokerResource,
 } from "@llmatic/external-connections";
 import { KiloGatewayClient } from "@llmatic/gateway-client";
+import { getPullRequestReviewContext } from "@llmatic/github-adapter";
 import { verifyJiraConnectionFromEnvironment, type JiraWorkMode } from "@llmatic/jira-adapter";
 import {
   approveCurrentProjectPlan,
@@ -57,6 +58,7 @@ import {
 import {
   loadLatestReviewReport,
   runCodeReview,
+  runExternalPullRequestReview,
   runReviewFixLoop,
   type CodeReviewReport,
   type ReviewLoopEvent,
@@ -2237,6 +2239,102 @@ async function runGatewayReview(
   return report;
 }
 
+async function reviewExternalPullRequestInUi(
+  context: vscode.ExtensionContext,
+  state: ExtensionState,
+  statusProvider: LlmaticStatusProvider,
+  output: vscode.OutputChannel,
+): Promise<void> {
+  const folder = firstWorkspaceFolder();
+  if (!folder) {
+    throw new Error("Open a repository workspace before reviewing an external pull request.");
+  }
+
+  if (!state.activeWorkspace) {
+    state.activeWorkspace = await attachWorkspace(context, folder);
+  }
+
+  const reference = await vscode.window.showInputBox({
+    title: "Review External Pull Request",
+    prompt: "Enter a pull request number, URL, or branch reference.",
+    placeHolder: "42",
+    ignoreFocusOut: true,
+    validateInput: (value) => (value.trim() ? undefined : "Pull request reference is required."),
+  });
+  if (!reference?.trim()) return;
+
+  const model =
+    configuration().get<string>("agentModel", "kilo-auto/free").trim() || "kilo-auto/free";
+  const gatewayAccess = await gatewayAccessOrPrompt(context, model, state, statusProvider);
+  if (!gatewayAccess) return;
+  if (!(await confirmAutoFreeDataHandling(context, model))) return;
+
+  const root = folder.uri.fsPath;
+  const config = await loadAgentConfig(root, {
+    LLMATIC_HOME: context.globalStorageUri.fsPath,
+  });
+  const gateway = new KiloGatewayClient({
+    apiKey: gatewayAccess.apiKey,
+    onRetry: (event) => {
+      output.appendLine(
+        "[RETRY] Kilo Gateway " + event.nextAttempt + "/" + event.maxAttempts + ": " + event.reason,
+      );
+    },
+  });
+
+  const report = await vscode.window.withProgress(
+    {
+      location: vscode.ProgressLocation.Notification,
+      title: "LLMatic is reviewing external pull request " + reference.trim(),
+      cancellable: false,
+    },
+    async (progress) => {
+      progress.report({ message: "Reading pull request context…" });
+      const reviewContext = await getPullRequestReviewContext(root, reference.trim());
+
+      progress.report({ message: "Running General, Bug Hunter and Security review…" });
+      return runExternalPullRequestReview({
+        root,
+        config,
+        gateway,
+        model,
+        maxSteps: configuration().get<number>("agentMaxSteps", 20),
+        lenses: ["general", "bug_hunter", "security"],
+        material: {
+          reference: reference.trim(),
+          title: reviewContext.title,
+          body: reviewContext.body,
+          authorLogin: reviewContext.authorLogin,
+          ciState: reviewContext.status.ciState,
+          changedFiles: reviewContext.changedFiles.map((file) => file.path),
+          diff: reviewContext.diff,
+          diffTruncated: reviewContext.diffTruncated,
+          reviews: reviewContext.reviews,
+          comments: reviewContext.comments,
+        },
+      });
+    },
+  );
+
+  output.clear();
+  output.appendLine("LLMatic External Pull Request Review");
+  output.appendLine("PR: " + report.reference + " — " + report.title);
+  output.appendLine("Author: " + (report.authorLogin ?? "unknown"));
+  output.appendLine("Remote CI: " + report.ciState);
+  output.appendLine("Diff truncated: " + String(report.diffTruncated));
+  output.appendLine("");
+  printReviewReport(output, report);
+  output.show(true);
+
+  await vscode.window.showInformationMessage(
+    "LLMatic external PR review completed with " +
+      report.blockingCount +
+      " blocking / " +
+      report.nonBlockingCount +
+      " non-blocking finding(s).",
+  );
+}
+
 async function runAgentChatTurn(
   context: vscode.ExtensionContext,
   state: ExtensionState,
@@ -3825,6 +3923,14 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     }),
     vscode.commands.registerCommand("llmatic.agentChatProbe", async () => {
       return chatProvider.waitUntilClientReady(8_000);
+    }),
+    vscode.commands.registerCommand("llmatic.reviewExternalPullRequest", async () => {
+      try {
+        await reviewExternalPullRequestInUi(context, state, statusProvider, output);
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        await vscode.window.showErrorMessage("LLMatic external PR review: " + message);
+      }
     }),
     vscode.commands.registerCommand("llmatic.generatePrDraft", async () => {
       try {
