@@ -196,10 +196,11 @@ describe("VS Code extension activation surface", () => {
     );
 
     expect(source).not.toContain("--list-extensions");
-    expect(source).toContain("installed extension was not loaded from the isolated VSIX extensions directory");
+    expect(source).toContain(
+      "installed extension was not loaded from the isolated VSIX extensions directory",
+    );
     expect(source).toContain("target.packageJSON.version");
     expect(source).toContain("await target.activate()");
     expect(source).toContain("llmatic.agentChatProbe");
   });
-
 });
