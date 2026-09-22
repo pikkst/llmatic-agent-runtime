@@ -192,10 +192,10 @@ describe("KiloGatewayClient", () => {
       fetch: async () => {
         retryableCalls += 1;
         if (retryableCalls === 1) {
-          return new Response(
-            JSON.stringify({ error: { message: "Too many requests" } }),
-            { status: 429, statusText: "Too Many Requests" },
-          );
+          return new Response(JSON.stringify({ error: { message: "Too many requests" } }), {
+            status: 429,
+            statusText: "Too Many Requests",
+          });
         }
 
         return new Response(
@@ -228,10 +228,10 @@ describe("KiloGatewayClient", () => {
       sleep: async () => {},
       fetch: async () => {
         authCalls += 1;
-        return new Response(
-          JSON.stringify({ error: { message: "Invalid API key" } }),
-          { status: 401, statusText: "Unauthorized" },
-        );
+        return new Response(JSON.stringify({ error: { message: "Invalid API key" } }), {
+          status: 401,
+          statusText: "Unauthorized",
+        });
       },
     });
 
@@ -243,5 +243,4 @@ describe("KiloGatewayClient", () => {
     ).rejects.toThrow("401 Unauthorized");
     expect(authCalls).toBe(1);
   });
-
 });

@@ -2132,12 +2132,7 @@ async function runGatewayReview(
     apiKey: gatewayAccess.apiKey,
     onRetry: (event) => {
       output.appendLine(
-        "[RETRY] Kilo Gateway " +
-          event.nextAttempt +
-          "/" +
-          event.maxAttempts +
-          ": " +
-          event.reason,
+        "[RETRY] Kilo Gateway " + event.nextAttempt + "/" + event.maxAttempts + ": " + event.reason,
       );
     },
   });
@@ -2289,12 +2284,7 @@ async function runAgentChatTurn(
         event.maxAttempts +
         ")…";
       output.appendLine(
-        "[RETRY] Kilo Gateway " +
-          event.nextAttempt +
-          "/" +
-          event.maxAttempts +
-          ": " +
-          event.reason,
+        "[RETRY] Kilo Gateway " + event.nextAttempt + "/" + event.maxAttempts + ": " + event.reason,
       );
       chatProvider.setBusy(true, activity);
       agentOperation.update("Agent working", activity);
