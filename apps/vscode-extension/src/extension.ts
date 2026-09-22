@@ -190,6 +190,51 @@ function configuration() {
   return vscode.workspace.getConfiguration("llmatic");
 }
 
+function autoReviewWorkspaceState(context: vscode.ExtensionContext): AutoReviewWorkspaceState {
+  return (
+    context.workspaceState.get<AutoReviewWorkspaceState>(AUTO_REVIEW_STATE_KEY) ?? {
+      enabled: false,
+      seenFingerprints: {},
+    }
+  );
+}
+
+function autoReviewStatus(profile: AutoReviewWorkspaceState): AutoReviewStatus {
+  return {
+    enabled: profile.enabled,
+    repository: profile.repository,
+    lastReviewedPr: profile.lastReviewed?.number,
+    lastReviewedAt: profile.lastReviewed?.reviewedAt,
+    error: profile.lastError,
+  };
+}
+
+async function storeAutoReviewWorkspaceState(
+  context: vscode.ExtensionContext,
+  statusProvider: LlmaticStatusProvider,
+  profile: AutoReviewWorkspaceState,
+): Promise<void> {
+  await context.workspaceState.update(AUTO_REVIEW_STATE_KEY, profile);
+  statusProvider.setAutoReviewStatus(autoReviewStatus(profile));
+}
+
+function pullRequestWatchFingerprint(pullRequest: OpenPullRequestSummary): string {
+  return pullRequest.headRefOid + ":" + (pullRequest.isDraft ? "draft" : "ready");
+}
+
+async function automaticGatewayAccess(
+  context: vscode.ExtensionContext,
+  model: string,
+): Promise<GatewayAccess | undefined> {
+  const apiKey = await context.secrets.get(KILO_GATEWAY_SECRET);
+  if (apiKey) return { apiKey, anonymous: false };
+
+  const anonymousAllowed =
+    configuration().get<boolean>("allowAnonymousKiloFree", true) && isAnonymousFreeKiloModel(model);
+  const dataHandlingAccepted = context.globalState.get<boolean>(AUTO_FREE_WARNING_ACCEPTED, false);
+  return anonymousAllowed && dataHandlingAccepted ? { anonymous: true } : undefined;
+}
+
 function jiraSecretKey(workspaceId: string, authType: "basic" | "bearer" | "oauth_broker"): string {
   return JIRA_SECRET_PREFIX + "." + workspaceId + "." + authType;
 }
