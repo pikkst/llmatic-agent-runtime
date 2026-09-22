@@ -234,9 +234,7 @@ export async function getPullRequestStatus(
     requireSuccess(result, args);
   }
 
-  const checks = result.stdout.trim()
-    ? parseJson<PullRequestCheck[]>(result, args)
-    : [];
+  const checks = result.stdout.trim() ? parseJson<PullRequestCheck[]>(result, args) : [];
 
   return {
     pullRequest,

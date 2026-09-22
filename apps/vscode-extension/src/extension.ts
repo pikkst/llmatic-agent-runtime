@@ -2268,7 +2268,10 @@ function externalPullRequestReviewDraft(
     "Remote CI: **" + report.ciState + "**",
     "Review coverage: **" + report.coverage + "**",
     ...(report.unreviewedFiles.length > 0
-      ? ["Unreviewed changed files: " + report.unreviewedFiles.map((path) => "`" + path + "`").join(", ")]
+      ? [
+          "Unreviewed changed files: " +
+            report.unreviewedFiles.map((path) => "`" + path + "`").join(", "),
+        ]
       : []),
     "Review lenses: " + report.lenses.join(", "),
     "",

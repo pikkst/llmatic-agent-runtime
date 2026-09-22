@@ -208,8 +208,7 @@ describe("review engine", () => {
         body: "",
         ciState: "passing",
         changedFiles: ["src/value.ts", "src/omitted.ts"],
-        diff:
-          "diff --git a/src/value.ts b/src/value.ts\n--- a/src/value.ts\n+++ b/src/value.ts\n@@ -1 +1 @@\n-export const value = 1;\n+export const value = 2;\n",
+        diff: "diff --git a/src/value.ts b/src/value.ts\n--- a/src/value.ts\n+++ b/src/value.ts\n@@ -1 +1 @@\n-export const value = 1;\n+export const value = 2;\n",
         diffTruncated: true,
       },
     });
