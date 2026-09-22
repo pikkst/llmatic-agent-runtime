@@ -50,6 +50,20 @@ export interface BrokerRefreshResult {
   credential: BrokerCredential;
 }
 
+export interface BrokerHealth {
+  ok: boolean;
+  ready: boolean;
+  service: string;
+  version: string;
+  providers: Record<
+    string,
+    {
+      ready: boolean;
+      missing: string[];
+    }
+  >;
+}
+
 export const EXTERNAL_CONNECTION_PROVIDERS: readonly ExternalConnectionProvider[] = [
   {
     id: "jira",
@@ -112,6 +126,17 @@ async function brokerJson<T>(response: Response, operation: string): Promise<T> 
         (error instanceof Error ? error.message : String(error)),
     );
   }
+}
+
+export async function getBrokerHealth(
+  baseUrl: string,
+  request: typeof fetch = fetch,
+): Promise<BrokerHealth> {
+  const response = await request(brokerEndpoint(baseUrl, "/health"), {
+    headers: { Accept: "application/json" },
+  });
+
+  return brokerJson<BrokerHealth>(response, "Connection broker health");
 }
 
 export async function startBrokerConnection(
