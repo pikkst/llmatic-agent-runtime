@@ -1826,18 +1826,18 @@ async function confirmAutoFreeDataHandling(
   context: vscode.ExtensionContext,
   model: string,
 ): Promise<boolean> {
-  if (model !== "kilo-auto/free") return true;
+  if (!isAnonymousFreeKiloModel(model)) return true;
 
   const accepted = context.globalState.get<boolean>(AUTO_FREE_WARNING_ACCEPTED, false);
   if (accepted) return true;
 
   const selection = await vscode.window.showWarningMessage(
-    "Auto Free may route repository snippets to third-party inference providers that can log prompts/outputs. LLMatic blocks common secret files, but do not use Auto Free for confidential source code.",
+    "Free Kilo models may route repository snippets to third-party inference providers that can log prompts/outputs or use them to improve services. LLMatic blocks common secret files, but do not use free routing for confidential source code.",
     { modal: true },
-    "Continue with Auto Free",
+    "Continue with Free Models",
   );
 
-  if (selection !== "Continue with Auto Free") return false;
+  if (selection !== "Continue with Free Models") return false;
   await context.globalState.update(AUTO_FREE_WARNING_ACCEPTED, true);
   return true;
 }
