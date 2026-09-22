@@ -2101,7 +2101,7 @@ async function runAgentChatTurn(
   const gateway = new KiloGatewayClient({ apiKey: gatewayAccess.apiKey });
   const maxSteps = configuration().get<number>("agentMaxSteps", 20);
 
-  chatProvider.setBusy(true);
+  chatProvider.setBusy(true, "LLMatic agent is working…");
   output.appendLine("");
   output.appendLine("[CHAT] User: " + instruction);
 
@@ -3339,7 +3339,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   chatProvider.setHandlers({
     send: (text) => runAgentChatTurn(context, state, statusProvider, chatProvider, output, text),
     refresh: async () => {
-      chatProvider.setBusy(true);
+      chatProvider.setBusy(true, "Refreshing repository context…");
       chatProvider.appendActivity("Refreshing repository map and workspace recovery…");
       try {
         await refreshWorkspaceRecovery(context, state, statusProvider, chatProvider, output, true);
