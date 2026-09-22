@@ -226,9 +226,7 @@ describe("review engine", () => {
     const root = await repository();
     const config = configFor(root);
     const gateway = new ScriptedGateway([
-      response(
-        'Now I have enough context. {"summary":"Prefixed report parsed.","findings":[]}',
-      ),
+      response('Now I have enough context. {"summary":"Prefixed report parsed.","findings":[]}'),
     ]);
 
     const report = await runExternalPullRequestReview({
@@ -284,7 +282,9 @@ describe("review engine", () => {
     expect(gateway.requests[1]?.messages.at(-1)).toMatchObject({
       role: "user",
     });
-    expect(gateway.requests[1]?.messages.at(-1)?.content).toContain("Return ONLY one valid JSON object");
+    expect(gateway.requests[1]?.messages.at(-1)?.content).toContain(
+      "Return ONLY one valid JSON object",
+    );
     expect(events).toContainEqual(
       expect.objectContaining({
         type: "report-repair",
