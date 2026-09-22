@@ -4474,22 +4474,32 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     vscode.commands.registerCommand("llmatic.agentChatProbe", async () => {
       return chatProvider.waitUntilClientReady(8_000);
     }),
-    vscode.commands.registerCommand("llmatic.reviewExternalPullRequest", async () => {
-      try {
-        await reviewExternalPullRequestInUi(context, state, statusProvider, output);
-      } catch (error) {
-        const message = error instanceof Error ? error.message : String(error);
-        await vscode.window.showErrorMessage("LLMatic external PR review: " + message);
-      }
-    }),
-    vscode.commands.registerCommand("llmatic.configureAutoReview", async () => {
-      try {
-        await configureAutoReviewInUi(context, state, statusProvider, output);
-      } catch (error) {
-        const message = error instanceof Error ? error.message : String(error);
-        await vscode.window.showErrorMessage("LLMatic Auto Review Agent: " + message);
-      }
-    }),
+    vscode.commands.registerCommand(
+      "llmatic.reviewExternalPullRequest",
+      async (options?: { probe?: boolean }) => {
+        if (options?.probe) return true;
+        try {
+          await reviewExternalPullRequestInUi(context, state, statusProvider, output);
+        } catch (error) {
+          const message = error instanceof Error ? error.message : String(error);
+          await vscode.window.showErrorMessage("LLMatic external PR review: " + message);
+        }
+        return true;
+      },
+    ),
+    vscode.commands.registerCommand(
+      "llmatic.configureAutoReview",
+      async (options?: { probe?: boolean }) => {
+        if (options?.probe) return true;
+        try {
+          await configureAutoReviewInUi(context, state, statusProvider, output);
+        } catch (error) {
+          const message = error instanceof Error ? error.message : String(error);
+          await vscode.window.showErrorMessage("LLMatic Auto Review Agent: " + message);
+        }
+        return true;
+      },
+    ),
     vscode.commands.registerCommand("llmatic.generatePrDraft", async () => {
       try {
         await generatePrDraftInUi(context, state, statusProvider, chatProvider, output);
