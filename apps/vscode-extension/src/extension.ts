@@ -349,28 +349,322 @@ async function refreshJiraStatus(
   statusProvider.setJiraStatus(await workspaceJiraStatus(context, state));
 }
 
-async function connectJiraWorkspace(
+function delay(milliseconds: number): Promise<void> {
+  return new Promise((resolveDelay) => setTimeout(resolveDelay, milliseconds));
+}
+
+async function chooseJiraWorkMode(
+  existing?: WorkspaceJiraProfile,
+): Promise<JiraWorkMode | undefined> {
+  const workModePick = await vscode.window.showQuickPick(
+    [
+      {
+        label: "$(organization) Team project — assigned to me only",
+        description: "Safe default",
+        detail: "LLMatic may only start Jira tasks assigned to your current Jira account.",
+        mode: "assigned_only" as const,
+      },
+      {
+        label: "$(person) Solo project — whole project queue",
+        description: "Explicit opt-in",
+        detail: "LLMatic may choose the next unblocked task from the scoped Jira project queue.",
+        mode: "project_queue" as const,
+      },
+    ],
+    {
+      title: "LLMatic: Jira Work Ownership",
+      placeHolder:
+        existing?.workMode === "project_queue"
+          ? "Current: solo project queue"
+          : "Current: assigned to me only",
+      ignoreFocusOut: true,
+    },
+  );
+
+  return workModePick?.mode;
+}
+
+async function jiraProjectFromOAuthResource(
+  resource: BrokerResource,
+  accessToken: string,
+  existing?: WorkspaceJiraProfile,
+): Promise<string | undefined> {
+  const apiBase = "https://api.atlassian.com/ex/jira/" + encodeURIComponent(resource.id);
+  const response = await fetch(
+    apiBase + "/rest/api/3/project/search?maxResults=100&orderBy=name",
+    {
+      headers: {
+        Accept: "application/json",
+        Authorization: "Bearer " + accessToken,
+      },
+    },
+  );
+
+  if (response.ok) {
+    const raw = (await response.json()) as {
+      values?: Array<{ key?: string; name?: string }>;
+    };
+    const projects = (raw.values ?? [])
+      .filter(
+        (project): project is { key: string; name?: string } =>
+          typeof project.key === "string" && Boolean(project.key.trim()),
+      )
+      .map((project) => ({
+        label: project.key,
+        description: project.name,
+        key: project.key.toUpperCase(),
+      }));
+
+    if (projects.length > 0) {
+      const selected = await vscode.window.showQuickPick(projects, {
+        title: "LLMatic: Jira Project",
+        placeHolder: existing?.projectKey
+          ? "Current project: " + existing.projectKey
+          : "Choose the Jira project for this repository",
+        ignoreFocusOut: true,
+      });
+      return selected?.key;
+    }
+  }
+
+  const projectKey = await vscode.window.showInputBox({
+    title: "LLMatic: Jira Project",
+    prompt: "Project key used to scope this repository's Jira work.",
+    value: existing?.projectKey ?? "",
+    placeHolder: "SNAPY or KT",
+    ignoreFocusOut: true,
+    validateInput: (value) =>
+      /^[A-Z][A-Z0-9_]*$/i.test(value.trim())
+        ? undefined
+        : "Enter a Jira project key such as SNAPY or KT.",
+  });
+  return projectKey?.trim().toUpperCase();
+}
+
+async function persistJiraWorkspaceConnection(
+  context: vscode.ExtensionContext,
+  state: ExtensionState,
+  statusProvider: LlmaticStatusProvider,
+  chatProvider: AgentChatViewProvider,
+  output: vscode.OutputChannel,
+  profile: WorkspaceJiraProfile,
+  secret: string,
+  verifySecret: string,
+): Promise<void> {
+  const folder = firstWorkspaceFolder();
+  if (!folder || !state.activeWorkspace) {
+    throw new Error("No attached workspace is available for Jira connection.");
+  }
+
+  const verifyEnvironment = sanitizedJiraEnvironment();
+  verifyEnvironment.LLMATIC_TASK_PROVIDER = "jira";
+  verifyEnvironment.LLMATIC_JIRA_BASE_URL = profile.baseUrl;
+  verifyEnvironment.LLMATIC_JIRA_SITE_URL = profile.siteUrl ?? profile.baseUrl;
+  verifyEnvironment.LLMATIC_JIRA_PROJECT_KEY = profile.projectKey;
+  verifyEnvironment.LLMATIC_JIRA_WORK_MODE = profile.workMode;
+  if (profile.recoveryJql) {
+    verifyEnvironment.LLMATIC_JIRA_RECOVERY_JQL = profile.recoveryJql;
+  }
+  if (profile.authType === "basic") {
+    verifyEnvironment.LLMATIC_JIRA_EMAIL = profile.email;
+    verifyEnvironment.LLMATIC_JIRA_API_TOKEN = verifySecret;
+  } else {
+    verifyEnvironment.LLMATIC_JIRA_BEARER_TOKEN = verifySecret;
+  }
+
+  const config = await loadAgentConfig(folder.uri.fsPath, {
+    LLMATIC_HOME: context.globalStorageUri.fsPath,
+  });
+  const currentUser = await verifyJiraConnectionFromEnvironment(config, verifyEnvironment);
+
+  await context.workspaceState.update(JIRA_PROFILE_STATE_KEY, profile);
+  for (const authType of ["basic", "bearer", "oauth_broker"] as const) {
+    await context.secrets.delete(jiraSecretKey(state.activeWorkspace.id, authType));
+  }
+  await context.secrets.store(
+    jiraSecretKey(state.activeWorkspace.id, profile.authType),
+    secret,
+  );
+
+  await refreshJiraStatus(context, state, statusProvider);
+  await refreshWorkspaceRecovery(context, state, statusProvider, chatProvider, output, true);
+
+  await vscode.window.showInformationMessage(
+    "Jira connected for this workspace as " +
+      (currentUser.displayName ?? currentUser.emailAddress ?? currentUser.accountId) +
+      ". Project " +
+      profile.projectKey +
+      " · " +
+      (profile.workMode === "assigned_only" ? "assigned to me only" : "whole project queue") +
+      ".",
+  );
+}
+
+async function connectJiraWithBrowser(
+  context: vscode.ExtensionContext,
+  state: ExtensionState,
+  statusProvider: LlmaticStatusProvider,
+  chatProvider: AgentChatViewProvider,
+  output: vscode.OutputChannel,
+): Promise<boolean> {
+  const brokerUrl = connectionBrokerUrl();
+  const provider = externalConnectionProvider("jira");
+
+  if (!brokerUrl) {
+    const action = await vscode.window.showWarningMessage(
+      "One-click Atlassian connection needs the LLMatic OAuth broker URL. The broker keeps the Atlassian client secret out of the VSIX.",
+      "Configure Broker URL",
+      "Use Manual Connection",
+      "Open Setup Guide",
+    );
+
+    if (action === "Configure Broker URL") {
+      const value = await vscode.window.showInputBox({
+        title: "LLMatic: Connection Broker URL",
+        prompt: "Public HTTPS origin of the deployed LLMatic OAuth broker.",
+        placeHolder: "https://oauth.example.com",
+        ignoreFocusOut: true,
+        validateInput: (input) => {
+          try {
+            return new URL(input.trim()).protocol === "https:"
+              ? undefined
+              : "Use an HTTPS broker URL.";
+          } catch {
+            return "Enter a valid HTTPS URL.";
+          }
+        },
+      });
+      if (value?.trim()) {
+        await configuration().update(
+          "connectionBrokerUrl",
+          value.trim().replace(/\/+$/, ""),
+          vscode.ConfigurationTarget.Global,
+        );
+        return connectJiraWithBrowser(context, state, statusProvider, chatProvider, output);
+      }
+    } else if (action === "Open Setup Guide" && provider.documentationUrl) {
+      await vscode.env.openExternal(vscode.Uri.parse(provider.documentationUrl));
+    }
+
+    return action !== "Use Manual Connection";
+  }
+
+  const started = await startBrokerConnection(brokerUrl, {
+    provider: provider.brokerProvider ?? "atlassian",
+    returnLabel: firstWorkspaceFolder()?.name,
+  });
+
+  const opened = await vscode.env.openExternal(vscode.Uri.parse(started.authorizeUrl));
+  if (!opened) {
+    throw new Error("VS Code could not open the Atlassian authorization page.");
+  }
+
+  const connected = await vscode.window.withProgress(
+    {
+      location: vscode.ProgressLocation.Notification,
+      title: "LLMatic: waiting for Atlassian authorization",
+      cancellable: true,
+    },
+    async (progress, cancellation) => {
+      const expiresAt = Date.parse(started.expiresAt);
+      while (!cancellation.isCancellationRequested && Date.now() < expiresAt) {
+        const status = await pollBrokerConnection(
+          brokerUrl,
+          started.sessionId,
+          started.pollToken,
+        );
+
+        if (status.status === "connected") return status;
+        if (status.status === "error") throw new Error(status.message);
+
+        progress.report({ message: "Complete the Atlassian consent in your browser…" });
+        await delay(1500);
+      }
+      return undefined;
+    },
+  );
+
+  if (!connected) {
+    await vscode.window.showWarningMessage(
+      "Atlassian connection was cancelled or expired. Start Connect Jira Workspace to retry.",
+    );
+    return true;
+  }
+
+  if (connected.resources.length === 0) {
+    throw new Error("Atlassian authorized successfully but returned no accessible Jira sites.");
+  }
+
+  const resource =
+    connected.resources.length === 1
+      ? connected.resources[0]
+      : await vscode.window.showQuickPick(
+          connected.resources.map((candidate) => ({
+            label: candidate.name,
+            description: candidate.url,
+            resource: candidate,
+          })),
+          {
+            title: "LLMatic: Jira Site",
+            placeHolder: "Choose the Atlassian site for this repository",
+            ignoreFocusOut: true,
+          },
+        ).then((selection) => selection?.resource);
+
+  if (!resource) return true;
+
+  const existing = workspaceJiraProfile(context);
+  const projectKey = await jiraProjectFromOAuthResource(
+    resource,
+    connected.credential.accessToken,
+    existing,
+  );
+  if (!projectKey) return true;
+
+  const workMode = await chooseJiraWorkMode(existing);
+  if (!workMode) return true;
+
+  const profile: WorkspaceJiraProfile = {
+    baseUrl:
+      "https://api.atlassian.com/ex/jira/" + encodeURIComponent(resource.id),
+    siteUrl: resource.url.replace(/\/+$/, ""),
+    cloudId: resource.id,
+    projectKey,
+    workMode,
+    authType: "oauth_broker",
+    recoveryJql: existing?.recoveryJql,
+    brokerUrl,
+  };
+
+  await persistJiraWorkspaceConnection(
+    context,
+    state,
+    statusProvider,
+    chatProvider,
+    output,
+    profile,
+    JSON.stringify(connected.credential),
+    connected.credential.accessToken,
+  );
+  return true;
+}
+
+async function connectJiraManually(
   context: vscode.ExtensionContext,
   state: ExtensionState,
   statusProvider: LlmaticStatusProvider,
   chatProvider: AgentChatViewProvider,
   output: vscode.OutputChannel,
 ): Promise<void> {
-  const folder = firstWorkspaceFolder();
-  if (!folder) {
-    await vscode.window.showWarningMessage("Open a repository workspace before connecting Jira.");
-    return;
-  }
-
   if (!state.activeWorkspace) {
-    state.activeWorkspace = await attachWorkspace(context, folder);
+    throw new Error("Attach a workspace before configuring Jira.");
   }
 
   const existing = workspaceJiraProfile(context);
   const baseUrl = await vscode.window.showInputBox({
-    title: "LLMatic: Connect Jira Workspace",
+    title: "LLMatic: Manual Jira Connection",
     prompt: "Jira site URL for this repository/workspace.",
-    value: existing?.baseUrl ?? "",
+    value: existing?.siteUrl ?? existing?.baseUrl ?? "",
     placeHolder: "https://your-team.atlassian.net",
     ignoreFocusOut: true,
     validateInput: (value) => {
@@ -399,49 +693,24 @@ async function connectJiraWorkspace(
   });
   if (projectKey === undefined) return;
 
-  const workModePick = await vscode.window.showQuickPick(
-    [
-      {
-        label: "$(organization) Team project — assigned to me only",
-        description: "Safe default",
-        detail: "LLMatic may only start Jira tasks assigned to your current Jira account.",
-        mode: "assigned_only" as const,
-      },
-      {
-        label: "$(person) Solo project — whole project queue",
-        description: "Explicit opt-in",
-        detail: "LLMatic may choose the next unblocked task from the scoped Jira project queue.",
-        mode: "project_queue" as const,
-      },
-    ],
-    {
-      title: "LLMatic: Jira Work Ownership",
-      placeHolder:
-        existing?.workMode === "project_queue"
-          ? "Current: solo project queue"
-          : "Current: assigned to me only",
-      ignoreFocusOut: true,
-    },
-  );
-  if (!workModePick) return;
+  const workMode = await chooseJiraWorkMode(existing);
+  if (!workMode) return;
 
   const authPick = await vscode.window.showQuickPick(
     [
       {
         label: "$(account) Email + API token",
-        description: "Jira Cloud basic authentication",
+        description: "Legacy/manual Jira Cloud authentication",
         authType: "basic" as const,
       },
       {
         label: "$(key) Bearer token",
-        description: "Jira bearer authentication",
+        description: "Manual bearer authentication",
         authType: "bearer" as const,
       },
     ],
     {
-      title: "LLMatic: Jira Authentication",
-      placeHolder:
-        existing?.authType === "bearer" ? "Current: bearer token" : "Current: email + API token",
+      title: "LLMatic: Manual Jira Authentication",
       ignoreFocusOut: true,
     },
   );
@@ -462,10 +731,15 @@ async function connectJiraWorkspace(
 
   const existingSecret =
     existing?.authType === authPick.authType
-      ? await context.secrets.get(jiraSecretKey(state.activeWorkspace.id, authPick.authType))
+      ? await context.secrets.get(
+          jiraSecretKey(state.activeWorkspace.id, authPick.authType),
+        )
       : undefined;
   const secretInput = await vscode.window.showInputBox({
-    title: authPick.authType === "basic" ? "LLMatic: Jira API Token" : "LLMatic: Jira Bearer Token",
+    title:
+      authPick.authType === "basic"
+        ? "LLMatic: Jira API Token"
+        : "LLMatic: Jira Bearer Token",
     prompt: existingSecret
       ? "Leave blank to keep the existing secure token."
       : "Stored in VS Code SecretStorage for this workspace only.",
@@ -481,49 +755,96 @@ async function connectJiraWorkspace(
 
   const profile: WorkspaceJiraProfile = {
     baseUrl: baseUrl.trim().replace(/\/+$/, ""),
+    siteUrl: baseUrl.trim().replace(/\/+$/, ""),
     projectKey: projectKey.trim().toUpperCase(),
-    workMode: workModePick.mode,
+    workMode,
     authType: authPick.authType,
     email,
     recoveryJql: existing?.recoveryJql,
   };
 
-  const verifyEnvironment = sanitizedJiraEnvironment();
-  verifyEnvironment.LLMATIC_TASK_PROVIDER = "jira";
-  verifyEnvironment.LLMATIC_JIRA_BASE_URL = profile.baseUrl;
-  verifyEnvironment.LLMATIC_JIRA_SITE_URL = profile.baseUrl;
-  verifyEnvironment.LLMATIC_JIRA_PROJECT_KEY = profile.projectKey;
-  verifyEnvironment.LLMATIC_JIRA_WORK_MODE = profile.workMode;
-  if (profile.recoveryJql) verifyEnvironment.LLMATIC_JIRA_RECOVERY_JQL = profile.recoveryJql;
-  if (profile.authType === "basic") {
-    verifyEnvironment.LLMATIC_JIRA_EMAIL = profile.email;
-    verifyEnvironment.LLMATIC_JIRA_API_TOKEN = secret;
-  } else {
-    verifyEnvironment.LLMATIC_JIRA_BEARER_TOKEN = secret;
+  await persistJiraWorkspaceConnection(
+    context,
+    state,
+    statusProvider,
+    chatProvider,
+    output,
+    profile,
+    secret,
+    secret,
+  );
+}
+
+async function connectJiraWorkspace(
+  context: vscode.ExtensionContext,
+  state: ExtensionState,
+  statusProvider: LlmaticStatusProvider,
+  chatProvider: AgentChatViewProvider,
+  output: vscode.OutputChannel,
+): Promise<void> {
+  const folder = firstWorkspaceFolder();
+  if (!folder) {
+    await vscode.window.showWarningMessage("Open a repository workspace before connecting Jira.");
+    return;
   }
 
-  const config = await loadAgentConfig(folder.uri.fsPath, {
-    LLMATIC_HOME: context.globalStorageUri.fsPath,
-  });
-  const currentUser = await verifyJiraConnectionFromEnvironment(config, verifyEnvironment);
+  if (!state.activeWorkspace) {
+    state.activeWorkspace = await attachWorkspace(context, folder);
+  }
 
-  await context.workspaceState.update(JIRA_PROFILE_STATE_KEY, profile);
-  await context.secrets.delete(jiraSecretKey(state.activeWorkspace.id, "basic"));
-  await context.secrets.delete(jiraSecretKey(state.activeWorkspace.id, "bearer"));
-  await context.secrets.store(jiraSecretKey(state.activeWorkspace.id, profile.authType), secret);
-
-  await refreshJiraStatus(context, state, statusProvider);
-  await refreshWorkspaceRecovery(context, state, statusProvider, chatProvider, output, true);
-
-  await vscode.window.showInformationMessage(
-    "Jira connected for this workspace as " +
-      (currentUser.displayName ?? currentUser.emailAddress ?? currentUser.accountId) +
-      ". Project " +
-      profile.projectKey +
-      " · " +
-      (profile.workMode === "assigned_only" ? "assigned to me only" : "whole project queue") +
-      ".",
+  const existing = workspaceJiraProfile(context);
+  const choice = await vscode.window.showQuickPick(
+    [
+      {
+        label: "$(globe) Continue with Atlassian",
+        description: "Recommended · browser sign-in and consent",
+        detail:
+          "No Jira API token to copy. LLMatic uses the configured OAuth broker and stores the resulting workspace credential securely.",
+        action: "browser" as const,
+      },
+      {
+        label: "$(key) Manual credentials",
+        description: "Fallback",
+        detail: "Use an email + API token or bearer token.",
+        action: "manual" as const,
+      },
+      ...(existing
+        ? [
+            {
+              label: "$(trash) Disconnect current Jira workspace",
+              description: existing.projectKey,
+              action: "disconnect" as const,
+            },
+          ]
+        : []),
+    ],
+    {
+      title: "LLMatic: Connect Jira Workspace",
+      placeHolder: "Choose how to connect Jira for this repository",
+      ignoreFocusOut: true,
+    },
   );
+
+  if (!choice) return;
+  if (choice.action === "disconnect") {
+    await vscode.commands.executeCommand("llmatic.disconnectJiraWorkspace");
+    return;
+  }
+  if (choice.action === "manual") {
+    await connectJiraManually(context, state, statusProvider, chatProvider, output);
+    return;
+  }
+
+  const handled = await connectJiraWithBrowser(
+    context,
+    state,
+    statusProvider,
+    chatProvider,
+    output,
+  );
+  if (!handled) {
+    await connectJiraManually(context, state, statusProvider, chatProvider, output);
+  }
 }
 
 async function disconnectJiraWorkspace(
