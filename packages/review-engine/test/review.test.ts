@@ -24,6 +24,7 @@ import {
   runCodeReview,
   runExternalPullRequestReview,
   runReviewFixLoop,
+  type ReviewActivityEvent,
 } from "../src/review.js";
 
 const temporaryDirectories: string[] = [];
@@ -125,6 +126,7 @@ describe("review engine", () => {
   it("reviews an external pull request without changing workflow state", async () => {
     const root = await repository();
     const config = configFor(root);
+    const events: ReviewActivityEvent[] = [];
     const gateway = new ScriptedGateway([
       response(null, [
         {
@@ -156,6 +158,7 @@ describe("review engine", () => {
       config,
       gateway,
       lenses: ["general"],
+      onActivity: (event) => events.push(event),
       material: {
         reference: "42",
         headRefOid: "head-42",
@@ -195,6 +198,28 @@ describe("review engine", () => {
     expect(system).toContain("untrusted project data");
     expect(JSON.stringify(gateway.requests[0]?.messages[1])).not.toContain("SECRET=do-not-send");
     expect(JSON.stringify(gateway.requests[0]?.messages[1])).not.toContain(".env");
+    expect(events.map((event) => event.type)).toEqual(
+      expect.arrayContaining([
+        "constitution-start",
+        "constitution-complete",
+        "coverage",
+        "lens-start",
+        "model-request",
+        "model-response",
+        "tool-start",
+        "tool-complete",
+        "lens-complete",
+        "architecture-start",
+        "architecture-complete",
+        "complete",
+      ]),
+    );
+    expect(
+      events.find(
+        (event): event is Extract<ReviewActivityEvent, { type: "model-response" }> =>
+          event.type === "model-response",
+      )?.durationMs,
+    ).toBeGreaterThanOrEqual(0);
   });
 
   it("uses the external PR-head file reader instead of local working-tree bytes", async () => {
