@@ -242,7 +242,7 @@ The repository connector cannot create Git tags. Once main is green, the only ma
 
 ## M27 — Intelligent Workspace Recovery & Agent Chat
 
-Status: in progress.
+Status: completed in v0.2.0.
 
 Goal: make LLMatic resume engineering work automatically instead of presenting a manual command menu.
 
@@ -273,7 +273,7 @@ Direct Agent Chat must still not receive push, merge, deployment, arbitrary shel
 
 ## M28 — Repository Constitution & Review Policy
 
-Status: in progress.
+Status: completed in v0.2.0.
 
 Goal: make LLMatic adapt to each repository without allowing the model to silently invent or strengthen project policy.
 
@@ -305,7 +305,7 @@ PR drafts are generated from captured task/workflow/check/review/security/archit
 
 ## M29 — External Pull Request Review
 
-Status: planned after v0.2.0.
+Status: in progress for v0.3.0.
 
 Goal: support reviewing pull requests authored by other engineers without conflating that workflow with the current task owner/recovery lifecycle.
 
