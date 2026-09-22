@@ -292,25 +292,28 @@ function normalizeCommentSnapshots(value: unknown): PullRequestCommentSnapshot[]
 function normalizeReviewThreads(value: unknown): PullRequestReviewThreadSnapshot[] {
   if (!Array.isArray(value)) return [];
 
-  return value.slice(0, MAX_PULL_REQUEST_REVIEW_ITEMS).map((item) => {
-    const raw =
-      item && typeof item === "object" && !Array.isArray(item)
-        ? (item as Record<string, unknown>)
-        : {};
-    const commentsContainer =
-      raw.comments && typeof raw.comments === "object" && !Array.isArray(raw.comments)
-        ? (raw.comments as Record<string, unknown>)
-        : {};
+  return value
+    .slice(0, MAX_PULL_REQUEST_REVIEW_ITEMS)
+    .map((item) => {
+      const raw =
+        item && typeof item === "object" && !Array.isArray(item)
+          ? (item as Record<string, unknown>)
+          : {};
+      const commentsContainer =
+        raw.comments && typeof raw.comments === "object" && !Array.isArray(raw.comments)
+          ? (raw.comments as Record<string, unknown>)
+          : {};
 
-    return {
-      path: typeof raw.path === "string" ? raw.path.replaceAll("\\", "/") : "",
-      line: typeof raw.line === "number" ? raw.line : undefined,
-      originalLine: typeof raw.originalLine === "number" ? raw.originalLine : undefined,
-      resolved: Boolean(raw.isResolved),
-      outdated: Boolean(raw.isOutdated),
-      comments: normalizeCommentSnapshots(commentsContainer.nodes),
-    };
-  }).filter((thread) => Boolean(thread.path));
+      return {
+        path: typeof raw.path === "string" ? raw.path.replaceAll("\\", "/") : "",
+        line: typeof raw.line === "number" ? raw.line : undefined,
+        originalLine: typeof raw.originalLine === "number" ? raw.originalLine : undefined,
+        resolved: Boolean(raw.isResolved),
+        outdated: Boolean(raw.isOutdated),
+        comments: normalizeCommentSnapshots(commentsContainer.nodes),
+      };
+    })
+    .filter((thread) => Boolean(thread.path));
 }
 
 function readPullRequestReviewThreads(
@@ -376,11 +379,7 @@ export async function getPullRequestReviewContext(
   const rawDiff = requireSuccess(run(root, diffArgs, runner), diffArgs).stdout;
   const diffTruncated = rawDiff.length > MAX_PULL_REQUEST_REVIEW_DIFF_CHARS;
   const files = Array.isArray(raw.files) ? raw.files : [];
-  const reviewThreads = readPullRequestReviewThreads(
-    root,
-    status.pullRequest.number,
-    runner,
-  );
+  const reviewThreads = readPullRequestReviewThreads(root, status.pullRequest.number, runner);
 
   return {
     status,
