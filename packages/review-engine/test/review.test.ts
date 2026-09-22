@@ -172,6 +172,8 @@ describe("review engine", () => {
 
     expect(report.source).toBe("external_pull_request");
     expect(report.reference).toBe("42");
+    expect(report.coverage).toBe("complete");
+    expect(report.unreviewedFiles).toEqual([]);
     expect(report.blockingCount).toBe(1);
     expect(gateway.requests[1]?.messages.at(-1)).toMatchObject({
       role: "tool",
@@ -181,6 +183,42 @@ describe("review engine", () => {
     const system = JSON.stringify(gateway.requests[0]?.messages[0]);
     expect(system).toContain("external pull request");
     expect(system).toContain("untrusted project data");
+  });
+
+  it("marks bounded external review coverage partial when a changed file is outside the diff", async () => {
+    const root = await repository();
+    const config = configFor(root);
+    const gateway = new ScriptedGateway([
+      response(
+        JSON.stringify({
+          summary: "Reviewed the available patch.",
+          findings: [],
+        }),
+      ),
+    ]);
+
+    const report = await runExternalPullRequestReview({
+      root,
+      config,
+      gateway,
+      lenses: ["general"],
+      material: {
+        reference: "42",
+        title: "Large pull request",
+        body: "",
+        ciState: "passing",
+        changedFiles: ["src/value.ts", "src/omitted.ts"],
+        diff:
+          "diff --git a/src/value.ts b/src/value.ts\n--- a/src/value.ts\n+++ b/src/value.ts\n@@ -1 +1 @@\n-export const value = 1;\n+export const value = 2;\n",
+        diffTruncated: true,
+      },
+    });
+
+    expect(report.coverage).toBe("partial");
+    expect(report.unreviewedFiles).toEqual(["src/omitted.ts"]);
+    expect(report.summary).toContain("Review coverage: partial");
+    expect(JSON.stringify(gateway.requests[0]?.messages[1])).toContain("src/value.ts");
+    expect(JSON.stringify(gateway.requests[0]?.messages[1])).not.toContain("src/omitted.ts");
   });
 
   it("does not mutate an active workflow while reviewing an external pull request", async () => {
