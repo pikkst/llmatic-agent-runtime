@@ -1965,29 +1965,16 @@ async function handleJiraConnectionFailure(
     const value = await promptConnectionBrokerUrl();
     if (!value) return;
 
-    await configuration().update(
-      "connectionBrokerUrl",
-      value,
-      vscode.ConfigurationTarget.Global,
-    );
+    await configuration().update("connectionBrokerUrl", value, vscode.ConfigurationTarget.Global);
     state.jiraConnectionError = undefined;
 
     try {
-      await connectJiraWithBrowser(
-        context,
-        state,
-        statusProvider,
-        chatProvider,
-        output,
-      );
+      await connectJiraWithBrowser(context, state, statusProvider, chatProvider, output);
     } catch (retryError) {
-      const retryMessage =
-        retryError instanceof Error ? retryError.message : String(retryError);
+      const retryMessage = retryError instanceof Error ? retryError.message : String(retryError);
       state.jiraConnectionError = retryMessage;
       setJiraConnectionError(statusProvider, retryMessage, profile);
-      await vscode.window.showErrorMessage(
-        "LLMatic Jira connection: " + retryMessage,
-      );
+      await vscode.window.showErrorMessage("LLMatic Jira connection: " + retryMessage);
     }
     return;
   }
@@ -1995,21 +1982,13 @@ async function handleJiraConnectionFailure(
   if (action === "Use Manual Connection") {
     state.jiraConnectionError = undefined;
     try {
-      await connectJiraManually(
-        context,
-        state,
-        statusProvider,
-        chatProvider,
-        output,
-      );
+      await connectJiraManually(context, state, statusProvider, chatProvider, output);
     } catch (manualError) {
       const manualMessage =
         manualError instanceof Error ? manualError.message : String(manualError);
       state.jiraConnectionError = manualMessage;
       setJiraConnectionError(statusProvider, manualMessage, profile);
-      await vscode.window.showErrorMessage(
-        "LLMatic Jira connection: " + manualMessage,
-      );
+      await vscode.window.showErrorMessage("LLMatic Jira connection: " + manualMessage);
     }
     return;
   }
