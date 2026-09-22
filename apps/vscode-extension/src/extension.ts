@@ -2365,6 +2365,12 @@ async function reviewExternalPullRequestInUi(
   output.show(true);
 
   const draft = externalPullRequestReviewDraft(report);
+  output.appendLine("");
+  output.appendLine("Review comment draft (exact text that can be published):");
+  output.appendLine("");
+  output.appendLine(draft);
+  output.show(true);
+
   const action = await vscode.window.showInformationMessage(
     "LLMatic external PR review completed with " +
       report.blockingCount +
