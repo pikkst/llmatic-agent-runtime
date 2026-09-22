@@ -95,12 +95,9 @@ async function repository(): Promise<string> {
 
   await writeFile(
     join(root, "docs", "HISTORY.md"),
-    [
-      "# History",
-      "",
-      "The previous implementation should have used a different worker.",
-      "",
-    ].join("\n"),
+    ["# History", "", "The previous implementation should have used a different worker.", ""].join(
+      "\n",
+    ),
   );
 
   await writeFile(join(root, "src", "example.ts"), "export const value = 1;\n");
