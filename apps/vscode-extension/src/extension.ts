@@ -1816,6 +1816,7 @@ async function openConnectionCenter(
 async function runGatewayReview(
   context: vscode.ExtensionContext,
   state: ExtensionState,
+  statusProvider: LlmaticStatusProvider,
   output: vscode.OutputChannel,
   fixLoop: boolean,
 ): Promise<CodeReviewReport | undefined> {
@@ -3538,7 +3539,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     }),
     vscode.commands.registerCommand("llmatic.review", async () => {
       try {
-        const review = await runGatewayReview(context, state, output, false);
+        const review = await runGatewayReview(context, state, statusProvider, output, false);
         if (review) chatProvider.setReview(review);
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
@@ -3547,7 +3548,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     }),
     vscode.commands.registerCommand("llmatic.reviewFixLoop", async () => {
       try {
-        const review = await runGatewayReview(context, state, output, true);
+        const review = await runGatewayReview(context, state, statusProvider, output, true);
         if (review) chatProvider.setReview(review);
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
