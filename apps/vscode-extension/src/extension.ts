@@ -118,6 +118,7 @@ const JIRA_SECRET_PREFIX = "llmatic.jira.workspace";
 const AUTO_FREE_WARNING_ACCEPTED = "llmatic.autoFreeDataWarningAccepted";
 const AUTO_REVIEW_STATE_KEY = "llmatic.externalPrAutoReview.v1";
 const AUTO_REVIEW_POLL_INTERVAL_MS = 120_000;
+const AUTO_REVIEW_RETRY_COOLDOWN_MS = 10 * 60_000;
 const ONBOARDING_VERSION = 1;
 
 interface WorkspaceJiraProfile {
@@ -147,12 +148,19 @@ interface AutoReviewLastResult {
   blockingCount: number;
   nonBlockingCount: number;
   coverage: "complete" | "partial";
+  reviewStatus: "complete" | "partial";
+}
+
+interface AutoReviewRetryState {
+  fingerprint: string;
+  retryAfter: number;
 }
 
 interface AutoReviewWorkspaceState {
   enabled: boolean;
   repository?: string;
   seenFingerprints: Record<string, string>;
+  retry?: Record<string, AutoReviewRetryState>;
   lastReviewed?: AutoReviewLastResult;
   lastError?: string;
 }
@@ -211,6 +219,7 @@ function autoReviewStatus(profile: AutoReviewWorkspaceState): AutoReviewStatus {
     repository: profile.repository,
     lastReviewedPr: profile.lastReviewed?.number,
     lastReviewedAt: profile.lastReviewed?.reviewedAt,
+    lastReviewStatus: profile.lastReviewed?.reviewStatus,
     error: profile.lastError,
   };
 }
@@ -3117,7 +3126,9 @@ async function runAutoReviewScan(
 
     const pullRequests = listOpenPullRequests(root);
     const seenFingerprints = { ...profile.seenFingerprints };
+    const retry = { ...(profile.retry ?? {}) };
     const candidates: OpenPullRequestSummary[] = [];
+    const now = Date.now();
 
     for (const pullRequest of pullRequests) {
       const key = String(pullRequest.number);
@@ -3125,18 +3136,34 @@ async function runAutoReviewScan(
 
       if (pullRequest.isDraft) {
         seenFingerprints[key] = fingerprint;
+        delete retry[key];
         continue;
       }
 
-      if (seenFingerprints[key] !== fingerprint) {
-        candidates.push(pullRequest);
+      if (seenFingerprints[key] === fingerprint) {
+        delete retry[key];
+        continue;
       }
+
+      const pendingRetry = retry[key];
+      if (
+        pendingRetry?.fingerprint === fingerprint &&
+        pendingRetry.retryAfter > now
+      ) {
+        continue;
+      }
+
+      if (pendingRetry && pendingRetry.fingerprint !== fingerprint) {
+        delete retry[key];
+      }
+      candidates.push(pullRequest);
     }
 
     profile = {
       ...profile,
       repository,
       seenFingerprints,
+      retry,
       lastError: undefined,
     };
     await storeAutoReviewWorkspaceState(context, statusProvider, profile);
@@ -3176,24 +3203,54 @@ async function runAutoReviewScan(
         );
 
         profile = autoReviewWorkspaceState(context);
-        profile = {
-          ...profile,
-          repository,
-          seenFingerprints: {
-            ...profile.seenFingerprints,
-            [String(report.reference)]: report.headRefOid + ":ready",
-          },
-          lastReviewed: {
-            number: Number(report.reference),
-            headRefOid: report.headRefOid,
-            title: report.title,
-            reviewedAt: new Date().toISOString(),
-            blockingCount: report.blockingCount,
-            nonBlockingCount: report.nonBlockingCount,
-            coverage: report.coverage,
-          },
-          lastError: undefined,
-        };
+        const key = String(report.reference);
+        const fingerprint = report.headRefOid + ":ready";
+        const nextRetry = { ...(profile.retry ?? {}) };
+
+        if (report.reviewStatus === "complete") {
+          delete nextRetry[key];
+          profile = {
+            ...profile,
+            repository,
+            seenFingerprints: {
+              ...profile.seenFingerprints,
+              [key]: fingerprint,
+            },
+            retry: nextRetry,
+            lastReviewed: {
+              number: Number(report.reference),
+              headRefOid: report.headRefOid,
+              title: report.title,
+              reviewedAt: new Date().toISOString(),
+              blockingCount: report.blockingCount,
+              nonBlockingCount: report.nonBlockingCount,
+              coverage: report.coverage,
+              reviewStatus: report.reviewStatus,
+            },
+            lastError: undefined,
+          };
+        } else {
+          nextRetry[key] = {
+            fingerprint,
+            retryAfter: Date.now() + AUTO_REVIEW_RETRY_COOLDOWN_MS,
+          };
+          profile = {
+            ...profile,
+            repository,
+            retry: nextRetry,
+            lastReviewed: {
+              number: Number(report.reference),
+              headRefOid: report.headRefOid,
+              title: report.title,
+              reviewedAt: new Date().toISOString(),
+              blockingCount: report.blockingCount,
+              nonBlockingCount: report.nonBlockingCount,
+              coverage: report.coverage,
+              reviewStatus: report.reviewStatus,
+            },
+            lastError: undefined,
+          };
+        }
         await storeAutoReviewWorkspaceState(context, statusProvider, profile);
 
         output.appendLine("");
@@ -3226,12 +3283,16 @@ async function runAutoReviewScan(
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
         profile = autoReviewWorkspaceState(context);
+        const key = String(pullRequest.number);
         profile = {
           ...profile,
           repository,
-          seenFingerprints: {
-            ...profile.seenFingerprints,
-            [String(pullRequest.number)]: pullRequestWatchFingerprint(pullRequest),
+          retry: {
+            ...(profile.retry ?? {}),
+            [key]: {
+              fingerprint: pullRequestWatchFingerprint(pullRequest),
+              retryAfter: Date.now() + AUTO_REVIEW_RETRY_COOLDOWN_MS,
+            },
           },
           lastError: "PR #" + pullRequest.number + ": " + message,
         };
