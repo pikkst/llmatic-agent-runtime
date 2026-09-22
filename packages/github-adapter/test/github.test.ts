@@ -204,14 +204,6 @@ describe("github adapter", () => {
         };
       }
 
-      if (args[0] === "repo" && args[1] === "view") {
-        return {
-          exitCode: 0,
-          stdout: JSON.stringify({ nameWithOwner: "example/repo" }),
-          stderr: "",
-        };
-      }
-
       if (args[0] === "api" && args[1] === "graphql") {
         return {
           exitCode: 0,
