@@ -36,10 +36,12 @@ describe("VS Code extension activation surface", () => {
     expect(source).toContain("recoverWorkspace");
     expect(source).toContain("workspaceRecoveryContext");
     expect(source).toContain("verifyJiraConnectionFromEnvironment");
+    expect(source).toContain("getBrokerHealth");
     expect(source).toContain("startBrokerConnection");
     expect(source).toContain("pollBrokerConnection");
     expect(source).toContain("refreshBrokerCredential");
     expect(source).toContain("Continue with Atlassian");
+    expect(source).toContain("Atlassian is not ready");
     expect(source).toContain("JIRA_PROFILE_STATE_KEY");
     expect(source).toContain("jiraSecretKey");
     expect(source).toContain('"assigned_only"');
@@ -73,6 +75,7 @@ describe("VS Code extension activation surface", () => {
     expect(source).toContain("testing.iconPassed");
     expect(source).toContain("list.warningForeground");
     expect(source).toContain("list.errorForeground");
+    expect(source).toContain("connection error · reconnect required");
   });
   it("contributes a persistent Agent Chat webview with repository recovery controls", async () => {
     const packageJson = JSON.parse(
