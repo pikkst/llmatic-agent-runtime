@@ -21,6 +21,8 @@ export class AgentChatViewProvider implements vscode.WebviewViewProvider {
   private readonly messages: ChatMessage[] = [];
   private busy = false;
   private busyLabel = "LLMatic is working…";
+  private syncRetryCount = 0;
+  private syncRetry?: ReturnType<typeof setTimeout>;
   private handlers?: AgentChatHandlers;
 
   public setHandlers(handlers: AgentChatHandlers): void {
@@ -76,6 +78,9 @@ export class AgentChatViewProvider implements vscode.WebviewViewProvider {
     });
     view.onDidDispose(() => {
       if (this.view === view) this.view = undefined;
+      if (this.syncRetry) clearTimeout(this.syncRetry);
+      this.syncRetry = undefined;
+      this.syncRetryCount = 0;
     });
 
     view.webview.html = this.html(view.webview);
@@ -137,7 +142,8 @@ export class AgentChatViewProvider implements vscode.WebviewViewProvider {
   private sync(): void {
     if (!this.view) return;
 
-    void this.view.webview.postMessage({
+    const view = this.view;
+    const message = {
       type: "state",
       busy: this.busy,
       busyLabel: this.busyLabel,
@@ -159,8 +165,21 @@ export class AgentChatViewProvider implements vscode.WebviewViewProvider {
         : undefined,
       recovery: this.recovery
         ? {
-            repository: this.recovery.repository,
-            git: this.recovery.git,
+            repository: {
+              generatedAt: this.recovery.repository.generatedAt,
+              fileCount: this.recovery.repository.fileCount,
+              sourceFileCount: this.recovery.repository.sourceFileCount,
+              symbolCount: this.recovery.repository.symbolCount,
+              importCount: this.recovery.repository.importCount,
+            },
+            git: {
+              branch: this.recovery.git.branch,
+              detached: this.recovery.git.detached,
+              clean: this.recovery.git.clean,
+              stagedCount: this.recovery.git.stagedCount,
+              unstagedCount: this.recovery.git.unstagedCount,
+              untrackedCount: this.recovery.git.untrackedCount,
+            },
             workflow: this.recovery.workflow
               ? {
                   taskRef: this.recovery.workflow.taskRef,
@@ -198,8 +217,39 @@ export class AgentChatViewProvider implements vscode.WebviewViewProvider {
             warnings: this.recovery.warnings,
           }
         : undefined,
-      messages: this.messages,
-    });
+      messages: this.messages.map((message) => ({ ...message })),
+    };
+
+    void view.webview
+      .postMessage(message)
+      .then((delivered) => {
+        if (this.view !== view) return;
+        if (delivered) {
+          this.syncRetryCount = 0;
+          if (this.syncRetry) clearTimeout(this.syncRetry);
+          this.syncRetry = undefined;
+          return;
+        }
+
+        if (this.syncRetryCount >= 5) return;
+        const delays = [50, 150, 400, 900, 1800];
+        const delay = delays[this.syncRetryCount] ?? 1800;
+        this.syncRetryCount += 1;
+        if (this.syncRetry) clearTimeout(this.syncRetry);
+        this.syncRetry = setTimeout(() => {
+          this.syncRetry = undefined;
+          this.sync();
+        }, delay);
+      })
+      .catch(() => {
+        if (this.view !== view || this.syncRetryCount >= 5) return;
+        this.syncRetryCount += 1;
+        if (this.syncRetry) clearTimeout(this.syncRetry);
+        this.syncRetry = setTimeout(() => {
+          this.syncRetry = undefined;
+          this.sync();
+        }, 250);
+      });
   }
 
   private html(webview: vscode.Webview): string {
@@ -351,6 +401,7 @@ export class AgentChatViewProvider implements vscode.WebviewViewProvider {
     const continueButton = document.getElementById("continue");
     const refresh = document.getElementById("refresh");
     let latestRecovery;
+    let receivedState = false;
 
     function textRow(label, value, status = "neutral") {
       const row = document.createElement("div");
@@ -575,6 +626,7 @@ export class AgentChatViewProvider implements vscode.WebviewViewProvider {
     window.addEventListener("message", (event) => {
       const state = event.data;
       if (!state || state.type !== "state") return;
+      receivedState = true;
       renderRecovery(state.recovery);
       renderReview(state.review);
       renderMessages(state.messages || []);
@@ -589,6 +641,11 @@ export class AgentChatViewProvider implements vscode.WebviewViewProvider {
     });
 
     vscode.postMessage({ type: "ready" });
+    for (const delay of [150, 500, 1200]) {
+      setTimeout(() => {
+        if (!receivedState) vscode.postMessage({ type: "ready" });
+      }, delay);
+    }
   </script>
 </body>
 </html>`;
