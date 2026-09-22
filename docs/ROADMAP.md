@@ -310,3 +310,22 @@ Status: implementation complete for v0.3.0; local VS Code smoke pending.
 Goal: support reviewing pull requests authored by other engineers without conflating that workflow with the current task owner/recovery lifecycle.
 
 The review flow should be explicitly user-invoked, read the target PR/diff/checks/review threads, apply repository constitution + Bug Hunter + Security lenses, and produce review findings/comments without changing Jira task ownership or selecting the PR author's task as the user's active workflow.
+
+## M30 — Repository Auto Review Agent
+
+Status: in progress for v0.3.0.
+
+Goal: let one opened repository opt into automatic review of new or updated review-ready pull requests without changing Jira/task ownership.
+
+Local v0.3 scope:
+
+- explicit repository-bound enable/disable action
+- visible Auto Review Agent state in Runtime Status
+- baseline existing PRs when enabled
+- detect new PRs, new head SHAs and draft-to-ready transitions
+- poll while the VS Code workspace is open
+- run the same Repository Constitution + General + Bug Hunter + Security review
+- keep review publication manual by default
+- never mutate the active LLMatic workflow merely because a watched PR changes
+
+Always-on review while VS Code is closed requires a later GitHub App/Actions service mode; the local extension watcher must not pretend to provide cloud availability.
