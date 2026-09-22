@@ -118,6 +118,31 @@ describe("github adapter", () => {
     expect(calls).toEqual([["pr", "review", "7", "--comment", "--body", "Review body"]]);
   });
 
+  it("rejects publishing a stale pull-request review snapshot", async () => {
+    const config = configFor("/repo");
+    const runner: GitHubProcessRunner = (_executable, args) => {
+      if (args[0] === "pr" && args[1] === "view") {
+        return {
+          exitCode: 0,
+          stdout: pullRequestJson({ headRefOid: "new-head" }),
+          stderr: "",
+        };
+      }
+
+      return { exitCode: 1, stdout: "", stderr: "unexpected command" };
+    };
+
+    await expect(
+      publishPullRequestReview(
+        "/repo",
+        config,
+        "7",
+        { body: "Review body", expectedHeadOid: "old-head" },
+        { approved: true, runner },
+      ),
+    ).rejects.toThrow("Pull-request head changed during review");
+  });
+
   it("creates a pull request with structured gh arguments", async () => {
     const config = configFor("/repo");
     const calls: string[][] = [];
