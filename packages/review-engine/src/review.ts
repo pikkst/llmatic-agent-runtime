@@ -496,14 +496,17 @@ function externalLensFiles(lens: ReviewLens, files: string[]): string[] {
   if (lens === "general") return files;
 
   const codeFiles = files.filter(reviewableCodePath);
-  if (lens === "bug_hunter") return codeFiles.length > 0 ? codeFiles : files;
+  if (codeFiles.length === 0) return files;
+  if (lens === "bug_hunter") return codeFiles;
 
-  const securityPriority = codeFiles.filter((path) =>
+  const isSecurityPriority = (path: string) =>
     /auth|oauth|token|secret|permission|github|gateway|external|connection|webhook|api|security|config|extension|orchestrator/i.test(
       path,
-    ),
-  );
-  return securityPriority.length > 0 ? securityPriority : codeFiles.length > 0 ? codeFiles : files;
+    );
+  return [
+    ...codeFiles.filter(isSecurityPriority),
+    ...codeFiles.filter((path) => !isSecurityPriority(path)),
+  ];
 }
 
 function externalReviewBatches(
