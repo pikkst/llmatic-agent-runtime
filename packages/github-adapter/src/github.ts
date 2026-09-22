@@ -13,6 +13,7 @@ import type {
   PullRequestCommentSnapshot,
   PullRequestReviewContext,
   PullRequestReviewSnapshot,
+  PullRequestReviewThreadSnapshot,
   PullRequestStatus,
   PullRequestSummary,
   RemoteCiState,
@@ -53,6 +54,34 @@ const PR_REVIEW_FIELDS = [
 const MAX_PULL_REQUEST_REVIEW_DIFF_CHARS = 256_000;
 const MAX_PULL_REQUEST_TEXT_CHARS = 32_000;
 const MAX_PULL_REQUEST_REVIEW_ITEMS = 50;
+
+const PR_REVIEW_THREADS_QUERY = `
+query PullRequestReviewThreads($owner: String!, $name: String!, $number: Int!) {
+  repository(owner: $owner, name: $name) {
+    pullRequest(number: $number) {
+      reviewThreads(first: 50) {
+        nodes {
+          isResolved
+          isOutdated
+          path
+          line
+          originalLine
+          comments(first: 50) {
+            nodes {
+              author {
+                login
+              }
+              body
+              createdAt
+              url
+            }
+          }
+        }
+      }
+    }
+  }
+}
+`;
 
 function defaultRunner(executable: string, args: string[], cwd: string): GitHubProcessResult {
   const result = spawnSync(executable, args, {
@@ -260,6 +289,72 @@ function normalizeCommentSnapshots(value: unknown): PullRequestCommentSnapshot[]
   });
 }
 
+function normalizeReviewThreads(value: unknown): PullRequestReviewThreadSnapshot[] {
+  if (!Array.isArray(value)) return [];
+
+  return value.slice(0, MAX_PULL_REQUEST_REVIEW_ITEMS).map((item) => {
+    const raw =
+      item && typeof item === "object" && !Array.isArray(item)
+        ? (item as Record<string, unknown>)
+        : {};
+    const commentsContainer =
+      raw.comments && typeof raw.comments === "object" && !Array.isArray(raw.comments)
+        ? (raw.comments as Record<string, unknown>)
+        : {};
+
+    return {
+      path: typeof raw.path === "string" ? raw.path.replaceAll("\\", "/") : "",
+      line: typeof raw.line === "number" ? raw.line : undefined,
+      originalLine: typeof raw.originalLine === "number" ? raw.originalLine : undefined,
+      resolved: Boolean(raw.isResolved),
+      outdated: Boolean(raw.isOutdated),
+      comments: normalizeCommentSnapshots(commentsContainer.nodes),
+    };
+  }).filter((thread) => Boolean(thread.path));
+}
+
+function readPullRequestReviewThreads(
+  root: string,
+  pullRequestNumber: number,
+  runner: GitHubProcessRunner,
+): PullRequestReviewThreadSnapshot[] {
+  const repositoryArgs = ["repo", "view", "--json", "nameWithOwner"];
+  const repository = parseJson<{ nameWithOwner?: string }>(
+    requireSuccess(run(root, repositoryArgs, runner), repositoryArgs),
+    repositoryArgs,
+  );
+  const [owner, name] = String(repository.nameWithOwner ?? "").split("/", 2);
+  if (!owner || !name) {
+    throw new Error("GitHub repository owner/name could not be resolved for pull-request review.");
+  }
+
+  const args = [
+    "api",
+    "graphql",
+    "-f",
+    "query=" + PR_REVIEW_THREADS_QUERY,
+    "-f",
+    "owner=" + owner,
+    "-f",
+    "name=" + name,
+    "-F",
+    "number=" + String(pullRequestNumber),
+  ];
+  const result = parseJson<{
+    data?: {
+      repository?: {
+        pullRequest?: {
+          reviewThreads?: {
+            nodes?: unknown[];
+          };
+        };
+      };
+    };
+  }>(requireSuccess(run(root, args, runner), args), args);
+
+  return normalizeReviewThreads(result.data?.repository?.pullRequest?.reviewThreads?.nodes);
+}
+
 /**
  * Reads a target pull request for explicit external review without mutating
  * workflow state, task ownership, the working tree, or the remote pull request.
@@ -281,6 +376,11 @@ export async function getPullRequestReviewContext(
   const rawDiff = requireSuccess(run(root, diffArgs, runner), diffArgs).stdout;
   const diffTruncated = rawDiff.length > MAX_PULL_REQUEST_REVIEW_DIFF_CHARS;
   const files = Array.isArray(raw.files) ? raw.files : [];
+  const reviewThreads = readPullRequestReviewThreads(
+    root,
+    status.pullRequest.number,
+    runner,
+  );
 
   return {
     status,
@@ -302,6 +402,7 @@ export async function getPullRequestReviewContext(
       .filter((file) => Boolean(file.path)),
     reviews: normalizeReviewSnapshots(raw.reviews),
     comments: normalizeCommentSnapshots(raw.comments),
+    reviewThreads,
     diff: diffTruncated
       ? rawDiff.slice(0, MAX_PULL_REQUEST_REVIEW_DIFF_CHARS) + "\n[DIFF TRUNCATED]"
       : rawDiff,
