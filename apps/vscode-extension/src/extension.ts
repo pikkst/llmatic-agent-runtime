@@ -23,6 +23,14 @@ import {
   type DiscoveryQuestion,
   type DiscoverySession,
 } from "@llmatic/discovery-engine";
+import {
+  externalConnectionProvider,
+  pollBrokerConnection,
+  refreshBrokerCredential,
+  startBrokerConnection,
+  type BrokerCredential,
+  type BrokerResource,
+} from "@llmatic/external-connections";
 import { KiloGatewayClient } from "@llmatic/gateway-client";
 import { verifyJiraConnectionFromEnvironment, type JiraWorkMode } from "@llmatic/jira-adapter";
 import {
@@ -88,6 +96,7 @@ import {
 
 const KILO_EXTENSION_ID = "kilocode.kilo-code";
 const KILO_GATEWAY_SECRET = "llmatic.kiloGatewayApiKey";
+const KILO_ANONYMOUS_STATE = "llmatic.kiloGatewayAnonymousAccepted";
 const JIRA_PROFILE_STATE_KEY = "llmatic.jiraProfile.v1";
 const JIRA_SECRET_PREFIX = "llmatic.jira.workspace";
 const AUTO_FREE_WARNING_ACCEPTED = "llmatic.autoFreeDataWarningAccepted";
@@ -95,11 +104,21 @@ const ONBOARDING_VERSION = 1;
 
 interface WorkspaceJiraProfile {
   baseUrl: string;
+  siteUrl?: string;
+  cloudId?: string;
   projectKey: string;
   workMode: JiraWorkMode;
-  authType: "basic" | "bearer";
+  authType: "basic" | "bearer" | "oauth_broker";
   email?: string;
   recoveryJql?: string;
+  brokerUrl?: string;
+}
+
+interface JiraOAuthCredential extends BrokerCredential {}
+
+interface GatewayAccess {
+  apiKey?: string;
+  anonymous: boolean;
 }
 
 interface ExtensionState {
@@ -138,7 +157,10 @@ function configuration() {
   return vscode.workspace.getConfiguration("llmatic");
 }
 
-function jiraSecretKey(workspaceId: string, authType: "basic" | "bearer"): string {
+function jiraSecretKey(
+  workspaceId: string,
+  authType: "basic" | "bearer" | "oauth_broker",
+): string {
   return JIRA_SECRET_PREFIX + "." + workspaceId + "." + authType;
 }
 
