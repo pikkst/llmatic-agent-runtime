@@ -385,6 +385,47 @@ function setJiraConnectionProgress(
   });
 }
 
+function setJiraConnectionError(
+  statusProvider: LlmaticStatusProvider,
+  message: string,
+  profile?: WorkspaceJiraProfile,
+): void {
+  statusProvider.setJiraStatus({
+    connected: false,
+    required: true,
+    label: profile?.projectKey,
+    detail: profile?.siteUrl
+      ? new URL(profile.siteUrl).host
+      : profile?.baseUrl
+        ? new URL(profile.baseUrl).host
+        : undefined,
+    workMode: profile?.workMode,
+    error: message,
+  });
+}
+
+async function promptConnectionBrokerUrl(): Promise<string | undefined> {
+  const current = connectionBrokerUrl();
+  const value = await vscode.window.showInputBox({
+    title: "LLMatic: Connection Broker URL",
+    prompt: "Public HTTPS origin of the deployed LLMatic OAuth broker — not the Jira site URL.",
+    value: current ?? "",
+    placeHolder: "https://oauth.example.com",
+    ignoreFocusOut: true,
+    validateInput: (input) => {
+      try {
+        return new URL(input.trim()).protocol === "https:"
+          ? undefined
+          : "Use an HTTPS LLMatic OAuth broker URL.";
+      } catch {
+        return "Enter a valid HTTPS URL.";
+      }
+    },
+  });
+
+  return value?.trim().replace(/\/+$/, "") || undefined;
+}
+
 function delay(milliseconds: number): Promise<void> {
   return new Promise((resolveDelay) => setTimeout(resolveDelay, milliseconds));
 }
@@ -576,25 +617,11 @@ async function connectJiraWithBrowser(
     );
 
     if (action === "Configure Broker URL") {
-      const value = await vscode.window.showInputBox({
-        title: "LLMatic: Connection Broker URL",
-        prompt: "Public HTTPS origin of the deployed LLMatic OAuth broker.",
-        placeHolder: "https://oauth.example.com",
-        ignoreFocusOut: true,
-        validateInput: (input) => {
-          try {
-            return new URL(input.trim()).protocol === "https:"
-              ? undefined
-              : "Use an HTTPS broker URL.";
-          } catch {
-            return "Enter a valid HTTPS URL.";
-          }
-        },
-      });
-      if (value?.trim()) {
+      const value = await promptConnectionBrokerUrl();
+      if (value) {
         await configuration().update(
           "connectionBrokerUrl",
-          value.trim().replace(/\/+$/, ""),
+          value,
           vscode.ConfigurationTarget.Global,
         );
         return connectJiraWithBrowser(context, state, statusProvider, chatProvider, output);
@@ -3607,7 +3634,58 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         await connectJiraWorkspace(context, state, statusProvider, chatProvider, output);
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
-        await refreshJiraStatus(context, state, statusProvider).catch(() => undefined);
+        const profile = workspaceJiraProfile(context);
+        setJiraConnectionError(statusProvider, message, profile);
+
+        if (/broker/i.test(message)) {
+          const action = await vscode.window.showErrorMessage(
+            "LLMatic Jira connection: " + message,
+            "Configure Broker URL",
+            "Use Manual Connection",
+            "Open Broker Setup Guide",
+          );
+
+          if (action === "Configure Broker URL") {
+            const value = await promptConnectionBrokerUrl();
+            if (value) {
+              await configuration().update(
+                "connectionBrokerUrl",
+                value,
+                vscode.ConfigurationTarget.Global,
+              );
+              await connectJiraWithBrowser(
+                context,
+                state,
+                statusProvider,
+                chatProvider,
+                output,
+              ).catch((retryError) => {
+                const retryMessage =
+                  retryError instanceof Error ? retryError.message : String(retryError);
+                setJiraConnectionError(statusProvider, retryMessage, profile);
+                void vscode.window.showErrorMessage(
+                  "LLMatic Jira connection: " + retryMessage,
+                );
+              });
+            }
+          } else if (action === "Use Manual Connection") {
+            await connectJiraManually(
+              context,
+              state,
+              statusProvider,
+              chatProvider,
+              output,
+            );
+          } else if (action === "Open Broker Setup Guide") {
+            await vscode.env.openExternal(
+              vscode.Uri.parse(
+                "https://github.com/pikkst/llmatic-agent-runtime/tree/main/deploy/oauth-broker",
+              ),
+            );
+          }
+          return;
+        }
+
         await vscode.window.showErrorMessage("LLMatic Jira connection: " + message);
       }
     }),
