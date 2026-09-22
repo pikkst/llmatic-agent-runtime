@@ -172,13 +172,16 @@ auto | jira | markdown | github
 
 This matters when a repository contains both `TASKS.md` and a live Jira project.
 
-For VS Code, the preferred setup is workspace-specific:
+For VS Code, the preferred setup is workspace-specific and browser-first:
 
 ```text
+LLMatic: External Connections
 LLMatic: Connect Jira Workspace
 ```
 
-Each repository/workspace stores its own Jira profile and uses a workspace-ID-scoped SecretStorage credential. This allows separate VS Code windows such as Snapycall and Krunditark to connect to different Jira sites/projects without sharing credentials or queue policy.
+When the LLMatic OAuth broker is configured, **Continue with Atlassian** opens the browser, completes Atlassian OAuth 2.0 (3LO), discovers the authorized Jira sites and lets you select the project without copying an API token. Each repository/workspace stores its own Jira profile and workspace-ID-scoped credential in VS Code SecretStorage. This allows separate VS Code windows such as Snapycall and Krunditark to connect to different Jira sites/projects without sharing credentials or queue policy.
+
+Manual Jira credentials remain an explicit fallback. The OAuth broker keeps the Atlassian client secret outside the VSIX and handles rotating refresh tokens; deployment guidance is in `deploy/oauth-broker/README.md`.
 
 Jira work ownership is explicit:
 
@@ -310,15 +313,16 @@ llmatic.agentModel
 
 Before first Auto Free use, LLMatic displays a data-handling warning. Do not send confidential source code to a model/provider whose data-handling terms are unsuitable for the repository.
 
-The Kilo Gateway API key is **not** required for Kilo Code MCP connectivity or LLMatic runtime readiness. It is required only when you use LLMatic's direct Gateway Agent or automated review/fix orchestration.
+The Kilo Gateway API key is **not** required for Kilo Code MCP connectivity or runtime readiness. LLMatic can also use Kilo's anonymous access for `kilo-auto/free` and explicit `:free` models when `llmatic.allowAnonymousKiloFree` is enabled.
 
-To configure it, use the visible **Set Kilo Gateway API Key** action in the LLMatic Activity Bar, or run:
+For paid/authenticated Gateway access use:
 
 ```text
-LLMatic: Set Kilo Gateway API Key
+LLMatic: External Connections
+LLMatic: Connect Kilo Gateway
 ```
 
-The key is entered through a password prompt and stored only in VS Code SecretStorage. If you start a direct agent/review without a key, LLMatic offers this secure setup automatically.
+LLMatic can open `app.kilo.ai` in your browser so you can create a Gateway API key, then prompts you to paste it into VS Code SecretStorage. Kilo does not currently expose a documented direct Gateway OAuth handoff for third-party clients, so browser-assisted key creation is the safe fallback while Auto Free remains keyless.
 
 ## Safety boundaries
 
