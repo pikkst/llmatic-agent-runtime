@@ -3449,7 +3449,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     vscode.window.registerFileDecorationProvider(new LlmaticStatusDecorationProvider()),
   );
 
-  const chatProvider = new AgentChatViewProvider();
+  const chatProvider = new AgentChatViewProvider(context.extensionUri);
   chatProvider.setRecoverySource(() => state.recovery);
   context.subscriptions.push(
     vscode.window.registerWebviewViewProvider("llmatic.agentChat", chatProvider),
@@ -3744,6 +3744,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     vscode.commands.registerCommand("llmatic.openAgentChat", async () => {
       await vscode.commands.executeCommand("workbench.view.extension.llmatic");
       await vscode.commands.executeCommand("llmatic.agentChat.focus");
+    }),
+    vscode.commands.registerCommand("llmatic.agentChatProbe", async () => {
+      return chatProvider.waitUntilClientReady(8_000);
     }),
     vscode.commands.registerCommand("llmatic.generatePrDraft", async () => {
       try {
