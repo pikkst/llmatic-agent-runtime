@@ -365,6 +365,26 @@ async function refreshJiraStatus(
   }
 }
 
+function setJiraConnectionProgress(
+  statusProvider: LlmaticStatusProvider,
+  phase: string,
+  profile?: WorkspaceJiraProfile,
+): void {
+  statusProvider.setJiraStatus({
+    connected: false,
+    required: true,
+    label: profile?.projectKey,
+    detail: profile?.siteUrl
+      ? new URL(profile.siteUrl).host
+      : profile?.baseUrl
+        ? new URL(profile.baseUrl).host
+        : undefined,
+    workMode: profile?.workMode,
+    connecting: true,
+    phase,
+  });
+}
+
 function delay(milliseconds: number): Promise<void> {
   return new Promise((resolveDelay) => setTimeout(resolveDelay, milliseconds));
 }
@@ -406,12 +426,20 @@ async function jiraProjectFromOAuthResource(
   existing?: WorkspaceJiraProfile,
 ): Promise<string | undefined> {
   const apiBase = "https://api.atlassian.com/ex/jira/" + encodeURIComponent(resource.id);
-  const response = await fetch(apiBase + "/rest/api/3/project/search?maxResults=100&orderBy=name", {
-    headers: {
-      Accept: "application/json",
-      Authorization: "Bearer " + accessToken,
+  const response = await vscode.window.withProgress(
+    {
+      location: vscode.ProgressLocation.Notification,
+      title: "LLMatic: Loading Jira projects…",
+      cancellable: false,
     },
-  });
+    async () =>
+      fetch(apiBase + "/rest/api/3/project/search?maxResults=100&orderBy=name", {
+        headers: {
+          Accept: "application/json",
+          Authorization: "Bearer " + accessToken,
+        },
+      }),
+  );
 
   if (response.ok) {
     const raw = (await response.json()) as {
@@ -488,16 +516,34 @@ async function persistJiraWorkspaceConnection(
   const config = await loadAgentConfig(folder.uri.fsPath, {
     LLMATIC_HOME: context.globalStorageUri.fsPath,
   });
-  const currentUser = await verifyJiraConnectionFromEnvironment(config, verifyEnvironment);
 
-  await context.workspaceState.update(JIRA_PROFILE_STATE_KEY, profile);
-  for (const authType of ["basic", "bearer", "oauth_broker"] as const) {
-    await context.secrets.delete(jiraSecretKey(state.activeWorkspace.id, authType));
-  }
-  await context.secrets.store(jiraSecretKey(state.activeWorkspace.id, profile.authType), secret);
+  const currentUser = await vscode.window.withProgress(
+    {
+      location: vscode.ProgressLocation.Notification,
+      title: "LLMatic: Finalizing Jira connection…",
+      cancellable: false,
+    },
+    async (progress) => {
+      setJiraConnectionProgress(statusProvider, "verifying Jira account…", profile);
+      progress.report({ message: "Verifying Jira account…" });
+      const verifiedUser = await verifyJiraConnectionFromEnvironment(config, verifyEnvironment);
 
-  await refreshJiraStatus(context, state, statusProvider);
-  await refreshWorkspaceRecovery(context, state, statusProvider, chatProvider, output, true);
+      setJiraConnectionProgress(statusProvider, "saving workspace credentials…", profile);
+      progress.report({ message: "Saving workspace credentials…" });
+      await context.workspaceState.update(JIRA_PROFILE_STATE_KEY, profile);
+      for (const authType of ["basic", "bearer", "oauth_broker"] as const) {
+        await context.secrets.delete(jiraSecretKey(state.activeWorkspace.id, authType));
+      }
+      await context.secrets.store(jiraSecretKey(state.activeWorkspace.id, profile.authType), secret);
+
+      setJiraConnectionProgress(statusProvider, "refreshing repository context…", profile);
+      progress.report({ message: "Refreshing repository context…" });
+      await refreshWorkspaceRecovery(context, state, statusProvider, chatProvider, output, true);
+      await refreshJiraStatus(context, state, statusProvider);
+
+      return verifiedUser;
+    },
+  );
 
   await vscode.window.showInformationMessage(
     "Jira connected for this workspace as " +
@@ -559,10 +605,36 @@ async function connectJiraWithBrowser(
     return action !== "Use Manual Connection";
   }
 
-  const health = await getBrokerHealth(brokerUrl);
-  const providerHealth = health.providers[provider.brokerProvider ?? "atlassian"];
-  if (!health.ready || !providerHealth?.ready) {
-    const missing = providerHealth?.missing ?? [];
+  const existing = workspaceJiraProfile(context);
+  const preflight = await vscode.window.withProgress(
+    {
+      location: vscode.ProgressLocation.Notification,
+      title: "LLMatic: Connecting Jira…",
+      cancellable: false,
+    },
+    async (progress) => {
+      setJiraConnectionProgress(statusProvider, "checking OAuth broker…", existing);
+      progress.report({ message: "Checking OAuth broker…" });
+      const health = await getBrokerHealth(brokerUrl);
+      const providerHealth = health.providers[provider.brokerProvider ?? "atlassian"];
+
+      if (!health.ready || !providerHealth?.ready) {
+        return { health, providerHealth, started: undefined };
+      }
+
+      setJiraConnectionProgress(statusProvider, "starting Atlassian sign-in…", existing);
+      progress.report({ message: "Starting Atlassian sign-in…" });
+      const started = await startBrokerConnection(brokerUrl, {
+        provider: provider.brokerProvider ?? "atlassian",
+        returnLabel: firstWorkspaceFolder()?.name,
+      });
+      return { health, providerHealth, started };
+    },
+  );
+
+  if (!preflight.health.ready || !preflight.providerHealth?.ready) {
+    const missing = preflight.providerHealth?.missing ?? [];
+    await refreshJiraStatus(context, state, statusProvider);
     const action = await vscode.window.showErrorMessage(
       "LLMatic OAuth broker is reachable but Atlassian is not ready" +
         (missing.length > 0 ? ": missing " + missing.join(", ") : "."),
@@ -582,20 +654,22 @@ async function connectJiraWithBrowser(
     return action !== "Use Manual Connection";
   }
 
-  const started = await startBrokerConnection(brokerUrl, {
-    provider: provider.brokerProvider ?? "atlassian",
-    returnLabel: firstWorkspaceFolder()?.name,
-  });
+  const started = preflight.started;
+  if (!started) {
+    await refreshJiraStatus(context, state, statusProvider);
+    throw new Error("LLMatic OAuth broker did not start an Atlassian authorization session.");
+  }
 
   const opened = await vscode.env.openExternal(vscode.Uri.parse(started.authorizeUrl));
   if (!opened) {
     throw new Error("VS Code could not open the Atlassian authorization page.");
   }
 
+  setJiraConnectionProgress(statusProvider, "waiting for browser authorization…", existing);
   const connected = await vscode.window.withProgress(
     {
       location: vscode.ProgressLocation.Notification,
-      title: "LLMatic: waiting for Atlassian authorization",
+      title: "LLMatic: Waiting for Atlassian authorization…",
       cancellable: true,
     },
     async (progress, cancellation) => {
@@ -614,6 +688,7 @@ async function connectJiraWithBrowser(
   );
 
   if (!connected) {
+    await refreshJiraStatus(context, state, statusProvider);
     await vscode.window.showWarningMessage(
       "Atlassian connection was cancelled or expired. Start Connect Jira Workspace to retry.",
     );
@@ -624,6 +699,7 @@ async function connectJiraWithBrowser(
     throw new Error("Atlassian authorized successfully but returned no accessible Jira sites.");
   }
 
+  setJiraConnectionProgress(statusProvider, "selecting Jira site…", existing);
   const resource =
     connected.resources.length === 1
       ? connected.resources[0]
@@ -642,18 +718,28 @@ async function connectJiraWithBrowser(
           )
           .then((selection) => selection?.resource);
 
-  if (!resource) return true;
+  if (!resource) {
+    await refreshJiraStatus(context, state, statusProvider);
+    return true;
+  }
 
-  const existing = workspaceJiraProfile(context);
+  setJiraConnectionProgress(statusProvider, "loading Jira projects…", existing);
   const projectKey = await jiraProjectFromOAuthResource(
     resource,
     connected.credential.accessToken,
     existing,
   );
-  if (!projectKey) return true;
+  if (!projectKey) {
+    await refreshJiraStatus(context, state, statusProvider);
+    return true;
+  }
 
+  setJiraConnectionProgress(statusProvider, "selecting work ownership…", existing);
   const workMode = await chooseJiraWorkMode(existing);
-  if (!workMode) return true;
+  if (!workMode) {
+    await refreshJiraStatus(context, state, statusProvider);
+    return true;
+  }
 
   const profile: WorkspaceJiraProfile = {
     baseUrl: "https://api.atlassian.com/ex/jira/" + encodeURIComponent(resource.id),
@@ -3253,9 +3339,14 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   chatProvider.setHandlers({
     send: (text) => runAgentChatTurn(context, state, statusProvider, chatProvider, output, text),
     refresh: async () => {
+      chatProvider.setBusy(true);
       chatProvider.appendActivity("Refreshing repository map and workspace recovery…");
-      await refreshWorkspaceRecovery(context, state, statusProvider, chatProvider, output, true);
-      chatProvider.appendActivity("Repository context refreshed.", true);
+      try {
+        await refreshWorkspaceRecovery(context, state, statusProvider, chatProvider, output, true);
+        chatProvider.appendActivity("Repository context refreshed.", true);
+      } finally {
+        chatProvider.setBusy(false);
+      }
     },
     continueRecommended: async () => {
       const recommendation = state.recovery?.recommendation;
