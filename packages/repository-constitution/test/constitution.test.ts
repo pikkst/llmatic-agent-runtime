@@ -80,7 +80,7 @@ async function repository(): Promise<string> {
   );
 
   await writeFile(
-    join(root, "docs", "ARCHITECTURE.md"),
+    join(root, "docs", "architecture-rules.md"),
     [
       "# Architecture notes",
       "",
