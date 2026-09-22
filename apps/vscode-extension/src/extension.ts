@@ -164,6 +164,7 @@ interface ExtensionState {
   recovery?: WorkspaceRecovery;
   jiraConnectionError?: string;
   autoReviewRunning?: boolean;
+  activeExternalReviewPrNumbers: Set<number>;
   lastError?: string;
 }
 
@@ -2544,6 +2545,7 @@ async function reviewExternalPullRequestInUi(
   const startedAt = Date.now();
   const sessionId = "manual-" + normalizedReference + "-" + String(startedAt);
   const reviewStatus = statusProvider.beginExternalReview(normalizedReference);
+  let lockedPullRequestNumber: number | undefined;
 
   appendReviewActivity(context, reviewLog, sessionId, normalizedReference, startedAt, {
     type: "session",
@@ -2614,6 +2616,17 @@ async function reviewExternalPullRequestInUi(
 
         const contextStartedAt = Date.now();
         const reviewContext = await getPullRequestReviewContext(root, normalizedReference);
+        const pullRequestNumber = reviewContext.status.pullRequest.number;
+        if (state.activeExternalReviewPrNumbers.has(pullRequestNumber)) {
+          throw new Error(
+            "Pull request #" +
+              pullRequestNumber +
+              " is already being reviewed. Wait for the active review to finish before starting another one.",
+          );
+        }
+        state.activeExternalReviewPrNumbers.add(pullRequestNumber);
+        lockedPullRequestNumber = pullRequestNumber;
+
         appendReviewActivity(context, reviewLog, sessionId, normalizedReference, startedAt, {
           type: "session",
           phase: "Pull request context ready",
@@ -2772,6 +2785,9 @@ async function reviewExternalPullRequestInUi(
     reviewLog.show(true);
     throw error;
   } finally {
+    if (lockedPullRequestNumber !== undefined) {
+      state.activeExternalReviewPrNumbers.delete(lockedPullRequestNumber);
+    }
     reviewStatus.dispose();
   }
 }
@@ -2783,10 +2799,16 @@ async function runAutomaticExternalPullRequestReview(
   output: vscode.OutputChannel,
   pullRequest: OpenPullRequestSummary,
 ): Promise<Awaited<ReturnType<typeof runExternalPullRequestReview>>> {
-  const folder = firstWorkspaceFolder();
-  if (!folder) {
-    throw new Error("Open a repository workspace before running Auto Review Agent.");
+  if (state.activeExternalReviewPrNumbers.has(pullRequest.number)) {
+    throw new Error("Pull request #" + pullRequest.number + " already has an active review.");
   }
+  state.activeExternalReviewPrNumbers.add(pullRequest.number);
+
+  try {
+    const folder = firstWorkspaceFolder();
+    if (!folder) {
+      throw new Error("Open a repository workspace before running Auto Review Agent.");
+    }
 
   if (!state.activeWorkspace) {
     state.activeWorkspace = await attachWorkspace(context, folder);
@@ -2858,7 +2880,10 @@ async function runAutomaticExternalPullRequestReview(
       reviewThreads: reviewContext.reviewThreads,
     },
   });
-}
+  } finally {
+    state.activeExternalReviewPrNumbers.delete(pullRequest.number);
+  }
+
 
 async function runAutoReviewScan(
   context: vscode.ExtensionContext,
@@ -2937,6 +2962,15 @@ async function runAutoReviewScan(
     }
 
     for (const pullRequest of candidates) {
+      if (state.activeExternalReviewPrNumbers.has(pullRequest.number)) {
+        output.appendLine(
+          "[AUTO REVIEW] Skipping PR #" +
+            pullRequest.number +
+            " because another review is already active.",
+        );
+        continue;
+      }
+
       operation.update(
         "Auto Review Agent · PR #" + pullRequest.number,
         "Running General, Bug Hunter and Security review…",
@@ -4415,6 +4449,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     kiloConnected: false,
     kiloReloadRecommended: false,
     gatewayKeyConfigured: false,
+    activeExternalReviewPrNumbers: new Set<number>(),
   };
 
   let kiloPreviouslyInstalled = Boolean(vscode.extensions.getExtension(KILO_EXTENSION_ID));
