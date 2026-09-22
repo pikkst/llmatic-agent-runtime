@@ -30,13 +30,13 @@ jobs:
       - name: Install dependencies
         run: pnpm install --no-frozen-lockfile
 
-      - name: Canonical format M26 release acceptance
-        run: pnpm exec prettier --write scripts/release-acceptance.mjs
+      - name: Canonical format Agent Chat client
+        run: pnpm exec prettier --write apps/vscode-extension/media/agent-chat.js
 
-      - name: Commit canonical M26 release acceptance
+      - name: Commit canonical Agent Chat client
         shell: bash
         run: |
-          if git diff --quiet -- scripts/release-acceptance.mjs
+          if git diff --quiet -- apps/vscode-extension/media/agent-chat.js
           then
             echo "No canonical formatting changes to commit."
             exit 0
@@ -44,8 +44,8 @@ jobs:
 
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add scripts/release-acceptance.mjs
-          git commit -m "style: format M26 release acceptance"
+          git add apps/vscode-extension/media/agent-chat.js
+          git commit -m "style: format Agent Chat webview client"
           git push origin HEAD:"${{ github.head_ref || github.ref_name }}"
 
       - name: Validate
