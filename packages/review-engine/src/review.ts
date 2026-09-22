@@ -260,6 +260,7 @@ export interface PullRequestReviewMaterial {
   diffTruncated: boolean;
   reviews?: unknown[];
   comments?: unknown[];
+  reviewThreads?: unknown[];
 }
 
 export interface ExternalPullRequestReviewOptions extends ReviewExecutionOptions {
@@ -630,6 +631,7 @@ async function runReviewLens(
               diffTruncated: material.diffTruncated,
               reviews: material.reviews ?? [],
               comments: material.comments ?? [],
+              reviewThreads: material.reviewThreads ?? [],
             }).slice(0, MAX_TOOL_RESULT_CHARS),
             "Changed non-secret files:",
             changedFiles.map((path) => "- " + path).join("\n"),
