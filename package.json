@@ -21,7 +21,8 @@
     "release:manifest": "node scripts/create-release-manifest.mjs",
     "release:acceptance": "node scripts/release-acceptance.mjs",
     "product:acceptance": "node scripts/product-acceptance.mjs",
-    "vscode:acceptance": "node scripts/vscode-clean-install-acceptance.mjs"
+    "vscode:acceptance": "node scripts/vscode-clean-install-acceptance.mjs",
+    "broker:smoke": "node scripts/oauth-broker-smoke.mjs"
   },
   "devDependencies": {
     "@types/node": "^22.10.0",
