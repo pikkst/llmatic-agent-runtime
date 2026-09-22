@@ -184,6 +184,29 @@ describe("KiloGatewayClient", () => {
     expect(retries[0]?.reason).toContain("temporarily overloaded");
   });
 
+  it("aborts a stalled Gateway request at the configured timeout", async () => {
+    const client = new KiloGatewayClient({
+      maxRetries: 0,
+      requestTimeoutMs: 1_000,
+      fetch: async (_input, init) =>
+        new Promise<Response>((_resolve, reject) => {
+          init?.signal?.addEventListener(
+            "abort",
+            () => reject(new DOMException("Aborted", "AbortError")),
+            { once: true },
+          );
+        }),
+    });
+
+    await expect(
+      client.createChatCompletion({
+        model: "kilo-auto/free",
+        mode: "code",
+        messages: [{ role: "user", content: "hello" }],
+      }),
+    ).rejects.toThrow("Kilo Gateway request timed out after 1000ms.");
+  });
+
   it("retries HTTP 429 and 5xx failures but does not retry authentication failures", async () => {
     let retryableCalls = 0;
     const retryable = new KiloGatewayClient({
