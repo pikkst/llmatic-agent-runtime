@@ -20,6 +20,7 @@ export class AgentChatViewProvider implements vscode.WebviewViewProvider {
   private review?: CodeReviewReport;
   private readonly messages: ChatMessage[] = [];
   private busy = false;
+  private busyLabel = "LLMatic is working…";
   private handlers?: AgentChatHandlers;
 
   public setHandlers(handlers: AgentChatHandlers): void {
@@ -102,8 +103,9 @@ export class AgentChatViewProvider implements vscode.WebviewViewProvider {
     this.sync();
   }
 
-  public setBusy(busy: boolean): void {
+  public setBusy(busy: boolean, label = "LLMatic is working…"): void {
     this.busy = busy;
+    this.busyLabel = label;
     this.sync();
   }
 
@@ -128,6 +130,7 @@ export class AgentChatViewProvider implements vscode.WebviewViewProvider {
     void this.view.webview.postMessage({
       type: "state",
       busy: this.busy,
+      busyLabel: this.busyLabel,
       review: this.review
         ? {
             summary: this.review.summary,
@@ -255,6 +258,29 @@ export class AgentChatViewProvider implements vscode.WebviewViewProvider {
       color: var(--vscode-descriptionForeground);
       font-size: 0.92em;
     }
+    #busy-indicator {
+      display: none;
+      align-items: center;
+      gap: 8px;
+      min-height: 24px;
+      margin: 2px 0 10px;
+      color: var(--vscode-descriptionForeground);
+    }
+    #busy-indicator.visible {
+      display: flex;
+    }
+    .spinner {
+      width: 14px;
+      height: 14px;
+      flex: 0 0 14px;
+      border: 2px solid var(--vscode-panel-border);
+      border-top-color: var(--vscode-progressBar-background);
+      border-radius: 50%;
+      animation: llmatic-spin 0.8s linear infinite;
+    }
+    @keyframes llmatic-spin {
+      to { transform: rotate(360deg); }
+    }
     textarea {
       width: 100%;
       box-sizing: border-box;
@@ -292,6 +318,10 @@ export class AgentChatViewProvider implements vscode.WebviewViewProvider {
   <div id="recovery"><span class="muted">Repository context not loaded yet.</span></div>
   <div id="review" style="display:none"></div>
   <div id="messages"></div>
+  <div id="busy-indicator" role="status" aria-live="polite">
+    <span class="spinner" aria-hidden="true"></span>
+    <span id="busy-label">LLMatic is working…</span>
+  </div>
   <textarea id="input" placeholder="Ask LLMatic to inspect, continue, implement, fix or explain this repository."></textarea>
   <div class="actions">
     <button id="send">Send</button>
@@ -304,6 +334,8 @@ export class AgentChatViewProvider implements vscode.WebviewViewProvider {
     const recoveryElement = document.getElementById("recovery");
     const reviewElement = document.getElementById("review");
     const messagesElement = document.getElementById("messages");
+    const busyIndicator = document.getElementById("busy-indicator");
+    const busyLabel = document.getElementById("busy-label");
     const input = document.getElementById("input");
     const send = document.getElementById("send");
     const continueButton = document.getElementById("continue");
@@ -536,10 +568,14 @@ export class AgentChatViewProvider implements vscode.WebviewViewProvider {
       renderRecovery(state.recovery);
       renderReview(state.review);
       renderMessages(state.messages || []);
-      input.disabled = Boolean(state.busy);
-      send.disabled = Boolean(state.busy);
-      refresh.disabled = Boolean(state.busy);
-      if (state.busy) continueButton.disabled = true;
+      const busy = Boolean(state.busy);
+      input.disabled = busy;
+      send.disabled = busy;
+      refresh.disabled = busy;
+      busyIndicator.classList.toggle("visible", busy);
+      busyLabel.textContent = state.busyLabel || "LLMatic is working…";
+      send.textContent = busy ? "Working…" : "Send";
+      if (busy) continueButton.disabled = true;
     });
 
     vscode.postMessage({ type: "ready" });
