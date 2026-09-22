@@ -72,6 +72,11 @@ describe("VS Code extension activation surface", () => {
     expect(source).toContain('"Searching the repository…"');
     expect(source).toContain("Model provider temporarily unavailable — retrying");
     expect(source).toContain("[RETRY] Kilo Gateway");
+    expect(source).toContain("AdaptiveFreeGatewayClient");
+    expect(source).toContain("[MODEL ROUTER]");
+    expect(source).toContain("This is not a clean-review verdict");
+    expect(source).toContain("Publish Partial Review");
+    expect(source).toContain("Diff coverage");
     expect(source).not.toContain("chatProvider.appendActivity(line");
     expect(source).toContain("decideRepositoryRuleProposal");
     expect(source).toContain("buildPullRequestDraft");
@@ -150,6 +155,9 @@ describe("VS Code extension activation surface", () => {
     );
     expect(packageJson.contributes.configuration.properties).toHaveProperty(
       "llmatic.reviewRequestTimeoutMs",
+    );
+    expect(packageJson.contributes.configuration.properties).toHaveProperty(
+      "llmatic.reviewFreeModelFallbacks",
     );
 
     const connectionSource = await readFile(
