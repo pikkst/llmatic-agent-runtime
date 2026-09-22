@@ -193,15 +193,11 @@ export class LlmaticStatusProvider implements vscode.TreeDataProvider<vscode.Tre
     const operationItems: vscode.TreeItem[] = [];
 
     if (operation) {
-      const loading = new vscode.TreeItem(
-        operation.label,
-        vscode.TreeItemCollapsibleState.None,
-      );
+      const loading = new vscode.TreeItem(operation.label, vscode.TreeItemCollapsibleState.None);
       decorateStatusItem(loading, "attention", "active-operation", "loading~spin");
       loading.description = operation.description ?? "LLMatic is working…";
       loading.tooltip =
-        operation.label +
-        (operation.description ? "\n" + operation.description : "");
+        operation.label + (operation.description ? "\n" + operation.description : "");
       loading.contextValue = "llmatic.loading";
       operationItems.push(loading);
     }

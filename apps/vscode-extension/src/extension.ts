@@ -1265,82 +1265,82 @@ async function refreshWorkspaceRecovery(
 
   try {
     const folder = firstWorkspaceFolder();
-  if (!folder) {
-    state.recovery = undefined;
-    statusProvider.update(state.health, state.gatewayKeyConfigured, undefined);
-    chatProvider.setRecovery(undefined);
-    return undefined;
-  }
+    if (!folder) {
+      state.recovery = undefined;
+      statusProvider.update(state.health, state.gatewayKeyConfigured, undefined);
+      chatProvider.setRecovery(undefined);
+      return undefined;
+    }
 
-  if (!state.activeWorkspace) {
-    state.activeWorkspace = await attachWorkspace(context, folder);
-  }
+    if (!state.activeWorkspace) {
+      state.activeWorkspace = await attachWorkspace(context, folder);
+    }
 
-  const config = await loadAgentConfig(folder.uri.fsPath, {
-    LLMATIC_HOME: context.globalStorageUri.fsPath,
-  });
-  const store = new WorkflowStateStore(folder.uri.fsPath, config);
-  const recovery = await recoverWorkspace(folder.uri.fsPath, config, store, {
-    rebuildIndex,
-    environment: await taskRecoveryEnvironment(context, state),
-  });
+    const config = await loadAgentConfig(folder.uri.fsPath, {
+      LLMATIC_HOME: context.globalStorageUri.fsPath,
+    });
+    const store = new WorkflowStateStore(folder.uri.fsPath, config);
+    const recovery = await recoverWorkspace(folder.uri.fsPath, config, store, {
+      rebuildIndex,
+      environment: await taskRecoveryEnvironment(context, state),
+    });
 
-  state.recovery = recovery;
-  statusProvider.update(state.health, state.gatewayKeyConfigured, recovery);
-  chatProvider.setRecovery(recovery);
-  chatProvider.setReview(
-    await loadLatestReviewReport(folder.uri.fsPath, config).catch(() => undefined),
-  );
-
-  if (output) {
-    output.appendLine("");
-    output.appendLine(
-      "[MAP] " +
-        recovery.repository.fileCount +
-        " files, " +
-        recovery.repository.symbolCount +
-        " symbols, " +
-        recovery.repository.importCount +
-        " imports",
+    state.recovery = recovery;
+    statusProvider.update(state.health, state.gatewayKeyConfigured, recovery);
+    chatProvider.setRecovery(recovery);
+    chatProvider.setReview(
+      await loadLatestReviewReport(folder.uri.fsPath, config).catch(() => undefined),
     );
-    output.appendLine(
-      "[RECOVERY] Task source: " +
-        recovery.taskSource.selected +
-        "; branch: " +
-        (recovery.git.branch ?? "detached HEAD"),
-    );
-    if (recovery.workflow) {
+
+    if (output) {
+      output.appendLine("");
       output.appendLine(
-        "[RECOVERY] Workflow: " + recovery.workflow.taskRef + " / " + recovery.workflow.state,
+        "[MAP] " +
+          recovery.repository.fileCount +
+          " files, " +
+          recovery.repository.symbolCount +
+          " symbols, " +
+          recovery.repository.importCount +
+          " imports",
+      );
+      output.appendLine(
+        "[RECOVERY] Task source: " +
+          recovery.taskSource.selected +
+          "; branch: " +
+          (recovery.git.branch ?? "detached HEAD"),
+      );
+      if (recovery.workflow) {
+        output.appendLine(
+          "[RECOVERY] Workflow: " + recovery.workflow.taskRef + " / " + recovery.workflow.state,
+        );
+      }
+      if (recovery.task) {
+        output.appendLine(
+          "[RECOVERY] Task: " +
+            recovery.task.key +
+            " — " +
+            recovery.task.summary +
+            " [" +
+            recovery.task.status.name +
+            "]",
+        );
+      } else if (recovery.nextTask) {
+        output.appendLine(
+          "[RECOVERY] Next task: " + recovery.nextTask.key + " — " + recovery.nextTask.summary,
+        );
+      }
+      if (recovery.pullRequest) {
+        output.appendLine(
+          "[RECOVERY] PR #" +
+            recovery.pullRequest.pullRequest.number +
+            " / CI " +
+            recovery.pullRequest.ciState,
+        );
+      }
+      output.appendLine(
+        "[NEXT] " + recovery.recommendation.title + " — " + recovery.recommendation.detail,
       );
     }
-    if (recovery.task) {
-      output.appendLine(
-        "[RECOVERY] Task: " +
-          recovery.task.key +
-          " — " +
-          recovery.task.summary +
-          " [" +
-          recovery.task.status.name +
-          "]",
-      );
-    } else if (recovery.nextTask) {
-      output.appendLine(
-        "[RECOVERY] Next task: " + recovery.nextTask.key + " — " + recovery.nextTask.summary,
-      );
-    }
-    if (recovery.pullRequest) {
-      output.appendLine(
-        "[RECOVERY] PR #" +
-          recovery.pullRequest.pullRequest.number +
-          " / CI " +
-          recovery.pullRequest.ciState,
-      );
-    }
-    output.appendLine(
-      "[NEXT] " + recovery.recommendation.title + " — " + recovery.recommendation.detail,
-    );
-  }
 
     return recovery;
   } finally {
@@ -3936,10 +3936,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   statusProvider.update(state.health, state.gatewayKeyConfigured, state.recovery);
   statusProvider.setGatewayAccess(state.gatewayKeyConfigured, anonymousKiloAccessAvailable());
 
-  startupOperation.update(
-    "Loading LLMatic workspace",
-    "Checking workspace connections…",
-  );
+  startupOperation.update("Loading LLMatic workspace", "Checking workspace connections…");
   await refreshJiraStatus(context, state, statusProvider);
   await vscode.commands.executeCommand("setContext", "llmatic.health", state.health?.status);
   startupOperation.dispose();
