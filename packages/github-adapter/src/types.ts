@@ -81,6 +81,13 @@ export interface PullRequestReviewThreadSnapshot {
   comments: PullRequestCommentSnapshot[];
 }
 
+export type PullRequestReviewEvent = "COMMENT";
+
+export interface PublishPullRequestReviewInput {
+  body: string;
+  event?: PullRequestReviewEvent;
+}
+
 export interface PullRequestReviewContext {
   status: PullRequestStatus;
   title: string;
