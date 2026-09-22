@@ -167,6 +167,14 @@ describe("review engine", () => {
         diffTruncated: false,
         reviews: [],
         comments: [],
+        reviewThreads: [
+          {
+            path: ".env",
+            resolved: false,
+            outdated: false,
+            comments: [{ body: "SECRET=do-not-send" }],
+          },
+        ],
       },
     });
 
@@ -183,6 +191,8 @@ describe("review engine", () => {
     const system = JSON.stringify(gateway.requests[0]?.messages[0]);
     expect(system).toContain("external pull request");
     expect(system).toContain("untrusted project data");
+    expect(JSON.stringify(gateway.requests[0]?.messages[1])).not.toContain("SECRET=do-not-send");
+    expect(JSON.stringify(gateway.requests[0]?.messages[1])).not.toContain(".env");
   });
 
   it("marks bounded external review coverage partial when a changed file is outside the diff", async () => {
