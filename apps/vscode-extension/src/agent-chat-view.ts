@@ -17,6 +17,7 @@ export interface AgentChatHandlers {
 export class AgentChatViewProvider implements vscode.WebviewViewProvider {
   private view?: vscode.WebviewView;
   private recovery?: WorkspaceRecovery;
+  private recoverySource?: () => WorkspaceRecovery | undefined;
   private review?: CodeReviewReport;
   private readonly messages: ChatMessage[] = [];
   private busy = false;
@@ -27,6 +28,15 @@ export class AgentChatViewProvider implements vscode.WebviewViewProvider {
 
   public setHandlers(handlers: AgentChatHandlers): void {
     this.handlers = handlers;
+  }
+
+  public setRecoverySource(source: () => WorkspaceRecovery | undefined): void {
+    this.recoverySource = source;
+    this.sync();
+  }
+
+  private currentRecovery(): WorkspaceRecovery | undefined {
+    return this.recoverySource?.() ?? this.recovery;
   }
 
   public resolveWebviewView(view: vscode.WebviewView): void {
@@ -143,6 +153,7 @@ export class AgentChatViewProvider implements vscode.WebviewViewProvider {
     if (!this.view) return;
 
     const view = this.view;
+    const recovery = this.currentRecovery();
     const message = {
       type: "state",
       busy: this.busy,
@@ -163,58 +174,58 @@ export class AgentChatViewProvider implements vscode.WebviewViewProvider {
             })),
           }
         : undefined,
-      recovery: this.recovery
+      recovery: recovery
         ? {
             repository: {
-              generatedAt: this.recovery.repository.generatedAt,
-              fileCount: this.recovery.repository.fileCount,
-              sourceFileCount: this.recovery.repository.sourceFileCount,
-              symbolCount: this.recovery.repository.symbolCount,
-              importCount: this.recovery.repository.importCount,
+              generatedAt: recovery.repository.generatedAt,
+              fileCount: recovery.repository.fileCount,
+              sourceFileCount: recovery.repository.sourceFileCount,
+              symbolCount: recovery.repository.symbolCount,
+              importCount: recovery.repository.importCount,
             },
             git: {
-              branch: this.recovery.git.branch,
-              detached: this.recovery.git.detached,
-              clean: this.recovery.git.clean,
-              stagedCount: this.recovery.git.stagedCount,
-              unstagedCount: this.recovery.git.unstagedCount,
-              untrackedCount: this.recovery.git.untrackedCount,
+              branch: recovery.git.branch,
+              detached: recovery.git.detached,
+              clean: recovery.git.clean,
+              stagedCount: recovery.git.stagedCount,
+              unstagedCount: recovery.git.unstagedCount,
+              untrackedCount: recovery.git.untrackedCount,
             },
-            workflow: this.recovery.workflow
+            workflow: recovery.workflow
               ? {
-                  taskRef: this.recovery.workflow.taskRef,
-                  state: this.recovery.workflow.state,
+                  taskRef: recovery.workflow.taskRef,
+                  state: recovery.workflow.state,
                 }
               : undefined,
-            task: this.recovery.task
+            task: recovery.task
               ? {
-                  key: this.recovery.task.key,
-                  summary: this.recovery.task.summary,
-                  status: this.recovery.task.status.name,
+                  key: recovery.task.key,
+                  summary: recovery.task.summary,
+                  status: recovery.task.status.name,
                 }
               : undefined,
-            nextTask: this.recovery.nextTask
+            nextTask: recovery.nextTask
               ? {
-                  key: this.recovery.nextTask.key,
-                  summary: this.recovery.nextTask.summary,
+                  key: recovery.nextTask.key,
+                  summary: recovery.nextTask.summary,
                 }
               : undefined,
-            pullRequest: this.recovery.pullRequest
+            pullRequest: recovery.pullRequest
               ? {
-                  number: this.recovery.pullRequest.pullRequest.number,
-                  ciState: this.recovery.pullRequest.ciState,
+                  number: recovery.pullRequest.pullRequest.number,
+                  ciState: recovery.pullRequest.ciState,
                 }
               : undefined,
-            taskSource: this.recovery.taskSource.selected,
+            taskSource: recovery.taskSource.selected,
             constitution: {
-              explicitRule: this.recovery.constitution.counts.explicitRule,
-              approvedRule: this.recovery.constitution.counts.approvedRule,
-              inferredConvention: this.recovery.constitution.counts.inferredConvention,
-              proposedRule: this.recovery.constitution.counts.proposedRule,
-              blocking: this.recovery.constitution.counts.blocking,
+              explicitRule: recovery.constitution.counts.explicitRule,
+              approvedRule: recovery.constitution.counts.approvedRule,
+              inferredConvention: recovery.constitution.counts.inferredConvention,
+              proposedRule: recovery.constitution.counts.proposedRule,
+              blocking: recovery.constitution.counts.blocking,
             },
-            recommendation: this.recovery.recommendation,
-            warnings: this.recovery.warnings,
+            recommendation: recovery.recommendation,
+            warnings: recovery.warnings,
           }
         : undefined,
       messages: this.messages.map((message) => ({ ...message })),
