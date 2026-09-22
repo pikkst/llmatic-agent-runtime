@@ -265,7 +265,7 @@ async function taskRecoveryEnvironment(
   const secret =
     profile.authType === "oauth_broker"
       ? undefined
-      : await context.secrets.get(jiraSecretKey(workspaceId, profile.authType));
+      : await context.secrets.get(jiraSecretKey(state.activeWorkspace.id, profile.authType));
   const oauthCredential =
     profile.authType === "oauth_broker"
       ? await jiraOAuthCredential(context, state.activeWorkspace.id, profile)
@@ -535,10 +535,7 @@ async function persistJiraWorkspaceConnection(
       for (const authType of ["basic", "bearer", "oauth_broker"] as const) {
         await context.secrets.delete(jiraSecretKey(workspaceId, authType));
       }
-      await context.secrets.store(
-        jiraSecretKey(state.activeWorkspace.id, profile.authType),
-        secret,
-      );
+      await context.secrets.store(jiraSecretKey(workspaceId, profile.authType), secret);
 
       setJiraConnectionProgress(statusProvider, "refreshing repository context…", profile);
       progress.report({ message: "Refreshing repository context…" });
