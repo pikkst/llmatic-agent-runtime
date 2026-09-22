@@ -54,6 +54,25 @@ describe("external connection registry", () => {
     });
   });
 
+  it("replaces HTML 404 broker pages with an actionable configuration error", async () => {
+    const request: typeof fetch = async () =>
+      new Response(
+        "<!DOCTYPE html><html><head><title>JIRA</title></head><body>dead link</body></html>",
+        {
+          status: 404,
+          statusText: "Not Found",
+          headers: { "Content-Type": "text/html; charset=utf-8" },
+        },
+      );
+
+    await expect(getBrokerHealth("https://jira.example", request)).rejects.toThrow(
+      "does not appear to be an LLMatic OAuth broker",
+    );
+    await expect(getBrokerHealth("https://jira.example", request)).rejects.not.toThrow(
+      "<!DOCTYPE html>",
+    );
+  });
+
   it("uses the generic broker protocol without leaking poll credentials into URLs", async () => {
     const requests: Array<{ url: string; init?: RequestInit }> = [];
     const request: typeof fetch = async (input, init) => {
