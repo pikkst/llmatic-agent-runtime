@@ -104,6 +104,7 @@ export class LlmaticStatusProvider implements vscode.TreeDataProvider<vscode.Tre
   public readonly onDidChangeTreeData = this.changed.event;
   private health?: SetupHealth;
   private gatewayKeyConfigured = false;
+  private gatewayAnonymousAvailable = false;
   private recovery?: WorkspaceRecovery;
   private jiraStatus?: WorkspaceJiraStatus;
 
@@ -122,6 +123,12 @@ export class LlmaticStatusProvider implements vscode.TreeDataProvider<vscode.Tre
       "llmatic.gatewayKeyConfigured",
       gatewayKeyConfigured,
     );
+  }
+
+  public setGatewayAccess(keyConfigured: boolean, anonymousAvailable: boolean): void {
+    this.gatewayKeyConfigured = keyConfigured;
+    this.gatewayAnonymousAvailable = anonymousAvailable;
+    this.changed.fire(undefined);
   }
 
   public setJiraStatus(status: WorkspaceJiraStatus | undefined): void {
@@ -319,12 +326,20 @@ export class LlmaticStatusProvider implements vscode.TreeDataProvider<vscode.Tre
         command: "llmatic.doctor",
       },
       {
-        label: this.gatewayKeyConfigured ? "Kilo Gateway API Key" : "Set Kilo Gateway API Key",
+        label: "Kilo Gateway",
         description: this.gatewayKeyConfigured
-          ? "configured securely — click to replace"
-          : "optional; required for direct agent and review",
-        icon: "key",
-        command: "llmatic.setKiloGatewayApiKey",
+          ? "API key configured securely"
+          : this.gatewayAnonymousAvailable
+            ? "anonymous Auto Free ready · connect a key for paid models"
+            : "needs connection for the selected model",
+        icon: this.gatewayKeyConfigured ? "key" : "sparkle",
+        command: "llmatic.connectKiloGateway",
+      },
+      {
+        label: "External Connections",
+        description: "Jira, Kilo Gateway and future service adapters",
+        icon: "plug",
+        command: "llmatic.openConnectionCenter",
       },
       {
         label: "Check for Updates",
@@ -382,17 +397,18 @@ export class LlmaticStatusProvider implements vscode.TreeDataProvider<vscode.Tre
       ...actions.map((action) => {
         const item = new vscode.TreeItem(action.label, vscode.TreeItemCollapsibleState.None);
         item.description = action.description;
-        item.iconPath =
-          action.command === "llmatic.setKiloGatewayApiKey"
-            ? new vscode.ThemeIcon(
-                action.icon,
-                semanticColor(this.gatewayKeyConfigured ? "ok" : "attention"),
-              )
-            : new vscode.ThemeIcon(action.icon);
-        if (action.command === "llmatic.setKiloGatewayApiKey") {
+        const gatewayAction = action.command === "llmatic.connectKiloGateway";
+        const gatewayReady = this.gatewayKeyConfigured || this.gatewayAnonymousAvailable;
+        item.iconPath = gatewayAction
+          ? new vscode.ThemeIcon(
+              action.icon,
+              semanticColor(gatewayReady ? "ok" : "attention"),
+            )
+          : new vscode.ThemeIcon(action.icon);
+        if (gatewayAction) {
           item.resourceUri = semanticResource(
-            this.gatewayKeyConfigured ? "ok" : "attention",
-            "gateway-key",
+            gatewayReady ? "ok" : "attention",
+            "gateway-access",
           );
         }
         item.command = {
