@@ -2601,7 +2601,13 @@ function externalPullRequestReviewDraft(
   const summaryFindings = report.findings.filter((finding) => finding.line === undefined);
   const findingSummary =
     report.findings.length === 0
-      ? ["No concrete DoD/acceptance violations or code defects were identified."]
+      ? report.reviewStatus === "complete"
+        ? ["No concrete DoD/acceptance violations or code defects were identified."]
+        : [
+            "No validated findings were produced by the completed review batches.",
+            "",
+            "**This is not a clean-review verdict.** The review is incomplete, so missing findings must not be interpreted as evidence that no defects exist.",
+          ]
       : [
           "Concrete findings: **" + report.findings.length + "**",
           "Inline comments: **" + inlineComments.length + "**",
@@ -2887,20 +2893,31 @@ async function reviewExternalPullRequestInUi(
     }
     output.show(true);
 
+    const publishAction =
+      report.reviewStatus === "complete"
+        ? "Publish Review Comment"
+        : report.findings.length > 0
+          ? "Publish Partial Review"
+          : undefined;
+    const actions = publishAction
+      ? (["Copy Review Draft", publishAction] as const)
+      : (["Copy Review Draft"] as const);
+
     const action = await vscode.window.showInformationMessage(
       "LLMatic external PR review completed in " +
         formatElapsedDuration(durationMs) +
         " (" +
         report.coverage +
-        " coverage) with " +
+        " diff coverage) with " +
         report.blockingCount +
         " blocking / " +
         report.nonBlockingCount +
         " non-blocking finding(s)" +
-        (report.reviewStatus === "partial" ? " · partial lens coverage" : "") +
+        (report.reviewStatus === "partial"
+          ? " · review incomplete; absence of findings is not a clean verdict"
+          : "") +
         ".",
-      "Copy Review Draft",
-      "Publish Review Comment",
+      ...actions,
     );
 
     if (action === "Copy Review Draft") {
@@ -2909,17 +2926,20 @@ async function reviewExternalPullRequestInUi(
       return;
     }
 
-    if (action === "Publish Review Comment") {
+    if (action === "Publish Review Comment" || action === "Publish Partial Review") {
+      const publishLabel = action;
       const approval = await vscode.window.showWarningMessage(
-        "Publish the focused review to pull request " +
+        (report.reviewStatus === "partial"
+          ? "This review is incomplete. Publish only the validated findings from completed batches to pull request "
+          : "Publish the focused review to pull request ") +
           normalizedReference +
           " with " +
           externalPullRequestInlineComments(report).length +
           " inline comment(s)? This changes GitHub but does not change Jira ownership or the active LLMatic workflow.",
         { modal: true },
-        "Publish Review Comment",
+        publishLabel,
       );
-      if (approval !== "Publish Review Comment") return;
+      if (approval !== publishLabel) return;
 
       const inlineComments = externalPullRequestInlineComments(report);
       await publishPullRequestReview(
