@@ -319,17 +319,20 @@ function normalizeReviewThreads(value: unknown): PullRequestReviewThreadSnapshot
 
 function readPullRequestReviewThreads(
   root: string,
-  pullRequestNumber: number,
+  pullRequest: PullRequestSummary,
   runner: GitHubProcessRunner,
 ): PullRequestReviewThreadSnapshot[] {
-  const repositoryArgs = ["repo", "view", "--json", "nameWithOwner"];
-  const repository = parseJson<{ nameWithOwner?: string }>(
-    requireSuccess(run(root, repositoryArgs, runner), repositoryArgs),
-    repositoryArgs,
-  );
-  const [owner, name] = String(repository.nameWithOwner ?? "").split("/", 2);
-  if (!owner || !name) {
-    throw new Error("GitHub repository owner/name could not be resolved for pull-request review.");
+  let pullRequestUrl: URL;
+  try {
+    pullRequestUrl = new URL(pullRequest.url);
+  } catch {
+    throw new Error("Pull-request URL is invalid and cannot be used to resolve review threads.");
+  }
+
+  const pathParts = pullRequestUrl.pathname.split("/").filter(Boolean);
+  const [owner, name, pullSegment] = pathParts;
+  if (!owner || !name || pullSegment !== "pull") {
+    throw new Error("Pull-request repository could not be resolved from its canonical URL.");
   }
 
   const args = [
@@ -342,7 +345,7 @@ function readPullRequestReviewThreads(
     "-f",
     "name=" + name,
     "-F",
-    "number=" + String(pullRequestNumber),
+    "number=" + String(pullRequest.number),
   ];
   const result = parseJson<{
     data?: {
