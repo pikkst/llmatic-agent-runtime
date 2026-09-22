@@ -11,6 +11,8 @@ import type {
   MergePullRequestResult,
   PullRequestChangedFile,
   PullRequestCheck,
+  PullRequestFileReadOptions,
+  PullRequestFileReadResult,
   PullRequestCommentSnapshot,
   PublishPullRequestReviewInput,
   PullRequestReviewContext,
@@ -56,6 +58,7 @@ const PR_REVIEW_FIELDS = [
 const MAX_PULL_REQUEST_REVIEW_DIFF_CHARS = 256_000;
 const MAX_PULL_REQUEST_TEXT_CHARS = 32_000;
 const MAX_PULL_REQUEST_REVIEW_ITEMS = 50;
+const MAX_PULL_REQUEST_FILE_CHARS = 64_000;
 
 const PR_REVIEW_THREADS_QUERY = `
 query PullRequestReviewThreads($owner: String!, $name: String!, $number: Int!) {
@@ -471,6 +474,71 @@ export async function getPullRequestReviewMetadata(
     reviews: normalizeReviewSnapshots(raw.reviews),
     comments: normalizeCommentSnapshots(raw.comments),
     reviewThreads,
+  };
+}
+
+export function readPullRequestFileAtHead(
+  root: string,
+  pullRequest: PullRequestSummary,
+  path: string,
+  options: PullRequestFileReadOptions = {},
+  runner: GitHubProcessRunner = defaultRunner,
+): PullRequestFileReadResult {
+  assertPullRequestMatchesWorkspaceRepository(root, pullRequest, runner);
+
+  const normalizedPath = path.replaceAll("\\", "/").replace(/^\/+/, "");
+  if (!normalizedPath) {
+    throw new Error("Pull-request file path is required.");
+  }
+
+  const { owner, name } = pullRequestCoordinates(pullRequest);
+  const encodedPath = normalizedPath
+    .split("/")
+    .map((segment) => encodeURIComponent(segment))
+    .join("/");
+  const args = [
+    "api",
+    "repos/" +
+      owner +
+      "/" +
+      name +
+      "/contents/" +
+      encodedPath +
+      "?ref=" +
+      encodeURIComponent(pullRequest.headRefOid),
+  ];
+  const raw = parseJson<Record<string, unknown>>(
+    requireSuccess(run(root, args, runner), args),
+    args,
+  );
+
+  if (raw.type !== "file" || raw.encoding !== "base64" || typeof raw.content !== "string") {
+    throw new Error("Target pull-request path is not a readable text file: " + normalizedPath + ".");
+  }
+
+  const decoded = Buffer.from(raw.content.replace(/\s+/g, ""), "base64").toString("utf8");
+  if (decoded.includes("\u0000")) {
+    throw new Error("Target pull-request path appears to be binary: " + normalizedPath + ".");
+  }
+
+  const lines = decoded.split(/\r?\n/);
+  const totalLines = lines.length;
+  const startLine = Math.max(1, Math.floor(options.startLine ?? 1));
+  const requestedEnd = Math.floor(options.endLine ?? totalLines);
+  const endLine = Math.max(startLine, Math.min(totalLines, requestedEnd));
+  const selected = lines.slice(startLine - 1, endLine).join("\n");
+  const truncated = selected.length > MAX_PULL_REQUEST_FILE_CHARS;
+
+  return {
+    path: normalizedPath,
+    ref: pullRequest.headRefOid,
+    startLine,
+    endLine,
+    totalLines,
+    content: truncated
+      ? selected.slice(0, MAX_PULL_REQUEST_FILE_CHARS) + "\n[FILE TRUNCATED]"
+      : selected,
+    truncated,
   };
 }
 
