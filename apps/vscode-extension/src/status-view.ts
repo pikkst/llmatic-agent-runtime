@@ -25,6 +25,18 @@ export interface AutoReviewStatus {
   error?: string;
 }
 
+export interface ExternalReviewStatus {
+  running: boolean;
+  reference?: string;
+  phase?: string;
+  detail?: string;
+  startedAt?: number;
+  elapsedMs?: number;
+  lastDurationMs?: number;
+  lastCompletedAt?: string;
+  error?: string;
+}
+
 export interface WorkspaceJiraStatus {
   connected: boolean;
   required: boolean;
@@ -125,6 +137,8 @@ export class LlmaticStatusProvider implements vscode.TreeDataProvider<vscode.Tre
   private recovery?: WorkspaceRecovery;
   private jiraStatus?: WorkspaceJiraStatus;
   private autoReviewStatus?: AutoReviewStatus;
+  private externalReviewStatus?: ExternalReviewStatus;
+  private reviewLoggingEnabled = true;
   private nextOperationId = 0;
   private readonly operations = new Map<number, StatusOperation>();
 
@@ -171,6 +185,85 @@ export class LlmaticStatusProvider implements vscode.TreeDataProvider<vscode.Tre
     );
   }
 
+  public setReviewLoggingEnabled(enabled: boolean): void {
+    this.reviewLoggingEnabled = enabled;
+    this.changed.fire(undefined);
+  }
+
+  public beginExternalReview(
+    reference: string,
+  ): {
+    update: (phase: string, detail?: string) => void;
+    complete: (durationMs: number) => void;
+    fail: (message: string, durationMs: number) => void;
+    dispose: () => void;
+  } {
+    const startedAt = Date.now();
+    this.externalReviewStatus = {
+      running: true,
+      reference,
+      phase: "Starting",
+      startedAt,
+      elapsedMs: 0,
+    };
+    this.changed.fire(undefined);
+
+    const timer = setInterval(() => {
+      if (!this.externalReviewStatus?.running) return;
+      this.externalReviewStatus = {
+        ...this.externalReviewStatus,
+        elapsedMs: Date.now() - startedAt,
+      };
+      this.changed.fire(undefined);
+    }, 1000);
+
+    let disposed = false;
+    const disposeTimer = () => {
+      if (disposed) return;
+      disposed = true;
+      clearInterval(timer);
+    };
+
+    return {
+      update: (phase, detail) => {
+        if (!this.externalReviewStatus?.running) return;
+        this.externalReviewStatus = {
+          ...this.externalReviewStatus,
+          phase,
+          detail,
+          elapsedMs: Date.now() - startedAt,
+        };
+        this.changed.fire(undefined);
+      },
+      complete: (durationMs) => {
+        disposeTimer();
+        this.externalReviewStatus = {
+          running: false,
+          reference,
+          phase: "Completed",
+          elapsedMs: durationMs,
+          lastDurationMs: durationMs,
+          lastCompletedAt: new Date().toISOString(),
+        };
+        this.changed.fire(undefined);
+      },
+      fail: (message, durationMs) => {
+        disposeTimer();
+        this.externalReviewStatus = {
+          running: false,
+          reference,
+          phase: "Failed",
+          elapsedMs: durationMs,
+          lastDurationMs: durationMs,
+          lastCompletedAt: new Date().toISOString(),
+          error: message,
+        };
+        this.changed.fire(undefined);
+      },
+      dispose: disposeTimer,
+    };
+  }
+
   public beginOperation(
     label: string,
     description?: string,
@@ -205,6 +298,18 @@ export class LlmaticStatusProvider implements vscode.TreeDataProvider<vscode.Tre
 
   public getTreeItem(element: vscode.TreeItem): vscode.TreeItem {
     return element;
+  }
+
+  private formatDuration(durationMs: number | undefined): string {
+    if (durationMs === undefined) return "00:00";
+    const totalSeconds = Math.max(0, Math.floor(durationMs / 1000));
+    const hours = Math.floor(totalSeconds / 3600);
+    const minutes = Math.floor((totalSeconds % 3600) / 60);
+    const seconds = totalSeconds % 60;
+    const padded = (value: number) => String(value).padStart(2, "0");
+    return hours > 0
+      ? padded(hours) + ":" + padded(minutes) + ":" + padded(seconds)
+      : padded(minutes) + ":" + padded(seconds);
   }
 
   public getChildren(): vscode.ProviderResult<vscode.TreeItem[]> {
@@ -422,6 +527,86 @@ export class LlmaticStatusProvider implements vscode.TreeDataProvider<vscode.Tre
       recoveryItems.push(recommendation);
     }
 
+    const externalReview = new vscode.TreeItem(
+      "External PR Review",
+      vscode.TreeItemCollapsibleState.None,
+    );
+    if (this.externalReviewStatus?.running) {
+      decorateStatusItem(externalReview, "attention", "external-pr-review", "loading~spin");
+      externalReview.description =
+        "PR " +
+        (this.externalReviewStatus.reference ?? "?") +
+        " · " +
+        (this.externalReviewStatus.phase ?? "working") +
+        " · " +
+        this.formatDuration(this.externalReviewStatus.elapsedMs);
+      externalReview.tooltip =
+        "External PR review is running.\n" +
+        (this.externalReviewStatus.detail ?? this.externalReviewStatus.phase ?? "") +
+        "\nElapsed: " +
+        this.formatDuration(this.externalReviewStatus.elapsedMs) +
+        "\nClick to open the live review log.";
+      externalReview.command = {
+        command: "llmatic.openReviewLog",
+        title: "Open Review Log",
+      };
+    } else if (this.externalReviewStatus?.error) {
+      decorateStatusItem(externalReview, "error", "external-pr-review", "error");
+      externalReview.description =
+        "failed · " + this.formatDuration(this.externalReviewStatus.lastDurationMs);
+      externalReview.tooltip =
+        this.externalReviewStatus.error +
+        "\nDuration: " +
+        this.formatDuration(this.externalReviewStatus.lastDurationMs);
+      externalReview.command = {
+        command: "llmatic.openReviewLog",
+        title: "Open Review Log",
+      };
+    } else {
+      externalReview.iconPath = new vscode.ThemeIcon("git-pull-request");
+      externalReview.description = this.externalReviewStatus?.lastDurationMs
+        ? "last " +
+          this.formatDuration(this.externalReviewStatus.lastDurationMs) +
+          " · review another pull request"
+        : "review one pull request without changing task ownership";
+      externalReview.command = {
+        command: "llmatic.reviewExternalPullRequest",
+        title: "Review External Pull Request",
+      };
+    }
+
+    const reviewLog = new vscode.TreeItem(
+      "Review Activity Log",
+      vscode.TreeItemCollapsibleState.None,
+    );
+    decorateStatusItem(
+      reviewLog,
+      this.reviewLoggingEnabled ? "ok" : "neutral",
+      "review-activity-log",
+      this.reviewLoggingEnabled ? "output" : "circle-slash",
+    );
+    reviewLog.description = this.reviewLoggingEnabled
+      ? "ON · live + persistent telemetry"
+      : "OFF · click to enable";
+    reviewLog.tooltip = this.reviewLoggingEnabled
+      ? "Review activity logging is enabled. Click to disable. Use Open Review Log to inspect the current session."
+      : "Review activity logging is disabled. Click to enable.";
+    reviewLog.command = {
+      command: "llmatic.toggleReviewActivityLogging",
+      title: "Toggle Review Activity Logging",
+    };
+
+    const openReviewLog = new vscode.TreeItem(
+      "Open Review Log",
+      vscode.TreeItemCollapsibleState.None,
+    );
+    openReviewLog.iconPath = new vscode.ThemeIcon("output");
+    openReviewLog.description = "live phases, model steps, tools and timings";
+    openReviewLog.command = {
+      command: "llmatic.openReviewLog",
+      title: "Open Review Log",
+    };
+
     const actions: StatusAction[] = [
       {
         label: "New Project Discovery",
@@ -512,12 +697,6 @@ export class LlmaticStatusProvider implements vscode.TreeDataProvider<vscode.Tre
         command: "llmatic.refreshWorkspaceRecovery",
       },
       {
-        label: "External PR Review",
-        description: "review one pull request without changing task ownership",
-        icon: "git-pull-request",
-        command: "llmatic.reviewExternalPullRequest",
-      },
-      {
         label: "Generate PR Draft",
         description: "task, validation, review, security and rule evidence",
         icon: "git-pull-request-create",
@@ -535,6 +714,9 @@ export class LlmaticStatusProvider implements vscode.TreeDataProvider<vscode.Tre
       ...operationItems,
       statusItem,
       ...recoveryItems,
+      externalReview,
+      reviewLog,
+      openReviewLog,
       ...actions.map((action) => {
         const item = new vscode.TreeItem(action.label, vscode.TreeItemCollapsibleState.None);
         item.description = action.description;
