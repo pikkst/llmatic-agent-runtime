@@ -191,11 +191,26 @@ export class AdaptiveFreeGatewayClient implements GatewayChatClient {
       // Live discovery is an optimization. Preserve the configured Auto Free fallback.
     }
 
-    if (!avoided.has("kilo-auto/free") && !candidates.includes("kilo-auto/free")) {
+    const autoFreeAllowed = !avoided.has("kilo-auto/free");
+    if (autoFreeAllowed && !candidates.includes("kilo-auto/free")) {
       candidates.push("kilo-auto/free");
     }
 
     if (candidates.length === 0) candidates.push(requested);
+
+    if (this.maxModelAttempts === 1) {
+      return [candidates[0]!];
+    }
+
+    if (autoFreeAllowed && candidates.includes("kilo-auto/free")) {
+      return [
+        ...candidates
+          .filter((model) => model !== "kilo-auto/free")
+          .slice(0, this.maxModelAttempts - 1),
+        "kilo-auto/free",
+      ];
+    }
+
     return candidates.slice(0, this.maxModelAttempts);
   }
 
