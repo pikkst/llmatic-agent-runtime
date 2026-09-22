@@ -305,7 +305,7 @@ PR drafts are generated from captured task/workflow/check/review/security/archit
 
 ## M29 — External Pull Request Review
 
-Status: in progress for v0.3.0.
+Status: implementation complete for v0.3.0; local VS Code smoke pending.
 
 Goal: support reviewing pull requests authored by other engineers without conflating that workflow with the current task owner/recovery lifecycle.
 
