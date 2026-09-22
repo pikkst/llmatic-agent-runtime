@@ -211,10 +211,8 @@ function isPolicyCandidate(file: RepositoryFileEntry): boolean {
   if (!/\.(?:md|mdx|txt)$/i.test(lower)) return false;
   if (AUTHORITATIVE_POLICY_NAMES.has(name)) return true;
   if (lower === "readme.md") return true;
-  if ((lower.startsWith("docs/") || lower.startsWith(".github/")) && POLICY_LIKE_PATH.test(lower)) {
-    return true;
-  }
-  return false;
+  if (lower.startsWith("docs/") || lower.startsWith(".github/")) return true;
+  return POLICY_LIKE_PATH.test(lower);
 }
 
 function sourcePriority(path: string): number {
