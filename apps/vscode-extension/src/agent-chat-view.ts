@@ -220,9 +220,8 @@ export class AgentChatViewProvider implements vscode.WebviewViewProvider {
       messages: this.messages.map((message) => ({ ...message })),
     };
 
-    void view.webview
-      .postMessage(message)
-      .then((delivered) => {
+    void view.webview.postMessage(message).then(
+      (delivered) => {
         if (this.view !== view) return;
         if (delivered) {
           this.syncRetryCount = 0;
@@ -240,8 +239,8 @@ export class AgentChatViewProvider implements vscode.WebviewViewProvider {
           this.syncRetry = undefined;
           this.sync();
         }, delay);
-      })
-      .catch(() => {
+      },
+      () => {
         if (this.view !== view || this.syncRetryCount >= 5) return;
         this.syncRetryCount += 1;
         if (this.syncRetry) clearTimeout(this.syncRetry);
@@ -249,7 +248,8 @@ export class AgentChatViewProvider implements vscode.WebviewViewProvider {
           this.syncRetry = undefined;
           this.sync();
         }, 250);
-      });
+      },
+    );
   }
 
   private html(webview: vscode.Webview): string {
