@@ -15,7 +15,7 @@ import type {
 import { createWorkflowBranch, getGitStatus } from "@llmatic/git-adapter";
 import {
   getFailedPullRequestDiagnostics,
-  getPullRequestReviewContext,
+  getPullRequestReviewMetadata,
   getPullRequestStatus,
 } from "@llmatic/github-adapter";
 import {
@@ -671,7 +671,7 @@ async function executeTool(context: ToolExecutionContext, call: GatewayToolCall)
       );
 
     case "pull_request_review_context": {
-      const review = await getPullRequestReviewContext(
+      const review = await getPullRequestReviewMetadata(
         context.root,
         requiredString(args, "reference"),
       );
@@ -692,7 +692,6 @@ async function executeTool(context: ToolExecutionContext, call: GatewayToolCall)
         comments: review.comments,
         reviewThreads,
         diffIncluded: false,
-        diffTruncated: review.diffTruncated,
         sensitiveChangedFileCount: review.changedFiles.length - changedFiles.length,
       };
     }
