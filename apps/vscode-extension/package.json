@@ -276,7 +276,14 @@
           "default": 90000,
           "minimum": 30000,
           "maximum": 300000,
-          "description": "Hard timeout for one external PR review model request. External review uses no automatic request retries so one stalled lens cannot block the full review for multiple timeout windows."
+          "description": "Hard timeout for one external PR review model candidate. Adaptive free-model routing may switch to another live free model after a transient timeout/provider failure."
+        },
+        "llmatic.reviewFreeModelFallbacks": {
+          "type": "number",
+          "default": 4,
+          "minimum": 1,
+          "maximum": 8,
+          "description": "Maximum live free-model candidates tried for one external PR review request when the selected model is Auto Free or another explicit free model. Kilo Auto Free is reserved as the final fallback when available."
         },
         "llmatic.releaseRepository": {
           "type": "string",
