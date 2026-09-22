@@ -181,6 +181,8 @@ export class KiloGatewayClient implements GatewayChatClient {
           model: request.model,
           messages: request.messages,
           tools: request.tools,
+          tool_choice: request.tool_choice,
+          response_format: request.response_format,
           max_tokens: request.max_tokens,
           temperature: request.temperature,
           stream: false,
