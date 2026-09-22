@@ -19,7 +19,9 @@ Required Worker configuration:
 - `ATLASSIAN_CLIENT_ID` — variable.
 - `ATLASSIAN_CLIENT_SECRET` — secret.
 - `ATLASSIAN_REDIRECT_URI` — exact public callback, e.g. `https://<worker>/v1/connections/callback/atlassian`.
-- `CONNECTION_SESSIONS` — KV namespace binding.
+- `CONNECTION_SESSIONS` — KV namespace binding. The canonical Wrangler config declares the
+  binding without an account-specific id so deployment tooling can provision it without committing
+  Cloudflare account state.
 
 The Atlassian app should enable the Jira scopes used by the worker:
 
@@ -61,17 +63,36 @@ Atlassian: ready
 
 ## Production deployment checklist
 
-1. Create the Cloudflare Worker and KV namespace.
-2. Bind the KV namespace as `CONNECTION_SESSIONS`.
-3. Configure `ATLASSIAN_CLIENT_ID`.
-4. Store `ATLASSIAN_CLIENT_SECRET` as a Worker secret.
-5. Configure `ATLASSIAN_REDIRECT_URI` to the exact public callback:
+The repository now contains the canonical Cloudflare configuration at
+`deploy/oauth-broker/wrangler.jsonc`. The `CONNECTION_SESSIONS` KV binding intentionally
+omits a namespace id so a current Wrangler deployment can provision the KV resource automatically.
+Do not commit account-specific secrets or Atlassian client credentials.
+
+1. Authenticate Wrangler:
+   `pnpm run broker:whoami`.
+   If needed, run `pnpm dlx wrangler@latest login` first.
+2. Deploy once to obtain the public Worker origin:
+   `pnpm run broker:deploy`.
+   This first deployment is expected to report `ready: false` until Atlassian values are configured.
+3. In the Atlassian developer console, create or select the single distributable LLMatic OAuth 2.0
+   (3LO) app and configure the callback URL exactly as:
    `https://<broker-origin>/v1/connections/callback/atlassian`.
-6. Add the same callback URI to the Atlassian 3LO app.
-7. Deploy the Worker.
-8. Run `pnpm run broker:smoke -- https://<broker-origin>`.
+4. Add the Jira scopes used by LLMatic:
+   `read:jira-user`, `read:jira-work`, `write:jira-work`, and `offline_access`.
+5. Configure the non-secret Worker variables `ATLASSIAN_CLIENT_ID` and
+   `ATLASSIAN_REDIRECT_URI` in Cloudflare. The redirect URI must exactly match the Atlassian
+   callback configured in step 3.
+6. Store the client secret through Wrangler:
+   `pnpm run broker:secret:atlassian`.
+   Paste the Atlassian client secret only into the Wrangler prompt; never put it in the repository.
+7. Deploy again:
+   `pnpm run broker:deploy`.
+8. Verify readiness:
+   `pnpm run broker:smoke -- https://<broker-origin>`.
 9. Set VS Code `llmatic.connectionBrokerUrl` to the broker origin.
-10. Run **LLMatic: Connect Jira Workspace → Continue with Atlassian**.
+10. Run **LLMatic: Connect Jira Workspace → Continue with Atlassian** and complete browser consent.
+11. Select the authorized Jira site/project in VS Code and verify a refresh-token cycle before
+    considering the adapter production-ready.
 
 The session poll token is never stored in plaintext by the broker. Browser authorization sessions expire after 10 minutes and successful session material is returned once, then removed from KV.
 
