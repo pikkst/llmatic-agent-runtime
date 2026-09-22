@@ -302,3 +302,12 @@ VS Code review runs:
 Findings must be evidence-backed. Concrete violations of active project rules record the exact rule ID/source.
 
 PR drafts are generated from captured task/workflow/check/review/security/architecture/rule evidence. Missing evidence is identified rather than fabricated.
+
+
+## M29 — External Pull Request Review
+
+Status: planned after v0.2.0.
+
+Goal: support reviewing pull requests authored by other engineers without conflating that workflow with the current task owner/recovery lifecycle.
+
+The review flow should be explicitly user-invoked, read the target PR/diff/checks/review threads, apply repository constitution + Bug Hunter + Security lenses, and produce review findings/comments without changing Jira task ownership or selecting the PR author's task as the user's active workflow.
