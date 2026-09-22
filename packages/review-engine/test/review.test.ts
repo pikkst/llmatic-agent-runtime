@@ -222,6 +222,65 @@ describe("review engine", () => {
     ).toBeGreaterThanOrEqual(0);
   });
 
+  it("keeps successful lenses when one external review lens fails", async () => {
+    const root = await repository();
+    const config = configFor(root);
+    const events: ReviewActivityEvent[] = [];
+    let call = 0;
+    const gateway: GatewayChatClient = {
+      async createChatCompletion(request) {
+        call += 1;
+        if (call === 2) {
+          throw new Error("simulated bug-hunter timeout");
+        }
+        return response(
+          JSON.stringify({
+            summary:
+              request.messages[0]?.content?.includes("Security lens")
+                ? "Security review completed."
+                : "General review completed.",
+            findings: [],
+          }),
+        );
+      },
+    };
+
+    const report = await runExternalPullRequestReview({
+      root,
+      config,
+      gateway,
+      lenses: ["general", "bug_hunter", "security"],
+      onActivity: (event) => events.push(event),
+      material: {
+        reference: "42",
+        headRefOid: "head-42",
+        title: "Partial lens review",
+        body: "",
+        ciState: "passing",
+        changedFiles: ["src/value.ts"],
+        diff: "diff --git a/src/value.ts b/src/value.ts\n--- a/src/value.ts\n+++ b/src/value.ts\n@@ -1 +1 @@\n-export const value = 1;\n+export const value = 2;\n",
+        diffTruncated: false,
+      },
+    });
+
+    expect(report.reviewStatus).toBe("partial");
+    expect(report.lensFailures).toEqual([
+      {
+        lens: "bug_hunter",
+        reason: "simulated bug-hunter timeout",
+      },
+    ]);
+    expect(report.summary).toContain("general: General review completed.");
+    expect(report.summary).toContain("security: Security review completed.");
+    expect(report.summary).toContain("Incomplete lenses: bug_hunter");
+    expect(events).toContainEqual(
+      expect.objectContaining({
+        type: "lens-failed",
+        lens: "bug_hunter",
+      }),
+    );
+  });
+
   it("accepts a prose-prefixed structured review object", async () => {
     const root = await repository();
     const config = configFor(root);
