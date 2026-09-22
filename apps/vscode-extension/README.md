@@ -111,7 +111,9 @@ Task sources can be auto-detected or explicitly selected with `llmatic.taskSourc
 auto | jira | markdown | github
 ```
 
-For Jira, optional `llmatic.jiraProjectKey` and `llmatic.jiraRecoveryJql` settings scope the recovery queue. Live Jira task candidates are exposed to Agent Chat so the Kilo model can help sequence work without guessing task state.
+For Jira, use **LLMatic: Connect Jira Workspace**. Each workspace keeps its own Jira site/project/work-mode profile and workspace-ID-scoped SecretStorage credential, so different repositories can safely connect to different Jira environments in separate VS Code windows.
+
+The default team-safe mode is `assigned_only`: LLMatic can list/order your assigned work but cannot start another user's task. `project_queue` is an explicit solo/full-project mode and requires a scoped project key or custom JQL.
 
 LLMatic also builds a **Repository Constitution** from repository documentation and tooling evidence. Explicit rules preserve source provenance; inferred conventions stay advisory. Repeated review patterns may be proposed as new rules, but only a human can approve them.
 
@@ -171,6 +173,8 @@ LLMatic: Review Project Plan
 LLMatic: Review & Approve Project Plan
 LLMatic: Open Agent Chat
 LLMatic: Refresh Repository Context
+LLMatic: Connect Jira Workspace
+LLMatic: Disconnect Jira Workspace
 LLMatic: Show Repository Rules
 LLMatic: Review Repository Rule Proposals
 LLMatic: Generate PR Draft
