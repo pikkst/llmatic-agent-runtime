@@ -64,6 +64,8 @@ describe("VS Code extension activation surface", () => {
     expect(source).toContain("formatAgentActivity");
     expect(source).toContain('"Thinking…"');
     expect(source).toContain('"Searching the repository…"');
+    expect(source).toContain("Model provider temporarily unavailable — retrying");
+    expect(source).toContain("[RETRY] Kilo Gateway");
     expect(source).not.toContain("chatProvider.appendActivity(line");
     expect(source).toContain("decideRepositoryRuleProposal");
     expect(source).toContain("buildPullRequestDraft");
