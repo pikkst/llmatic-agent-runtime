@@ -14,6 +14,10 @@
 - External review now rejects pull requests from a different repository than the opened workspace, preventing local Constitution/source context from being applied to an unrelated repository.
 - Structured review `read_file` calls now read immutable file content from the target PR head SHA through GitHub instead of the active local branch, preserving external-review isolation without checkout or worktree mutation.
 - Review metadata, diff capture and publication are bound to one PR head SHA; if the PR changes during capture or before publication, LLMatic aborts and requires a refreshed review instead of posting stale findings.
+- External PR findings are now scope-gated: only documented DoD/acceptance violations, concrete changed-code defects, and explicit/human-approved repository-rule violations survive into the final report.
+- Nice-to-have features, optional refactors, cleanup/style preferences, speculative future work and unsupported performance ideas are filtered out; undocumented DoD requirements are discarded.
+- Concrete defect/rule findings must map to a real changed diff line and are previewed/published as GitHub inline comments; DoD gaps without a valid inline target remain summary-only.
+- Published review summaries are deterministic and based on validated findings rather than free-form model suggestion prose.
 - Added visible `External PR Review` and `Auto Review Agent` actions to the LLMatic Runtime Status view.
 - Added a repository-bound local Auto Review Agent that watches every two minutes while VS Code is open, baselines existing PRs on enable, automatically reviews new or updated review-ready PR heads, waits for drafts to become ready, and never auto-publishes review comments.
 
