@@ -79,6 +79,30 @@ async function repository(): Promise<string> {
     ].join("\n"),
   );
 
+  await writeFile(
+    join(root, "docs", "ARCHITECTURE.md"),
+    [
+      "# Architecture notes",
+      "",
+      "Historically this service must remain compatible with an older migration.",
+      "",
+      "# Rules",
+      "",
+      "New domain services must use the canonical repository abstraction.",
+      "",
+    ].join("\n"),
+  );
+
+  await writeFile(
+    join(root, "docs", "HISTORY.md"),
+    [
+      "# History",
+      "",
+      "The previous implementation should have used a different worker.",
+      "",
+    ].join("\n"),
+  );
+
   await writeFile(join(root, "src", "example.ts"), "export const value = 1;\n");
   for (let index = 0; index < 5; index += 1) {
     await writeFile(join(root, "test", "feature-" + index + ".test.ts"), "export {};\n");
@@ -108,6 +132,27 @@ describe("repository constitution", () => {
       },
     });
     expect(apiRule?.scopes).toContain("api");
+  });
+
+  it("does not promote ordinary documentation prose to repository policy", async () => {
+    const root = await repository();
+    const constitution = await buildRepositoryConstitution(root, configFor(root));
+
+    expect(
+      constitution.rules.some((rule) =>
+        rule.text.includes("Historically this service must remain compatible"),
+      ),
+    ).toBe(false);
+    expect(
+      constitution.rules.some((rule) =>
+        rule.text.includes("previous implementation should have used"),
+      ),
+    ).toBe(false);
+    expect(
+      constitution.rules.some((rule) =>
+        rule.text.includes("New domain services must use the canonical repository abstraction"),
+      ),
+    ).toBe(true);
   });
 
   it("keeps inferred conventions advisory instead of silently promoting them to policy", async () => {
