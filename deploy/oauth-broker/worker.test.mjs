@@ -143,6 +143,7 @@ describe("LLMatic OAuth broker", () => {
       name: "llmatic-oauth-broker",
       main: "worker.mjs",
       compatibility_date: "2026-09-22",
+      keep_vars: true,
       kv_namespaces: [{ binding: "CONNECTION_SESSIONS" }],
     });
     expect(config.kv_namespaces[0]).not.toHaveProperty("id");
