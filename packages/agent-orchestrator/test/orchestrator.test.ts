@@ -233,7 +233,7 @@ describe("gateway coding agent", () => {
       role: "tool",
       tool_call_id: "call-task-connection",
     });
-    expect(JSON.stringify(gateway.requests[1]?.messages.at(-1))).toContain('"supported":false');
+    expect(gateway.requests[1]?.messages.at(-1)?.content).toContain('"supported":false');
   });
 
   it("returns tool failures to the model instead of bypassing ask permissions", async () => {
