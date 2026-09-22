@@ -17,6 +17,7 @@ export interface KiloGatewayClientOptions {
   fetch?: GatewayFetch;
   maxRetries?: number;
   retryBaseDelayMs?: number;
+  requestTimeoutMs?: number;
   sleep?: (delayMs: number) => Promise<void>;
   onRetry?: (event: GatewayRetryEvent) => void | Promise<void>;
 }
@@ -102,6 +103,7 @@ export class KiloGatewayClient implements GatewayChatClient {
   private readonly request: GatewayFetch;
   private readonly maxRetries: number;
   private readonly retryBaseDelayMs: number;
+  private readonly requestTimeoutMs: number;
   private readonly sleep: (delayMs: number) => Promise<void>;
   private readonly onRetry?: (event: GatewayRetryEvent) => void | Promise<void>;
 
@@ -112,6 +114,10 @@ export class KiloGatewayClient implements GatewayChatClient {
     this.request = options.fetch ?? fetch;
     this.maxRetries = Math.max(0, Math.min(5, Math.trunc(options.maxRetries ?? 2)));
     this.retryBaseDelayMs = Math.max(0, Math.trunc(options.retryBaseDelayMs ?? 500));
+    this.requestTimeoutMs = Math.max(
+      5_000,
+      Math.min(10 * 60_000, Math.trunc(options.requestTimeoutMs ?? 120_000)),
+    );
     this.sleep = options.sleep ?? defaultSleep;
     this.onRetry = options.onRetry;
   }
@@ -163,11 +169,14 @@ export class KiloGatewayClient implements GatewayChatClient {
     }
 
     let response: Response;
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), this.requestTimeoutMs);
 
     try {
       response = await this.request(this.baseUrl + "/chat/completions", {
         method: "POST",
         headers,
+        signal: controller.signal,
         body: JSON.stringify({
           model: request.model,
           messages: request.messages,
@@ -178,11 +187,16 @@ export class KiloGatewayClient implements GatewayChatClient {
         }),
       });
     } catch (error) {
+      const timedOut = controller.signal.aborted;
       throw new RetryableGatewayError(
-        "Kilo Gateway network request failed: " +
-          (error instanceof Error ? error.message : String(error)),
+        timedOut
+          ? "Kilo Gateway request timed out after " + this.requestTimeoutMs + "ms."
+          : "Kilo Gateway network request failed: " +
+              (error instanceof Error ? error.message : String(error)),
         true,
       );
+    } finally {
+      clearTimeout(timeout);
     }
 
     const raw = await response.text();
