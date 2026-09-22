@@ -20,6 +20,7 @@ import {
 import { runCodingAgent } from "@llmatic/agent-orchestrator";
 import type {
   GatewayChatClient,
+  GatewayChatResponse,
   GatewayMessage,
   GatewayTool,
   GatewayToolCall,
