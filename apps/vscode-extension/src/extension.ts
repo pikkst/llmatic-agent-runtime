@@ -2363,6 +2363,36 @@ function reviewActivityDescription(event: ReviewActivityEvent): {
         phase: event.lens.replaceAll("_", " ") + " lens",
         detail: "Starting " + event.lens.replaceAll("_", " ") + " review…",
       };
+    case "lens-batch-start":
+      return {
+        phase:
+          event.lens.replaceAll("_", " ") +
+          " · batch " +
+          event.batch +
+          "/" +
+          event.totalBatches,
+        detail:
+          "Reviewing " +
+          event.files.length +
+          " changed file(s): " +
+          event.files.slice(0, 4).join(", ") +
+          (event.files.length > 4 ? "…" : ""),
+      };
+    case "lens-batch-failed":
+      return {
+        phase:
+          event.lens.replaceAll("_", " ") +
+          " · batch " +
+          event.batch +
+          "/" +
+          event.totalBatches +
+          " incomplete",
+        detail:
+          "Batch stopped after " +
+          formatElapsedDuration(event.durationMs) +
+          ": " +
+          event.reason,
+      };
     case "lens-failed":
       return {
         phase: event.lens.replaceAll("_", " ") + " incomplete",
