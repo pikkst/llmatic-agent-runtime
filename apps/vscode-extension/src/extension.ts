@@ -2815,7 +2815,7 @@ async function reviewExternalPullRequestInUi(
             return value;
           },
           model,
-          maxSteps: configuration().get<number>("reviewMaxSteps", 8),
+          maxSteps: configuration().get<number>("externalReviewMaxSteps", 3),
           lenses: ["general", "bug_hunter", "security"],
           onActivity: (event) => {
             const description = reviewActivityDescription(event);
@@ -3053,7 +3053,7 @@ async function runAutomaticExternalPullRequestReview(
         return value;
       },
       model,
-      maxSteps: configuration().get<number>("reviewMaxSteps", 3),
+      maxSteps: configuration().get<number>("externalReviewMaxSteps", 3),
       lenses: ["general", "bug_hunter", "security"],
       material: {
         reference: String(reviewContext.status.pullRequest.number),
