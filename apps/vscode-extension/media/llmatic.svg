@@ -1,4 +1,7 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">
-  <path fill="currentColor" d="M12 2 3 7v10l9 5 9-5V7l-9-5Zm0 2.2L18.9 8 12 11.8 5.1 8 12 4.2Zm-7 5.5 6 3.3v6.2l-6-3.3V9.7Zm8 9.5V13l6-3.3v6.2l-6 3.3Z"/>
-  <path fill="currentColor" d="m15.8 6.8-5.1 7.1-2.5-2.3-1.4 1.5 4.2 3.8 6.4-8.9-1.6-1.2Z"/>
+<svg xmlns="http://www.w3.org/2000/svg"
+     width="972" height="1104" viewBox="0 0 972 1104"
+     role="img" aria-labelledby="title desc">
+  <title id="title">LLM monogram logo</title>
+  <desc id="desc">Minimalist black geometric LLM monogram inside a hexagonal cube-like frame.</desc>
+  <polygon points="220,349 148,393 149,716 483,906 482,801 221,650" fill="#000000"/>  <polygon points="407,250 319,300 319,653 503,759 503,651 409,593" fill="#000000"/>  <polygon points="487,70 70,308 70,800 478,1034 902,800 901,325 715,475 538,348 539,866 624,815 623,508 714,590 800,508 803,753 477,936 119,739 120,370 484,168 795,340 878,296" fill="#000000"/>
 </svg>
