@@ -1721,6 +1721,7 @@ function formatAgentActivity(event: CodingAgentEvent): string {
     workflow_create_branch: "Creating the workflow branch…",
     workflow_begin_implementation: "Starting implementation…",
     task_sources: "Checking available task sources…",
+    task_connection: "Checking the task connection…",
     task_list: "Reading the task queue…",
     task_get: "Reading task details…",
     task_next: "Finding the next task…",
