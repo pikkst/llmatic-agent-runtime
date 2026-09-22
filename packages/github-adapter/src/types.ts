@@ -36,6 +36,11 @@ export interface PullRequestSummary {
   baseRefName: string;
 }
 
+export interface OpenPullRequestSummary extends PullRequestSummary {
+  title: string;
+  authorLogin?: string;
+}
+
 export interface PullRequestCheck {
   name: string;
   state: string;
