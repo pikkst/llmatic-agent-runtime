@@ -33,7 +33,11 @@ import {
   type BrokerResource,
 } from "@llmatic/external-connections";
 import { KiloGatewayClient } from "@llmatic/gateway-client";
-import { getPullRequestReviewContext, publishPullRequestReview } from "@llmatic/github-adapter";
+import {
+  getPullRequestReviewContext,
+  publishPullRequestReview,
+  readPullRequestFileAtHead,
+} from "@llmatic/github-adapter";
 import { verifyJiraConnectionFromEnvironment, type JiraWorkMode } from "@llmatic/jira-adapter";
 import {
   approveCurrentProjectPlan,
@@ -2338,10 +2342,30 @@ async function reviewExternalPullRequestInUi(
       const reviewContext = await getPullRequestReviewContext(root, reference.trim());
 
       progress.report({ message: "Running General, Bug Hunter and Security review…" });
+      const fileCache = new Map<string, unknown>();
       return runExternalPullRequestReview({
         root,
         config,
         gateway,
+        readFile: (path, options) => {
+          const key =
+            path +
+            ":" +
+            String(options.startLine ?? "") +
+            ":" +
+            String(options.endLine ?? "");
+          const cached = fileCache.get(key);
+          if (cached) return cached;
+
+          const value = readPullRequestFileAtHead(
+            root,
+            reviewContext.status.pullRequest,
+            path,
+            options,
+          );
+          fileCache.set(key, value);
+          return value;
+        },
         model,
         maxSteps: configuration().get<number>("agentMaxSteps", 20),
         lenses: ["general", "bug_hunter", "security"],
