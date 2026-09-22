@@ -31,3 +31,47 @@ The Atlassian app should enable the Jira scopes used by the worker:
 After deployment, configure the extension setting `llmatic.connectionBrokerUrl` to the public Worker origin.
 
 Manual Jira authentication remains available as an explicit fallback for development and legacy environments.
+
+
+## Readiness contract
+
+The broker exposes:
+
+```text
+GET /health
+```
+
+A healthy but incompletely configured deployment returns HTTP 200 with `ready: false` and only the names of missing configuration entries. Secret values are never returned.
+
+The VS Code extension performs this readiness preflight before opening the Atlassian authorization page. If Atlassian is not ready, the browser is not opened and the user sees the missing broker configuration instead.
+
+After deployment run:
+
+```powershell
+pnpm run broker:smoke -- https://<broker-origin>
+```
+
+Expected result:
+
+```text
+OAUTH BROKER SMOKE PASSED
+Service: llmatic-oauth-broker
+Version: 1
+Atlassian: ready
+```
+
+## Production deployment checklist
+
+1. Create the Cloudflare Worker and KV namespace.
+2. Bind the KV namespace as `CONNECTION_SESSIONS`.
+3. Configure `ATLASSIAN_CLIENT_ID`.
+4. Store `ATLASSIAN_CLIENT_SECRET` as a Worker secret.
+5. Configure `ATLASSIAN_REDIRECT_URI` to the exact public callback:
+   `https://<broker-origin>/v1/connections/callback/atlassian`.
+6. Add the same callback URI to the Atlassian 3LO app.
+7. Deploy the Worker.
+8. Run `pnpm run broker:smoke -- https://<broker-origin>`.
+9. Set VS Code `llmatic.connectionBrokerUrl` to the broker origin.
+10. Run **LLMatic: Connect Jira Workspace → Continue with Atlassian**.
+
+The session poll token is never stored in plaintext by the broker. Browser authorization sessions expire after 10 minutes and successful session material is returned once, then removed from KV.
