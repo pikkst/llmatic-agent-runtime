@@ -260,13 +260,20 @@ async function taskRecoveryEnvironment(
   }
 
   const environment = sanitizedJiraEnvironment();
-  const secret = await context.secrets.get(
-    jiraSecretKey(state.activeWorkspace.id, profile.authType),
-  );
+  const secret =
+    profile.authType === "oauth_broker"
+      ? undefined
+      : await context.secrets.get(
+          jiraSecretKey(state.activeWorkspace.id, profile.authType),
+        );
+  const oauthCredential =
+    profile.authType === "oauth_broker"
+      ? await jiraOAuthCredential(context, state.activeWorkspace.id, profile)
+      : undefined;
 
   environment.LLMATIC_TASK_PROVIDER = "jira";
   environment.LLMATIC_JIRA_BASE_URL = profile.baseUrl;
-  environment.LLMATIC_JIRA_SITE_URL = profile.baseUrl;
+  environment.LLMATIC_JIRA_SITE_URL = profile.siteUrl ?? profile.baseUrl;
   environment.LLMATIC_JIRA_PROJECT_KEY = profile.projectKey;
   environment.LLMATIC_JIRA_WORK_MODE = profile.workMode;
   if (profile.recoveryJql) {
@@ -276,6 +283,10 @@ async function taskRecoveryEnvironment(
   if (profile.authType === "basic") {
     if (profile.email) environment.LLMATIC_JIRA_EMAIL = profile.email;
     if (secret) environment.LLMATIC_JIRA_API_TOKEN = secret;
+  } else if (profile.authType === "oauth_broker") {
+    if (oauthCredential?.accessToken) {
+      environment.LLMATIC_JIRA_BEARER_TOKEN = oauthCredential.accessToken;
+    }
   } else if (secret) {
     environment.LLMATIC_JIRA_BEARER_TOKEN = secret;
   }
@@ -316,14 +327,16 @@ async function workspaceJiraStatus(
   }
 
   const secret = state.activeWorkspace
-    ? await context.secrets.get(jiraSecretKey(state.activeWorkspace.id, profile.authType))
+    ? profile.authType === "oauth_broker"
+      ? await jiraOAuthCredential(context, state.activeWorkspace.id, profile)
+      : await context.secrets.get(jiraSecretKey(state.activeWorkspace.id, profile.authType))
     : undefined;
 
   return {
     connected: Boolean(secret),
     required: true,
     label: profile.projectKey,
-    detail: new URL(profile.baseUrl).host,
+    detail: new URL(profile.siteUrl ?? profile.baseUrl).host,
     workMode: profile.workMode,
   };
 }
