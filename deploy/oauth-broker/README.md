@@ -74,3 +74,17 @@ Atlassian: ready
 10. Run **LLMatic: Connect Jira Workspace → Continue with Atlassian**.
 
 The session poll token is never stored in plaintext by the broker. Browser authorization sessions expire after 10 minutes and successful session material is returned once, then removed from KV.
+
+
+## Public-endpoint hardening
+
+The Worker intentionally exposes only the browser authorization/session endpoints. Production deployment should also apply platform-level abuse controls:
+
+- rate-limit `POST /v1/connections/start` by client/IP;
+- rate-limit failed `GET /v1/connections/status` attempts;
+- keep the Worker behind HTTPS only;
+- do not log request bodies or Authorization headers;
+- keep KV retention limited to the short broker session TTL;
+- monitor 4xx/5xx rates without recording access tokens, refresh tokens, authorization codes or poll tokens.
+
+The Worker itself sends `Cache-Control: no-store`, `Referrer-Policy: no-referrer` and `X-Content-Type-Options: nosniff`. Browser callback pages additionally block framing and external content with CSP.
