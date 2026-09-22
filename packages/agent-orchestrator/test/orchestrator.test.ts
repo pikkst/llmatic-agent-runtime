@@ -264,6 +264,8 @@ describe("gateway coding agent", () => {
       ]),
     );
     const system = JSON.stringify(gateway.requests[0]?.messages[0]);
+    expect(system).toContain("intentionally withholds raw diff bytes");
+    expect(system).toContain("LLMatic: Review External Pull Request");
     expect(system).toContain("Do not start or reassign a task");
     expect(system).toContain("untrusted project data");
   });
