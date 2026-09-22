@@ -2,11 +2,97 @@ import * as vscode from "vscode";
 import type { SetupHealth } from "@llmatic/setup-health";
 import type { WorkspaceRecovery } from "@llmatic/workspace-recovery";
 
+type SemanticStatus = "ok" | "attention" | "error" | "neutral";
+
 interface StatusAction {
   label: string;
   description: string;
   icon: string;
   command: string;
+}
+
+const STATUS_COLOR_IDS: Record<Exclude<SemanticStatus, "neutral">, string> = {
+  ok: "testing.iconPassed",
+  attention: "list.warningForeground",
+  error: "list.errorForeground",
+};
+
+function semanticColor(status: SemanticStatus): vscode.ThemeColor | undefined {
+  return status === "neutral" ? undefined : new vscode.ThemeColor(STATUS_COLOR_IDS[status]);
+}
+
+function semanticResource(status: SemanticStatus, key: string): vscode.Uri | undefined {
+  return status === "neutral"
+    ? undefined
+    : vscode.Uri.parse(
+        "llmatic-status://" + status + "/" + encodeURIComponent(key.replaceAll(" ", "-")),
+      );
+}
+
+function decorateStatusItem(
+  item: vscode.TreeItem,
+  status: SemanticStatus,
+  key: string,
+  icon: string,
+): vscode.TreeItem {
+  item.iconPath = new vscode.ThemeIcon(icon, semanticColor(status));
+  item.resourceUri = semanticResource(status, key);
+  return item;
+}
+
+function recoverySemanticStatus(recovery: WorkspaceRecovery): SemanticStatus {
+  if (
+    recovery.recommendation.action === "fix_pr" ||
+    recovery.pullRequest?.ciState === "failing" ||
+    recovery.pullRequest?.ciState === "cancelled"
+  ) {
+    return "error";
+  }
+
+  if (
+    recovery.workflow ||
+    recovery.task ||
+    recovery.nextTask ||
+    !recovery.git.clean ||
+    recovery.pullRequest ||
+    recovery.recommendation.action === "start_discovery"
+  ) {
+    return "attention";
+  }
+
+  return "ok";
+}
+
+function recommendationSemanticStatus(
+  action: WorkspaceRecovery["recommendation"]["action"],
+): SemanticStatus {
+  if (action === "fix_pr") return "error";
+  if (action === "ask_goal") return "ok";
+  return "attention";
+}
+
+export class LlmaticStatusDecorationProvider implements vscode.FileDecorationProvider {
+  private readonly changed = new vscode.EventEmitter<vscode.Uri | vscode.Uri[] | undefined>();
+  public readonly onDidChangeFileDecorations = this.changed.event;
+
+  public provideFileDecoration(uri: vscode.Uri): vscode.ProviderResult<vscode.FileDecoration> {
+    if (uri.scheme !== "llmatic-status") return undefined;
+
+    const status = uri.authority as SemanticStatus;
+    const color = semanticColor(status);
+    if (!color) return undefined;
+
+    return {
+      color,
+      tooltip:
+        status === "ok"
+          ? "OK"
+          : status === "attention"
+            ? "Needs attention"
+            : "Blocking or error",
+      propagate: false,
+    };
+  }
 }
 
 export class LlmaticStatusProvider implements vscode.TreeDataProvider<vscode.TreeItem> {
@@ -42,7 +128,10 @@ export class LlmaticStatusProvider implements vscode.TreeDataProvider<vscode.Tre
     const status = health?.status ?? "NEEDS_SETUP";
     const statusItem = new vscode.TreeItem(status, vscode.TreeItemCollapsibleState.None);
 
-    statusItem.iconPath = new vscode.ThemeIcon(
+    decorateStatusItem(
+      statusItem,
+      status === "READY" ? "ok" : status === "NEEDS_REPAIR" ? "error" : "attention",
+      "runtime",
       status === "READY" ? "pass-filled" : status === "NEEDS_REPAIR" ? "error" : "tools",
     );
     statusItem.description =
@@ -55,7 +144,12 @@ export class LlmaticStatusProvider implements vscode.TreeDataProvider<vscode.Tre
     const recoveryItems: vscode.TreeItem[] = [];
     if (this.recovery) {
       const map = new vscode.TreeItem("Repository Map", vscode.TreeItemCollapsibleState.None);
-      map.iconPath = new vscode.ThemeIcon("symbol-structure");
+      decorateStatusItem(
+        map,
+        this.recovery.repository.fileCount > 0 ? "ok" : "attention",
+        "repository-map",
+        "symbol-structure",
+      );
       map.description =
         this.recovery.repository.fileCount +
         " files · " +
@@ -67,7 +161,12 @@ export class LlmaticStatusProvider implements vscode.TreeDataProvider<vscode.Tre
       recoveryItems.push(map);
 
       const rules = new vscode.TreeItem("Repository Rules", vscode.TreeItemCollapsibleState.None);
-      rules.iconPath = new vscode.ThemeIcon("law");
+      decorateStatusItem(
+        rules,
+        this.recovery.constitution.counts.proposedRule > 0 ? "attention" : "ok",
+        "repository-rules",
+        "law",
+      );
       rules.description =
         this.recovery.constitution.counts.explicitRule +
         " explicit · " +
@@ -96,7 +195,10 @@ export class LlmaticStatusProvider implements vscode.TreeDataProvider<vscode.Tre
               : "Workspace Recovery",
         vscode.TreeItemCollapsibleState.None,
       );
-      recovered.iconPath = new vscode.ThemeIcon(
+      decorateStatusItem(
+        recovered,
+        recoverySemanticStatus(this.recovery),
+        "workspace-recovery",
         this.recovery.pullRequest ? "git-pull-request" : "tasklist",
       );
       recovered.description = this.recovery.pullRequest
@@ -123,7 +225,12 @@ export class LlmaticStatusProvider implements vscode.TreeDataProvider<vscode.Tre
         "Next: " + this.recovery.recommendation.title,
         vscode.TreeItemCollapsibleState.None,
       );
-      recommendation.iconPath = new vscode.ThemeIcon("sparkle");
+      decorateStatusItem(
+        recommendation,
+        recommendationSemanticStatus(this.recovery.recommendation.action),
+        "recommendation",
+        "sparkle",
+      );
       recommendation.description = this.recovery.recommendation.detail;
       recommendation.command = {
         command: "llmatic.openAgentChat",
@@ -233,7 +340,19 @@ export class LlmaticStatusProvider implements vscode.TreeDataProvider<vscode.Tre
       ...actions.map((action) => {
         const item = new vscode.TreeItem(action.label, vscode.TreeItemCollapsibleState.None);
         item.description = action.description;
-        item.iconPath = new vscode.ThemeIcon(action.icon);
+        item.iconPath =
+          action.command === "llmatic.setKiloGatewayApiKey"
+            ? new vscode.ThemeIcon(
+                action.icon,
+                semanticColor(this.gatewayKeyConfigured ? "ok" : "attention"),
+              )
+            : new vscode.ThemeIcon(action.icon);
+        if (action.command === "llmatic.setKiloGatewayApiKey") {
+          item.resourceUri = semanticResource(
+            this.gatewayKeyConfigured ? "ok" : "attention",
+            "gateway-key",
+          );
+        }
         item.command = {
           command: action.command,
           title: action.label,
