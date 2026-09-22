@@ -273,14 +273,14 @@
         },
         "llmatic.reviewRequestTimeoutMs": {
           "type": "number",
-          "default": 90000,
+          "default": 45000,
           "minimum": 30000,
           "maximum": 300000,
           "description": "Hard timeout for one external PR review model candidate. Adaptive free-model routing may switch to another live free model after a transient timeout/provider failure."
         },
         "llmatic.reviewFreeModelFallbacks": {
           "type": "number",
-          "default": 4,
+          "default": 3,
           "minimum": 1,
           "maximum": 8,
           "description": "Maximum live free-model candidates tried for one external PR review request when the selected model is Auto Free or another explicit free model. Kilo Auto Free is reserved as the final fallback when available."
