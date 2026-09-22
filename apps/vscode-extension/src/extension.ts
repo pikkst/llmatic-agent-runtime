@@ -168,6 +168,53 @@ function workspaceJiraProfile(context: vscode.ExtensionContext): WorkspaceJiraPr
   return context.workspaceState.get<WorkspaceJiraProfile>(JIRA_PROFILE_STATE_KEY);
 }
 
+function connectionBrokerUrl(): string | undefined {
+  const value = configuration().get<string>("connectionBrokerUrl", "").trim();
+  return value ? value.replace(/\/+$/, "") : undefined;
+}
+
+function parseJiraOAuthCredential(raw: string | undefined): JiraOAuthCredential | undefined {
+  if (!raw) return undefined;
+  try {
+    const parsed = JSON.parse(raw) as JiraOAuthCredential;
+    return parsed.accessToken?.trim() ? parsed : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+function jiraOAuthCredentialNeedsRefresh(credential: JiraOAuthCredential): boolean {
+  if (!credential.expiresAt) return false;
+  const expiresAt = Date.parse(credential.expiresAt);
+  return Number.isFinite(expiresAt) && expiresAt - Date.now() < 5 * 60 * 1000;
+}
+
+async function jiraOAuthCredential(
+  context: vscode.ExtensionContext,
+  workspaceId: string,
+  profile: WorkspaceJiraProfile,
+): Promise<JiraOAuthCredential | undefined> {
+  const key = jiraSecretKey(workspaceId, "oauth_broker");
+  let credential = parseJiraOAuthCredential(await context.secrets.get(key));
+  if (!credential) return undefined;
+
+  if (
+    jiraOAuthCredentialNeedsRefresh(credential) &&
+    credential.refreshToken &&
+    profile.brokerUrl
+  ) {
+    const refreshed = await refreshBrokerCredential(
+      profile.brokerUrl,
+      "atlassian",
+      credential.refreshToken,
+    );
+    credential = refreshed.credential;
+    await context.secrets.store(key, JSON.stringify(credential));
+  }
+
+  return credential;
+}
+
 function sanitizedJiraEnvironment(): NodeJS.ProcessEnv {
   const environment: NodeJS.ProcessEnv = { ...process.env };
   for (const key of [
