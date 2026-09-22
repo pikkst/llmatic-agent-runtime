@@ -33,6 +33,35 @@ function requiredEnv(env, name) {
   return value;
 }
 
+function brokerHealth(env) {
+  const atlassianMissing = [];
+  if (!String(env.ATLASSIAN_CLIENT_ID || "").trim()) {
+    atlassianMissing.push("ATLASSIAN_CLIENT_ID");
+  }
+  if (!String(env.ATLASSIAN_CLIENT_SECRET || "").trim()) {
+    atlassianMissing.push("ATLASSIAN_CLIENT_SECRET");
+  }
+  if (!String(env.ATLASSIAN_REDIRECT_URI || "").trim()) {
+    atlassianMissing.push("ATLASSIAN_REDIRECT_URI");
+  }
+  if (!env.CONNECTION_SESSIONS) {
+    atlassianMissing.push("CONNECTION_SESSIONS");
+  }
+
+  return {
+    ok: true,
+    ready: atlassianMissing.length === 0,
+    service: "llmatic-oauth-broker",
+    version: "1",
+    providers: {
+      atlassian: {
+        ready: atlassianMissing.length === 0,
+        missing: atlassianMissing,
+      },
+    },
+  };
+}
+
 function randomToken(bytes = 32) {
   const data = new Uint8Array(bytes);
   crypto.getRandomValues(data);
@@ -78,6 +107,17 @@ async function atlassianToken(env, payload) {
 }
 
 async function startConnection(request, env) {
+  const health = brokerHealth(env);
+  if (!health.providers.atlassian.ready) {
+    return json(
+      {
+        error: "Atlassian OAuth provider is not configured.",
+        missing: health.providers.atlassian.missing,
+      },
+      { status: 503 },
+    );
+  }
+
   const body = await readJson(request);
   if (body.provider !== "atlassian") {
     return json({ error: "Unsupported connection provider." }, { status: 400 });
@@ -299,7 +339,7 @@ export default {
     const url = new URL(request.url);
 
     if (request.method === "GET" && url.pathname === "/health") {
-      return json({ ok: true });
+      return json(brokerHealth(env));
     }
     if (request.method === "POST" && url.pathname === "/v1/connections/start") {
       return startConnection(request, env);
