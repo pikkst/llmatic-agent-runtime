@@ -254,6 +254,13 @@ export type ReviewActivityEvent =
   | { type: "lens-start"; lens: ReviewLens }
   | { type: "model-request"; lens: ReviewLens; step: number }
   | {
+      type: "report-repair";
+      lens: ReviewLens;
+      step: number;
+      attempt: number;
+      reason: "invalid_json" | "invalid_schema";
+    }
+  | {
       type: "model-response";
       lens: ReviewLens;
       step: number;
@@ -632,11 +639,67 @@ function reviewSystemPrompt(
   ].join("\n");
 }
 
+function balancedJsonObject(content: string): string | undefined {
+  for (let start = 0; start < content.length; start += 1) {
+    if (content[start] !== "{") continue;
+
+    let depth = 0;
+    let inString = false;
+    let escaped = false;
+
+    for (let index = start; index < content.length; index += 1) {
+      const char = content[index]!;
+
+      if (inString) {
+        if (escaped) {
+          escaped = false;
+          continue;
+        }
+        if (char === "\\") {
+          escaped = true;
+          continue;
+        }
+        if (char === '"') inString = false;
+        continue;
+      }
+
+      if (char === '"') {
+        inString = true;
+        continue;
+      }
+      if (char === "{") depth += 1;
+      if (char === "}") {
+        depth -= 1;
+        if (depth === 0) return content.slice(start, index + 1);
+      }
+    }
+  }
+
+  return undefined;
+}
+
 function extractJson(content: string): unknown {
   const trimmed = content.trim();
-  const fenced = trimmed.match(/^\x60\x60\x60(?:json)?\s*([\s\S]*?)\s*\x60\x60\x60$/i);
-  const candidate = fenced?.[1] ?? trimmed;
-  return JSON.parse(candidate);
+  const candidates = [
+    trimmed,
+    ...Array.from(trimmed.matchAll(/\x60\x60\x60(?:json)?\s*([\s\S]*?)\s*\x60\x60\x60/gi)).map(
+      (match) => match[1]?.trim() ?? "",
+    ),
+    balancedJsonObject(trimmed) ?? "",
+  ].filter(Boolean);
+
+  let lastError: unknown;
+  for (const candidate of [...new Set(candidates)]) {
+    try {
+      return JSON.parse(candidate);
+    } catch (error) {
+      lastError = error;
+    }
+  }
+
+  throw lastError instanceof Error
+    ? lastError
+    : new Error("Review model response did not contain valid JSON.");
 }
 
 function normalizeReviewFinding(
@@ -738,6 +801,8 @@ async function runReviewLens(
     readFile: options.readFile,
   };
   const maxSteps = Math.max(1, Math.min(30, options.maxSteps ?? 12));
+  let reportRepairAttempts = 0;
+  const maxReportRepairAttempts = 2;
 
   for (let step = 1; step <= maxSteps; step += 1) {
     options.onActivity?.({ type: "model-request", lens, step });
@@ -822,13 +887,51 @@ async function runReviewLens(
       );
     }
 
-    const parsed = rawReviewSchema.parse(extractJson(assistant.content));
-    return {
-      summary: parsed.summary,
-      findings: parsed.findings.map((finding) =>
-        normalizeReviewFinding(finding, lens, constitution),
-      ),
-    };
+    try {
+      const extracted = extractJson(assistant.content);
+      const parsed = rawReviewSchema.parse(extracted);
+      return {
+        summary: parsed.summary,
+        findings: parsed.findings.map((finding) =>
+          normalizeReviewFinding(finding, lens, constitution),
+        ),
+      };
+    } catch (error) {
+      const reason =
+        error instanceof SyntaxError ? ("invalid_json" as const) : ("invalid_schema" as const);
+
+      if (reportRepairAttempts >= maxReportRepairAttempts || step >= maxSteps) {
+        throw new Error(
+          "Review model did not return a valid structured report for lens " +
+            lens +
+            " after " +
+            String(reportRepairAttempts) +
+            " repair attempt(s): " +
+            (error instanceof Error ? error.message : String(error)),
+        );
+      }
+
+      reportRepairAttempts += 1;
+      options.onActivity?.({
+        type: "report-repair",
+        lens,
+        step,
+        attempt: reportRepairAttempts,
+        reason,
+      });
+      messages.push({
+        role: "user",
+        content: [
+          "Your previous response was not a valid LLMatic review report.",
+          "Return ONLY one valid JSON object with exactly these top-level fields:",
+          '- "summary": string',
+          '- "findings": array',
+          "Each finding must contain severity, category, title, path, evidence and recommendation; line and rule_id are optional.",
+          "Do not include Markdown fences, commentary, preambles or trailing text.",
+        ].join("\n"),
+      });
+      continue;
+    }
   }
 
   throw new Error(
