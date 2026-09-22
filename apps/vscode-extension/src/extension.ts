@@ -1936,6 +1936,93 @@ async function gatewayAccessOrPrompt(
   return undefined;
 }
 
+async function handleJiraConnectionFailure(
+  context: vscode.ExtensionContext,
+  state: ExtensionState,
+  statusProvider: LlmaticStatusProvider,
+  chatProvider: AgentChatViewProvider,
+  output: vscode.OutputChannel,
+  error: unknown,
+): Promise<void> {
+  const message = error instanceof Error ? error.message : String(error);
+  state.jiraConnectionError = message;
+  const profile = workspaceJiraProfile(context);
+  setJiraConnectionError(statusProvider, message, profile);
+
+  if (!/broker/i.test(message)) {
+    await vscode.window.showErrorMessage("LLMatic Jira connection: " + message);
+    return;
+  }
+
+  const action = await vscode.window.showErrorMessage(
+    "LLMatic Jira connection: " + message,
+    "Configure Broker URL",
+    "Use Manual Connection",
+    "Open Broker Setup Guide",
+  );
+
+  if (action === "Configure Broker URL") {
+    const value = await promptConnectionBrokerUrl();
+    if (!value) return;
+
+    await configuration().update(
+      "connectionBrokerUrl",
+      value,
+      vscode.ConfigurationTarget.Global,
+    );
+    state.jiraConnectionError = undefined;
+
+    try {
+      await connectJiraWithBrowser(
+        context,
+        state,
+        statusProvider,
+        chatProvider,
+        output,
+      );
+    } catch (retryError) {
+      const retryMessage =
+        retryError instanceof Error ? retryError.message : String(retryError);
+      state.jiraConnectionError = retryMessage;
+      setJiraConnectionError(statusProvider, retryMessage, profile);
+      await vscode.window.showErrorMessage(
+        "LLMatic Jira connection: " + retryMessage,
+      );
+    }
+    return;
+  }
+
+  if (action === "Use Manual Connection") {
+    state.jiraConnectionError = undefined;
+    try {
+      await connectJiraManually(
+        context,
+        state,
+        statusProvider,
+        chatProvider,
+        output,
+      );
+    } catch (manualError) {
+      const manualMessage =
+        manualError instanceof Error ? manualError.message : String(manualError);
+      state.jiraConnectionError = manualMessage;
+      setJiraConnectionError(statusProvider, manualMessage, profile);
+      await vscode.window.showErrorMessage(
+        "LLMatic Jira connection: " + manualMessage,
+      );
+    }
+    return;
+  }
+
+  if (action === "Open Broker Setup Guide") {
+    await vscode.env.openExternal(
+      vscode.Uri.parse(
+        "https://github.com/pikkst/llmatic-agent-runtime/tree/main/deploy/oauth-broker",
+      ),
+    );
+  }
+}
+
 async function openConnectionCenter(
   context: vscode.ExtensionContext,
   state: ExtensionState,
@@ -1973,7 +2060,18 @@ async function openConnectionCenter(
 
   if (!selected) return;
   if (selected.id === "jira") {
-    await connectJiraWorkspace(context, state, statusProvider, chatProvider, output);
+    try {
+      await connectJiraWorkspace(context, state, statusProvider, chatProvider, output);
+    } catch (error) {
+      await handleJiraConnectionFailure(
+        context,
+        state,
+        statusProvider,
+        chatProvider,
+        output,
+        error,
+      );
+    }
   } else {
     await connectKiloGatewayInUi(context, state, statusProvider);
   }
@@ -3373,6 +3471,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   );
 
   const chatProvider = new AgentChatViewProvider();
+  chatProvider.setRecoverySource(() => state.recovery);
   context.subscriptions.push(
     vscode.window.registerWebviewViewProvider("llmatic.agentChat", chatProvider),
   );
@@ -3645,54 +3744,14 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       try {
         await connectJiraWorkspace(context, state, statusProvider, chatProvider, output);
       } catch (error) {
-        const message = error instanceof Error ? error.message : String(error);
-        state.jiraConnectionError = message;
-        const profile = workspaceJiraProfile(context);
-        setJiraConnectionError(statusProvider, message, profile);
-
-        if (/broker/i.test(message)) {
-          const action = await vscode.window.showErrorMessage(
-            "LLMatic Jira connection: " + message,
-            "Configure Broker URL",
-            "Use Manual Connection",
-            "Open Broker Setup Guide",
-          );
-
-          if (action === "Configure Broker URL") {
-            const value = await promptConnectionBrokerUrl();
-            if (value) {
-              await configuration().update(
-                "connectionBrokerUrl",
-                value,
-                vscode.ConfigurationTarget.Global,
-              );
-              await connectJiraWithBrowser(
-                context,
-                state,
-                statusProvider,
-                chatProvider,
-                output,
-              ).catch((retryError) => {
-                const retryMessage =
-                  retryError instanceof Error ? retryError.message : String(retryError);
-                state.jiraConnectionError = retryMessage;
-                setJiraConnectionError(statusProvider, retryMessage, profile);
-                void vscode.window.showErrorMessage("LLMatic Jira connection: " + retryMessage);
-              });
-            }
-          } else if (action === "Use Manual Connection") {
-            await connectJiraManually(context, state, statusProvider, chatProvider, output);
-          } else if (action === "Open Broker Setup Guide") {
-            await vscode.env.openExternal(
-              vscode.Uri.parse(
-                "https://github.com/pikkst/llmatic-agent-runtime/tree/main/deploy/oauth-broker",
-              ),
-            );
-          }
-          return;
-        }
-
-        await vscode.window.showErrorMessage("LLMatic Jira connection: " + message);
+        await handleJiraConnectionFailure(
+          context,
+          state,
+          statusProvider,
+          chatProvider,
+          output,
+          error,
+        );
       }
     }),
     vscode.commands.registerCommand("llmatic.disconnectJiraWorkspace", async () => {
