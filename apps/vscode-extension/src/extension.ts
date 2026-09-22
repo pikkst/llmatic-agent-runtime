@@ -2225,7 +2225,7 @@ async function runGatewayReview(
   const gateway = new KiloGatewayClient({
     apiKey: gatewayAccess.apiKey,
     maxRetries: 0,
-    requestTimeoutMs: configuration().get<number>("reviewRequestTimeoutMs", 90_000),
+    requestTimeoutMs: configuration().get<number>("reviewRequestTimeoutMs", 45_000),
     onRetry: (event) => {
       output.appendLine(
         "[RETRY] Kilo Gateway " + event.nextAttempt + "/" + event.maxAttempts + ": " + event.reason,
@@ -2739,8 +2739,8 @@ async function reviewExternalPullRequestInUi(
     const gateway = new AdaptiveFreeGatewayClient({
       apiKey: gatewayAccess.apiKey,
       maxRetries: 0,
-      maxModelAttempts: configuration().get<number>("reviewFreeModelFallbacks", 4),
-      requestTimeoutMs: configuration().get<number>("reviewRequestTimeoutMs", 90_000),
+      maxModelAttempts: configuration().get<number>("reviewFreeModelFallbacks", 3),
+      requestTimeoutMs: configuration().get<number>("reviewRequestTimeoutMs", 45_000),
       onRoute: (event) => {
         const detail = adaptiveRouteDescription(event);
         output.appendLine("[MODEL ROUTER] " + detail);
@@ -3024,8 +3024,8 @@ async function runAutomaticExternalPullRequestReview(
     const gateway = new AdaptiveFreeGatewayClient({
       apiKey: gatewayAccess.apiKey,
       maxRetries: 0,
-      maxModelAttempts: configuration().get<number>("reviewFreeModelFallbacks", 4),
-      requestTimeoutMs: configuration().get<number>("reviewRequestTimeoutMs", 90_000),
+      maxModelAttempts: configuration().get<number>("reviewFreeModelFallbacks", 3),
+      requestTimeoutMs: configuration().get<number>("reviewRequestTimeoutMs", 45_000),
       onRoute: (event) => {
         output.appendLine("[AUTO REVIEW][MODEL] " + adaptiveRouteDescription(event));
       },
