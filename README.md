@@ -172,14 +172,32 @@ auto | jira | markdown | github
 
 This matters when a repository contains both `TASKS.md` and a live Jira project.
 
-Jira recovery can optionally be scoped with:
+For VS Code, the preferred setup is workspace-specific:
+
+```text
+LLMatic: Connect Jira Workspace
+```
+
+Each repository/workspace stores its own Jira profile and uses a workspace-ID-scoped SecretStorage credential. This allows separate VS Code windows such as Snapycall and Krunditark to connect to different Jira sites/projects without sharing credentials or queue policy.
+
+Jira work ownership is explicit:
+
+```text
+assigned_only   # team-safe default: only tasks assigned to current Jira user
+project_queue   # explicit solo/full-project mode
+```
+
+In `assigned_only`, custom JQL cannot remove the current-user ownership restriction, and starting/validating another user's Jira task is rejected. In `project_queue`, the queue must be explicitly scoped by a Jira project key or custom JQL.
+
+Fallback settings remain available:
 
 ```text
 llmatic.jiraProjectKey
 llmatic.jiraRecoveryJql
+llmatic.jiraWorkMode
 ```
 
-With Jira selected, LLMatic retrieves assigned open work in Jira Rank order, filters obvious blocked/dependency-incomplete candidates for deterministic `task next`, and exposes the live candidate set to Agent Chat. The Kilo model can then reason about sequencing against repository, workflow, branch, PR and CI context instead of guessing Jira state.
+With Jira selected, LLMatic preserves Jira Rank order, filters dependency-incomplete candidates for deterministic `task next`, and exposes the live eligible candidate set to Agent Chat. The Kilo model reasons only over the allowed queue instead of guessing Jira state.
 
 Auto-detection fallback order remains:
 
