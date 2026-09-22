@@ -34,9 +34,12 @@ import {
 } from "@llmatic/external-connections";
 import { KiloGatewayClient } from "@llmatic/gateway-client";
 import {
+  getGitHubRepositoryName,
   getPullRequestReviewContext,
+  listOpenPullRequests,
   publishPullRequestReview,
   readPullRequestFileAtHead,
+  type OpenPullRequestSummary,
 } from "@llmatic/github-adapter";
 import { verifyJiraConnectionFromEnvironment, type JiraWorkMode } from "@llmatic/jira-adapter";
 import {
@@ -98,6 +101,7 @@ import { AgentChatViewProvider } from "./agent-chat-view.js";
 import {
   LlmaticStatusDecorationProvider,
   LlmaticStatusProvider,
+  type AutoReviewStatus,
   type WorkspaceJiraStatus,
 } from "./status-view.js";
 
@@ -107,6 +111,8 @@ const KILO_ANONYMOUS_STATE = "llmatic.kiloGatewayAnonymousAccepted";
 const JIRA_PROFILE_STATE_KEY = "llmatic.jiraProfile.v1";
 const JIRA_SECRET_PREFIX = "llmatic.jira.workspace";
 const AUTO_FREE_WARNING_ACCEPTED = "llmatic.autoFreeDataWarningAccepted";
+const AUTO_REVIEW_STATE_KEY = "llmatic.externalPrAutoReview.v1";
+const AUTO_REVIEW_POLL_INTERVAL_MS = 120_000;
 const ONBOARDING_VERSION = 1;
 
 interface WorkspaceJiraProfile {
@@ -128,6 +134,24 @@ interface GatewayAccess {
   anonymous: boolean;
 }
 
+interface AutoReviewLastResult {
+  number: number;
+  headRefOid: string;
+  title: string;
+  reviewedAt: string;
+  blockingCount: number;
+  nonBlockingCount: number;
+  coverage: "complete" | "partial";
+}
+
+interface AutoReviewWorkspaceState {
+  enabled: boolean;
+  repository?: string;
+  seenFingerprints: Record<string, string>;
+  lastReviewed?: AutoReviewLastResult;
+  lastError?: string;
+}
+
 interface ExtensionState {
   activeWorkspace?: ManagedWorkspace;
   runtime?: RuntimeInstallResult;
@@ -138,6 +162,7 @@ interface ExtensionState {
   gatewayKeyConfigured: boolean;
   recovery?: WorkspaceRecovery;
   jiraConnectionError?: string;
+  autoReviewRunning?: boolean;
   lastError?: string;
 }
 
