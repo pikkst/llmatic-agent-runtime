@@ -3,11 +3,7 @@ import {
   type GatewayChatClient,
   type KiloGatewayClientOptions,
 } from "./client.js";
-import type {
-  GatewayChatRequest,
-  GatewayChatResponse,
-  GatewayModelInfo,
-} from "./types.js";
+import type { GatewayChatRequest, GatewayChatResponse, GatewayModelInfo } from "./types.js";
 
 export type AdaptiveGatewayRouteEvent =
   | {
