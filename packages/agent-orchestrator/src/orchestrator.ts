@@ -670,10 +670,7 @@ async function executeTool(context: ToolExecutionContext, call: GatewayToolCall)
       );
 
     case "pull_request_review_context":
-      return getPullRequestReviewContext(
-        context.root,
-        requiredString(args, "reference"),
-      );
+      return getPullRequestReviewContext(context.root, requiredString(args, "reference"));
 
     case "pull_request_failed_logs":
       return getFailedPullRequestDiagnostics(
