@@ -25,9 +25,7 @@ describe("VS Code extension activation surface", () => {
     expect(source).toContain('vscode.commands.registerCommand("llmatic.showRepositoryRules"');
     expect(source).toContain('vscode.commands.registerCommand("llmatic.reviewRuleProposals"');
     expect(source).toContain('vscode.commands.registerCommand("llmatic.generatePrDraft"');
-    expect(source).toContain(
-      'vscode.commands.registerCommand("llmatic.reviewExternalPullRequest"',
-    );
+    expect(source).toContain('vscode.commands.registerCommand("llmatic.reviewExternalPullRequest"');
     expect(source).toContain('vscode.commands.registerCommand("llmatic.checkForUpdates"');
     expect(source).toContain('vscode.commands.registerCommand("llmatic.installUpdate"');
     expect(source).toContain("loadProjectChangeRequest");
