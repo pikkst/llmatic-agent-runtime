@@ -81,9 +81,7 @@
       recoveryElement.appendChild(
         textRow(
           "Workflow",
-          recovery.workflow
-            ? recovery.workflow.taskRef + " · " + recovery.workflow.state
-            : "none",
+          recovery.workflow ? recovery.workflow.taskRef + " · " + recovery.workflow.state : "none",
           recovery.workflow ? "attention" : "ok",
         ),
       );
@@ -164,19 +162,14 @@
             review.nonBlockingCount +
             " non-blocking · " +
             review.lenses.join(", "),
-          review.blockingCount > 0
-            ? "error"
-            : review.nonBlockingCount > 0
-              ? "attention"
-              : "ok",
+          review.blockingCount > 0 ? "error" : review.nonBlockingCount > 0 ? "attention" : "ok",
         ),
       );
 
       for (const finding of review.findings) {
         const item = document.createElement("div");
         item.className =
-          "row " +
-          (finding.severity === "blocking" ? "status-error" : "status-attention");
+          "row " + (finding.severity === "blocking" ? "status-error" : "status-attention");
         item.textContent =
           (finding.severity === "blocking" ? "⛔ " : "• ") +
           "[" +
