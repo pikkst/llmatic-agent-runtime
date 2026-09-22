@@ -11,6 +11,14 @@ interface StatusAction {
   command: string;
 }
 
+export interface WorkspaceJiraStatus {
+  connected: boolean;
+  required: boolean;
+  label?: string;
+  detail?: string;
+  workMode?: "assigned_only" | "project_queue";
+}
+
 const STATUS_COLOR_IDS: Record<Exclude<SemanticStatus, "neutral">, string> = {
   ok: "testing.iconPassed",
   attention: "list.warningForeground",
@@ -101,6 +109,7 @@ export class LlmaticStatusProvider implements vscode.TreeDataProvider<vscode.Tre
   private health?: SetupHealth;
   private gatewayKeyConfigured = false;
   private recovery?: WorkspaceRecovery;
+  private jiraStatus?: WorkspaceJiraStatus;
 
   public update(
     health: SetupHealth | undefined,
@@ -116,6 +125,16 @@ export class LlmaticStatusProvider implements vscode.TreeDataProvider<vscode.Tre
       "setContext",
       "llmatic.gatewayKeyConfigured",
       gatewayKeyConfigured,
+    );
+  }
+
+  public setJiraStatus(status: WorkspaceJiraStatus | undefined): void {
+    this.jiraStatus = status;
+    this.changed.fire(undefined);
+    void vscode.commands.executeCommand(
+      "setContext",
+      "llmatic.jiraConnected",
+      Boolean(status?.connected),
     );
   }
 
@@ -142,6 +161,35 @@ export class LlmaticStatusProvider implements vscode.TreeDataProvider<vscode.Tre
         .join("\n") || "LLMatic is ready.";
 
     const recoveryItems: vscode.TreeItem[] = [];
+
+    const jira = new vscode.TreeItem(
+      this.jiraStatus?.connected
+        ? "Jira " + (this.jiraStatus.label ?? "Workspace")
+        : "Connect Jira Workspace",
+      vscode.TreeItemCollapsibleState.None,
+    );
+    decorateStatusItem(
+      jira,
+      this.jiraStatus?.connected
+        ? "ok"
+        : this.jiraStatus?.required
+          ? "error"
+          : "attention",
+      "jira-workspace",
+      this.jiraStatus?.connected ? "issues" : "plug",
+    );
+    jira.description = this.jiraStatus?.connected
+      ? (this.jiraStatus.workMode === "project_queue" ? "project queue" : "assigned to me") +
+        (this.jiraStatus.detail ? " · " + this.jiraStatus.detail : "")
+      : this.jiraStatus?.required
+        ? "required for canonical Jira task source"
+        : "workspace-specific Jira profile";
+    jira.command = {
+      command: "llmatic.connectJiraWorkspace",
+      title: this.jiraStatus?.connected ? "Edit Jira Workspace Connection" : "Connect Jira Workspace",
+    };
+    recoveryItems.push(jira);
+
     if (this.recovery) {
       const map = new vscode.TreeItem("Repository Map", vscode.TreeItemCollapsibleState.None);
       decorateStatusItem(
