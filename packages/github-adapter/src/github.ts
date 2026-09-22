@@ -10,6 +10,9 @@ import type {
   MergePullRequestOptions,
   MergePullRequestResult,
   PullRequestCheck,
+  PullRequestCommentSnapshot,
+  PullRequestReviewContext,
+  PullRequestReviewSnapshot,
   PullRequestStatus,
   PullRequestSummary,
   RemoteCiState,
@@ -29,6 +32,27 @@ const PR_VIEW_FIELDS = [
 ].join(",");
 
 const PR_CHECK_FIELDS = ["name", "state", "bucket", "workflow", "link"].join(",");
+const PR_REVIEW_FIELDS = [
+  "number",
+  "url",
+  "state",
+  "isDraft",
+  "mergeable",
+  "mergeStateStatus",
+  "reviewDecision",
+  "headRefName",
+  "headRefOid",
+  "baseRefName",
+  "title",
+  "body",
+  "author",
+  "files",
+  "reviews",
+  "comments",
+].join(",");
+const MAX_PULL_REQUEST_REVIEW_DIFF_CHARS = 256_000;
+const MAX_PULL_REQUEST_TEXT_CHARS = 32_000;
+const MAX_PULL_REQUEST_REVIEW_ITEMS = 50;
 
 function defaultRunner(executable: string, args: string[], cwd: string): GitHubProcessResult {
   const result = spawnSync(executable, args, {
@@ -186,6 +210,102 @@ export async function getPullRequestStatus(
     pullRequest,
     checks,
     ciState: ciStateFor(checks),
+  };
+}
+
+function boundedPullRequestText(value: unknown): string {
+  const text = typeof value === "string" ? value : "";
+  return text.length <= MAX_PULL_REQUEST_TEXT_CHARS
+    ? text
+    : text.slice(0, MAX_PULL_REQUEST_TEXT_CHARS) + "\n[TEXT TRUNCATED]";
+}
+
+function actorLogin(value: unknown): string | undefined {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return undefined;
+  const login = (value as Record<string, unknown>).login;
+  return typeof login === "string" && login.trim() ? login.trim() : undefined;
+}
+
+function normalizeReviewSnapshots(value: unknown): PullRequestReviewSnapshot[] {
+  if (!Array.isArray(value)) return [];
+
+  return value.slice(-MAX_PULL_REQUEST_REVIEW_ITEMS).map((item) => {
+    const raw =
+      item && typeof item === "object" && !Array.isArray(item)
+        ? (item as Record<string, unknown>)
+        : {};
+    return {
+      authorLogin: actorLogin(raw.author),
+      state: typeof raw.state === "string" ? raw.state : undefined,
+      body: boundedPullRequestText(raw.body),
+      submittedAt: typeof raw.submittedAt === "string" ? raw.submittedAt : undefined,
+    };
+  });
+}
+
+function normalizeCommentSnapshots(value: unknown): PullRequestCommentSnapshot[] {
+  if (!Array.isArray(value)) return [];
+
+  return value.slice(-MAX_PULL_REQUEST_REVIEW_ITEMS).map((item) => {
+    const raw =
+      item && typeof item === "object" && !Array.isArray(item)
+        ? (item as Record<string, unknown>)
+        : {};
+    return {
+      authorLogin: actorLogin(raw.author),
+      body: boundedPullRequestText(raw.body),
+      createdAt: typeof raw.createdAt === "string" ? raw.createdAt : undefined,
+      url: typeof raw.url === "string" ? raw.url : undefined,
+    };
+  });
+}
+
+/**
+ * Reads a target pull request for explicit external review without mutating
+ * workflow state, task ownership, the working tree, or the remote pull request.
+ */
+export async function getPullRequestReviewContext(
+  root: string,
+  ref: string | number,
+  runner: GitHubProcessRunner = defaultRunner,
+): Promise<PullRequestReviewContext> {
+  const status = await getPullRequestStatus(root, ref, runner);
+  const target = ref || status.pullRequest.number;
+  const viewArgs = [...prArgs("view", target), "--json", PR_REVIEW_FIELDS];
+  const raw = parseJson<Record<string, unknown>>(
+    requireSuccess(run(root, viewArgs, runner), viewArgs),
+    viewArgs,
+  );
+
+  const diffArgs = [...prArgs("diff", target), "--color", "never"];
+  const rawDiff = requireSuccess(run(root, diffArgs, runner), diffArgs).stdout;
+  const diffTruncated = rawDiff.length > MAX_PULL_REQUEST_REVIEW_DIFF_CHARS;
+  const files = Array.isArray(raw.files) ? raw.files : [];
+
+  return {
+    status,
+    title: typeof raw.title === "string" ? raw.title : "",
+    body: boundedPullRequestText(raw.body),
+    authorLogin: actorLogin(raw.author),
+    changedFiles: files
+      .map((item) => {
+        const file =
+          item && typeof item === "object" && !Array.isArray(item)
+            ? (item as Record<string, unknown>)
+            : {};
+        return {
+          path: typeof file.path === "string" ? file.path.replaceAll("\\", "/") : "",
+          additions: typeof file.additions === "number" ? file.additions : 0,
+          deletions: typeof file.deletions === "number" ? file.deletions : 0,
+        };
+      })
+      .filter((file) => Boolean(file.path)),
+    reviews: normalizeReviewSnapshots(raw.reviews),
+    comments: normalizeCommentSnapshots(raw.comments),
+    diff: diffTruncated
+      ? rawDiff.slice(0, MAX_PULL_REQUEST_REVIEW_DIFF_CHARS) + "\n[DIFF TRUNCATED]"
+      : rawDiff,
+    diffTruncated,
   };
 }
 
