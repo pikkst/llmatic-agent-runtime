@@ -266,10 +266,17 @@
         },
         "llmatic.reviewMaxSteps": {
           "type": "number",
+          "default": 8,
+          "minimum": 1,
+          "maximum": 30,
+          "description": "Maximum model/tool rounds for the ordinary local code-review lens."
+        },
+        "llmatic.externalReviewMaxSteps": {
+          "type": "number",
           "default": 3,
           "minimum": 1,
           "maximum": 8,
-          "description": "Maximum model/tool rounds per bounded external PR review batch. External PR diff evidence is preloaded, so tools are only for focused verification."
+          "description": "Maximum model/repair rounds per bounded external PR review batch. External PR diff evidence is preloaded and the batch is tool-free."
         },
         "llmatic.reviewRequestTimeoutMs": {
           "type": "number",
