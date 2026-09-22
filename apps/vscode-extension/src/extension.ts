@@ -4424,13 +4424,15 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   let kiloPreviouslyInstalled = Boolean(vscode.extensions.getExtension(KILO_EXTENSION_ID));
 
   const output = vscode.window.createOutputChannel("LLMatic");
-  context.subscriptions.push(output);
+  const reviewLog = vscode.window.createOutputChannel("LLMatic Review Activity");
+  context.subscriptions.push(output, reviewLog);
 
   const statusBar = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 100);
   context.subscriptions.push(statusBar);
 
   const statusProvider = new LlmaticStatusProvider();
   statusProvider.setAutoReviewStatus(autoReviewStatus(autoReviewWorkspaceState(context)));
+  statusProvider.setReviewLoggingEnabled(reviewActivityLoggingEnabled());
   const startupOperation = statusProvider.beginOperation(
     "Loading LLMatic workspace",
     "Checking runtime, tools and external connections…",
@@ -4742,7 +4744,13 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       async (options?: { probe?: boolean }) => {
         if (options?.probe) return true;
         try {
-          await reviewExternalPullRequestInUi(context, state, statusProvider, output);
+          await reviewExternalPullRequestInUi(
+            context,
+            state,
+            statusProvider,
+            output,
+            reviewLog,
+          );
         } catch (error) {
           const message = error instanceof Error ? error.message : String(error);
           await vscode.window.showErrorMessage("LLMatic external PR review: " + message);
@@ -4750,6 +4758,31 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         return true;
       },
     ),
+    vscode.commands.registerCommand("llmatic.openReviewLog", async () => {
+      reviewLog.show(true);
+      return true;
+    }),
+    vscode.commands.registerCommand("llmatic.toggleReviewActivityLogging", async () => {
+      const current = reviewActivityLoggingEnabled();
+      const next = !current;
+      await configuration().update(
+        "reviewActivityLogging",
+        next,
+        firstWorkspaceFolder()
+          ? vscode.ConfigurationTarget.Workspace
+          : vscode.ConfigurationTarget.Global,
+      );
+      statusProvider.setReviewLoggingEnabled(next);
+      await vscode.window.showInformationMessage(
+        "LLMatic review activity logging " +
+          (next ? "enabled" : "disabled") +
+          "." +
+          (next
+            ? " Sanitized telemetry is written to " + reviewTelemetryPath(context) + "."
+            : ""),
+      );
+      return next;
+    }),
     vscode.commands.registerCommand(
       "llmatic.configureAutoReview",
       async (options?: { probe?: boolean }) => {
@@ -4871,6 +4904,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         await refresh(context, statusBar, state);
         statusProvider.update(state.health, state.gatewayKeyConfigured, state.recovery);
         statusProvider.setGatewayAccess(state.gatewayKeyConfigured, anonymousKiloAccessAvailable());
+        statusProvider.setReviewLoggingEnabled(reviewActivityLoggingEnabled());
         await refreshJiraStatus(context, state, statusProvider);
         await refreshWorkspaceRecovery(
           context,
