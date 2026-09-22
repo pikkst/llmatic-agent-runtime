@@ -42,4 +42,34 @@ describe("KiloGatewayClient", () => {
     expect(new Headers(requestedHeaders).get("x-kilocode-mode")).toBe("code");
     expect(requestedBody).not.toContain("secret-key");
   });
+  it("supports anonymous free-model requests without an Authorization header", async () => {
+    let requestedHeaders: HeadersInit | undefined;
+
+    const client = new KiloGatewayClient({
+      fetch: async (_input, init) => {
+        requestedHeaders = init?.headers;
+        return new Response(
+          JSON.stringify({
+            id: "completion-anonymous",
+            model: "kilo-auto/free",
+            choices: [
+              {
+                index: 0,
+                message: { role: "assistant", content: "free" },
+                finish_reason: "stop",
+              },
+            ],
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        );
+      },
+    });
+
+    await client.createChatCompletion({
+      model: "kilo-auto/free",
+      messages: [{ role: "user", content: "hello" }],
+    });
+
+    expect(new Headers(requestedHeaders).has("Authorization")).toBe(false);
+  });
 });
