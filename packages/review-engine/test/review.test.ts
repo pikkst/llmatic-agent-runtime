@@ -80,11 +80,7 @@ class ScriptedGateway implements GatewayChatClient {
     if (!response) throw new Error("No scripted review response remains.");
     return response;
   }
-  public reportModelFailure(feedback: {
-    model: string;
-    task?: string;
-    reason: string;
-  }): void {
+  public reportModelFailure(feedback: { model: string; task?: string; reason: string }): void {
     this.modelFailures.push(feedback);
   }
 }

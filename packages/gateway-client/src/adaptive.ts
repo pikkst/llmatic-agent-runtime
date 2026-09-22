@@ -102,9 +102,7 @@ export class AdaptiveFreeGatewayClient implements GatewayChatClient {
     this.onRoute = options.onRoute;
   }
 
-  public async reportModelFailure(
-    feedback: GatewayModelFailureFeedback,
-  ): Promise<void> {
+  public async reportModelFailure(feedback: GatewayModelFailureFeedback): Promise<void> {
     const model = feedback.model.trim();
     if (!model) return;
 

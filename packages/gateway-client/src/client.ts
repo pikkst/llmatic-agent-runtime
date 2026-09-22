@@ -35,9 +35,7 @@ export interface GatewayModelFailureFeedback {
 
 export interface GatewayChatClient {
   createChatCompletion(request: GatewayChatRequest): Promise<GatewayChatResponse>;
-  reportModelFailure?(
-    feedback: GatewayModelFailureFeedback,
-  ): void | Promise<void>;
+  reportModelFailure?(feedback: GatewayModelFailureFeedback): void | Promise<void>;
 }
 
 class RetryableGatewayError extends Error {

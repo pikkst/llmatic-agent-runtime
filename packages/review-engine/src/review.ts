@@ -1291,9 +1291,7 @@ async function runReviewLens(
         options.gateway,
         response,
         lens,
-        reason === "invalid_json"
-          ? "invalid structured JSON"
-          : "structured review schema mismatch",
+        reason === "invalid_json" ? "invalid structured JSON" : "structured review schema mismatch",
       );
 
       if (reportRepairAttempts >= maxReportRepairAttempts || step >= maxSteps) {
