@@ -161,12 +161,22 @@ try {
       '    "llmatic.getReady",',
       '    "llmatic.repairRuntime",',
       '    "llmatic.reviewFixLoop",',
+      '    "llmatic.openAgentChat",',
+      '    "llmatic.agentChatProbe",',
       '    "llmatic.checkForUpdates",',
       '    "llmatic.installUpdate",',
       "  ];",
       "  for (const command of requiredCommands) {",
       '    assert.ok(commands.has(command), "missing installed command " + command);',
       "  }",
+      "",
+      '  await vscode.commands.executeCommand("llmatic.openAgentChat");',
+      '  const agentChatReady = await vscode.commands.executeCommand("llmatic.agentChatProbe");',
+      "  assert.equal(",
+      "    agentChatReady,",
+      "    true,",
+      '    "installed Agent Chat webview client did not execute its ready handshake",',
+      "  );",
       "",
       "  const folder = vscode.workspace.workspaceFolders?.[0];",
       '  assert.ok(folder, "acceptance workspace did not open");',
@@ -214,30 +224,12 @@ try {
     );
     phase("Candidate VSIX installation completed.");
 
-    phase("Verifying the installed extension identity and version.");
-    const installed = run(
-      cliPath,
-      [...cliBaseArgs, ...profileArgs, "--list-extensions", "--show-versions"],
-      root,
-    );
+    // Do not use a second VS Code CLI process to enumerate installed extensions here.
+    // On Linux CI it can remain attached to the install process/profile and time out.
+    // The Extension Host harness below performs the stronger identity, version and
+    // isolated-install-path assertions before activating the extension.
+    phase("Launching the isolated Extension Host and verifying the installed extension.");
 
-    const expectedInstalledLine = extensionId + "@" + expectedVersion;
-
-    if (
-      !installed
-        .split(/\r?\n/)
-        .map((line) => line.trim().toLowerCase())
-        .includes(expectedInstalledLine.toLowerCase())
-    ) {
-      fail(
-        "isolated VS Code profile did not list " +
-          expectedInstalledLine +
-          ". Installed: " +
-          installed,
-      );
-    }
-
-    phase("Launching the isolated Extension Host and activating the installed extension.");
     await runTests({
       vscodeExecutablePath,
       extensionDevelopmentPath: harness,
@@ -264,6 +256,7 @@ try {
   console.log("Install source: isolated VSIX extensions directory");
   console.log("Activation: verified");
   console.log("Critical commands: verified");
+  console.log("Agent Chat webview bootstrap: verified");
   console.log("Zero-repo footprint: verified");
   console.log("========================================");
 } finally {

@@ -74,7 +74,7 @@ function issueJson(key = "KT-123") {
       },
       issuetype: { name: "Task" },
       priority: { name: "High" },
-      assignee: { displayName: "Engineer" },
+      assignee: { accountId: "acct-current", displayName: "Engineer" },
       labels: ["runtime"],
       updated: "2026-09-21T07:00:00.000+0000",
     },
@@ -97,6 +97,56 @@ describe("jira adapter", () => {
         apiToken: "token",
       },
     });
+  });
+
+  it("reports safe live Jira identity and workspace target without exposing credentials", async () => {
+    const transport: JiraHttpTransport = async (request) => {
+      expect(request.url).toBe("https://api.atlassian.com/ex/jira/cloud-id/rest/api/3/myself");
+      return {
+        status: 200,
+        statusText: "OK",
+        body: JSON.stringify({
+          accountId: "acct-current",
+          displayName: "Engineer",
+          emailAddress: "engineer@example.test",
+        }),
+      };
+    };
+    const provider = new JiraTaskProvider(
+      configFor("/repo"),
+      {
+        baseUrl: "https://api.atlassian.com/ex/jira/cloud-id",
+        siteUrl: "https://example.atlassian.net",
+        auth: { type: "bearer", token: "sensitive-access-token" },
+      },
+      transport,
+      {
+        LLMATIC_JIRA_PROJECT_KEY: "kt",
+        LLMATIC_JIRA_WORK_MODE: "project_queue",
+      },
+    );
+
+    const info = await provider.getConnectionInfo();
+
+    expect(info).toEqual({
+      provider: "jira",
+      connected: true,
+      identity: {
+        id: "acct-current",
+        label: "Engineer",
+        email: "engineer@example.test",
+      },
+      target: {
+        label: "Jira project KT",
+        url: "https://example.atlassian.net",
+      },
+      metadata: {
+        projectKey: "KT",
+        workMode: "project_queue",
+        siteUrl: "https://example.atlassian.net",
+      },
+    });
+    expect(JSON.stringify(info)).not.toContain("sensitive-access-token");
   });
 
   it("maps Jira v3 issue fields and ADF description into a task record", async () => {
@@ -128,6 +178,187 @@ describe("jira adapter", () => {
     });
     expect(requests[0]?.url).toContain("/rest/api/3/issue/KT-123?fields=");
     expect(requests[0]?.headers.Authorization).toMatch(/^Basic /);
+  });
+
+  it("lists assigned Jira recovery candidates in Jira rank order", async () => {
+    const requests: JiraHttpRequest[] = [];
+    const first = issueJson("KT-201");
+    first.fields.status = {
+      id: "1",
+      name: "To Do",
+      statusCategory: { name: "To Do" },
+    };
+    const second = issueJson("KT-202");
+    second.fields.status = {
+      id: "1",
+      name: "To Do",
+      statusCategory: { name: "To Do" },
+    };
+
+    const transport: JiraHttpTransport = async (request) => {
+      requests.push(request);
+      return {
+        status: 200,
+        statusText: "OK",
+        body: JSON.stringify({ issues: [first, second] }),
+      };
+    };
+    const provider = new JiraTaskProvider(configFor("/repo"), connection, transport, {
+      LLMATIC_JIRA_PROJECT_KEY: "KT",
+    });
+
+    const tasks = await provider.listTasks();
+
+    expect(tasks.map((task) => task.key)).toEqual(["KT-201", "KT-202"]);
+    expect(requests[0]?.method).toBe("POST");
+    expect(requests[0]?.url.endsWith("/rest/api/3/search/jql")).toBe(true);
+    expect(JSON.parse(requests[0]?.body ?? "{}")).toMatchObject({
+      maxResults: 50,
+      jql: expect.stringContaining('project = "KT"'),
+    });
+  });
+
+  it("enforces assigned_only even when custom recovery JQL is configured", async () => {
+    const requests: JiraHttpRequest[] = [];
+    const transport: JiraHttpTransport = async (request) => {
+      requests.push(request);
+      return {
+        status: 200,
+        statusText: "OK",
+        body: JSON.stringify({ issues: [issueJson("KT-301")] }),
+      };
+    };
+    const provider = new JiraTaskProvider(configFor("/repo"), connection, transport, {
+      LLMATIC_JIRA_WORK_MODE: "assigned_only",
+      LLMATIC_JIRA_RECOVERY_JQL: 'project = "KT" AND statusCategory != Done ORDER BY updated DESC',
+    });
+
+    await provider.listTasks();
+
+    const body = JSON.parse(requests[0]?.body ?? "{}") as { jql?: string };
+    expect(body.jql).toContain("assignee = currentUser()");
+    expect(body.jql).toContain("ORDER BY updated DESC");
+  });
+
+  it("uses the full project queue only when project_queue is explicitly selected", async () => {
+    const requests: JiraHttpRequest[] = [];
+    const transport: JiraHttpTransport = async (request) => {
+      requests.push(request);
+      return {
+        status: 200,
+        statusText: "OK",
+        body: JSON.stringify({ issues: [issueJson("KT-401")] }),
+      };
+    };
+    const provider = new JiraTaskProvider(configFor("/repo"), connection, transport, {
+      LLMATIC_JIRA_WORK_MODE: "project_queue",
+      LLMATIC_JIRA_PROJECT_KEY: "KT",
+    });
+
+    await provider.listTasks();
+
+    const body = JSON.parse(requests[0]?.body ?? "{}") as { jql?: string };
+    expect(body.jql).toContain('project = "KT"');
+    expect(body.jql).not.toContain("assignee = currentUser()");
+  });
+
+  it("requires an explicit scope for project_queue mode", async () => {
+    const provider = new JiraTaskProvider(
+      configFor("/repo"),
+      connection,
+      async () => ({ status: 200, statusText: "OK", body: "{}" }),
+      { LLMATIC_JIRA_WORK_MODE: "project_queue" },
+    );
+
+    await expect(provider.listTasks()).rejects.toThrow("project_queue work mode requires");
+  });
+
+  it("blocks starting a task assigned to another user in assigned_only mode", async () => {
+    const other = issueJson("KT-501");
+    other.fields.assignee = {
+      accountId: "acct-other",
+      displayName: "Other Engineer",
+    };
+
+    const transport: JiraHttpTransport = async (request) => {
+      if (request.url.endsWith("/rest/api/3/myself")) {
+        return {
+          status: 200,
+          statusText: "OK",
+          body: JSON.stringify({
+            accountId: "acct-current",
+            displayName: "Engineer",
+          }),
+        };
+      }
+
+      return {
+        status: 200,
+        statusText: "OK",
+        body: JSON.stringify(other),
+      };
+    };
+    const provider = new JiraTaskProvider(configFor("/repo"), connection, transport, {
+      LLMATIC_JIRA_WORK_MODE: "assigned_only",
+    });
+
+    await expect(provider.assertSelectableTask("KT-501")).rejects.toThrow(
+      "is not assigned to the current Jira user",
+    );
+  });
+
+  it("selects the first Jira-ranked todo whose linked dependencies are done", async () => {
+    const blocked = issueJson("KT-201") as ReturnType<typeof issueJson> & {
+      fields: ReturnType<typeof issueJson>["fields"] & {
+        issuelinks?: Array<Record<string, unknown>>;
+      };
+    };
+    blocked.fields.status = {
+      id: "1",
+      name: "To Do",
+      statusCategory: { name: "To Do" },
+    };
+    blocked.fields.issuelinks = [
+      {
+        type: { inward: "is blocked by", outward: "blocks" },
+        inwardIssue: { key: "KT-200" },
+      },
+    ];
+
+    const ready = issueJson("KT-202");
+    ready.fields.status = {
+      id: "1",
+      name: "To Do",
+      statusCategory: { name: "To Do" },
+    };
+
+    const dependency = issueJson("KT-200");
+    dependency.fields.status = {
+      id: "3",
+      name: "In Progress",
+      statusCategory: { name: "In Progress" },
+    };
+
+    const transport: JiraHttpTransport = async (request) => {
+      if (request.url.endsWith("/rest/api/3/search/jql")) {
+        return {
+          status: 200,
+          statusText: "OK",
+          body: JSON.stringify({ issues: [blocked, ready] }),
+        };
+      }
+
+      return {
+        status: 200,
+        statusText: "OK",
+        body: JSON.stringify(dependency),
+      };
+    };
+    const provider = new JiraTaskProvider(configFor("/repo"), connection, transport, {});
+
+    const next = await provider.getNextTask();
+
+    expect(next?.key).toBe("KT-202");
   });
 
   it("requires taskWrite approval before mutating Jira", async () => {
@@ -183,11 +414,24 @@ describe("jira adapter", () => {
 
     const config = configFor(root);
     const store = new WorkflowStateStore(root, config);
-    const transport: JiraHttpTransport = async () => ({
-      status: 200,
-      statusText: "OK",
-      body: JSON.stringify(issueJson()),
-    });
+    const transport: JiraHttpTransport = async (request) => {
+      if (request.url.endsWith("/rest/api/3/myself")) {
+        return {
+          status: 200,
+          statusText: "OK",
+          body: JSON.stringify({
+            accountId: "acct-current",
+            displayName: "Engineer",
+          }),
+        };
+      }
+
+      return {
+        status: 200,
+        statusText: "OK",
+        body: JSON.stringify(issueJson()),
+      };
+    };
     const provider = new JiraTaskProvider(config, connection, transport);
 
     const selected = await selectJiraWorkflowTask(store, provider, "KT-123");
@@ -236,11 +480,24 @@ describe("jira adapter", () => {
 
     await selectJiraWorkflowTask(
       store,
-      new JiraTaskProvider(config, connection, async () => ({
-        status: 200,
-        statusText: "OK",
-        body: JSON.stringify(issueJson()),
-      })),
+      new JiraTaskProvider(config, connection, async (request) => {
+        if (request.url.endsWith("/rest/api/3/myself")) {
+          return {
+            status: 200,
+            statusText: "OK",
+            body: JSON.stringify({
+              accountId: "acct-current",
+              displayName: "Engineer",
+            }),
+          };
+        }
+
+        return {
+          status: 200,
+          statusText: "OK",
+          body: JSON.stringify(issueJson()),
+        };
+      }),
       "KT-123",
     );
     await transitionWorkflow(store, "TASK_VALIDATED");

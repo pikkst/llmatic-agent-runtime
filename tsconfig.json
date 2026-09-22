@@ -14,6 +14,9 @@
       "path": "./packages/repo-intelligence"
     },
     {
+      "path": "./packages/repository-constitution"
+    },
+    {
       "path": "./packages/github-adapter"
     },
     {
@@ -29,10 +32,16 @@
       "path": "./packages/task-router"
     },
     {
+      "path": "./packages/workspace-recovery"
+    },
+    {
       "path": "./packages/jira-adapter"
     },
     {
       "path": "./packages/runtime-tools"
+    },
+    {
+      "path": "./packages/external-connections"
     },
     {
       "path": "./packages/gateway-client"
@@ -48,6 +57,9 @@
     },
     {
       "path": "./packages/review-engine"
+    },
+    {
+      "path": "./packages/pr-draft"
     },
     {
       "path": "./packages/bootstrap-manager"

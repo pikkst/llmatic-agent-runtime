@@ -24,6 +24,9 @@
     },
     {
       "path": "../agent-orchestrator"
+    },
+    {
+      "path": "../repository-constitution"
     }
   ]
 }

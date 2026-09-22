@@ -1,0 +1,23 @@
+{
+  "name": "@llmatic/workspace-recovery",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "dependencies": {
+    "@llmatic/core": "workspace:*",
+    "@llmatic/git-adapter": "workspace:*",
+    "@llmatic/github-adapter": "workspace:*",
+    "@llmatic/repo-intelligence": "workspace:*",
+    "@llmatic/task-provider": "workspace:*",
+    "@llmatic/task-router": "workspace:*",
+    "@llmatic/repository-constitution": "workspace:*"
+  }
+}

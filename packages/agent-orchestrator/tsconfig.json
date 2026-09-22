@@ -7,10 +7,32 @@
   },
   "include": ["src/**/*.ts"],
   "references": [
-    { "path": "../core" },
-    { "path": "../gateway-client" },
-    { "path": "../git-adapter" },
-    { "path": "../repo-intelligence" },
-    { "path": "../workspace-files" }
+    {
+      "path": "../core"
+    },
+    {
+      "path": "../gateway-client"
+    },
+    {
+      "path": "../git-adapter"
+    },
+    {
+      "path": "../repo-intelligence"
+    },
+    {
+      "path": "../workspace-files"
+    },
+    {
+      "path": "../task-provider"
+    },
+    {
+      "path": "../task-router"
+    },
+    {
+      "path": "../repository-constitution"
+    },
+    {
+      "path": "../github-adapter"
+    }
   ]
 }

@@ -1,5 +1,31 @@
 # Changelog
 
+## 0.2.0
+
+- Added a persistent LLMatic Agent Chat webview with multi-turn user/assistant history and visible tool activity.
+- Added automatic existing-repository mapping with file, AST symbol and import counts.
+- Added workspace recovery across active workflow state, Git branch/worktree, open pull request, CI state and task sources.
+- Added deterministic next-action recommendations such as continue workflow, fix failing PR, continue local changes, continue active task or start the next unblocked task.
+- Added live agent task tools for canonical Jira, Markdown and GitHub task sources instead of relying only on prompt snapshots.
+- Added Jira recovery queues ordered by Jira Rank with dependency-aware next-task selection.
+- Added configurable canonical task source plus optional Jira project/JQL recovery scope.
+- Added ad-hoc Review / Fix Loop support for existing repositories without an active CODE_REVIEW workflow.
+- Run Gateway Agent now opens Agent Chat rather than a one-shot modal prompt.
+- Added a provenance-based Repository Constitution that learns explicit project rules from repository docs/tooling while keeping inferred conventions advisory.
+- Added human-reviewed rule proposals; repeated review findings require three separate occurrences before LLMatic proposes a durable rule, and proposals never self-activate.
+- Added General, Bug Hunter and Security review lenses with rule-ID/source attribution for concrete policy violations.
+- Persist the latest structured review and show findings in Agent Chat.
+- Added read-only open-PR/CI diagnostics including bounded failed GitHub Actions logs.
+- Added provider-neutral task workflow start and safe local workflow advancement tools for Agent Chat.
+- Added evidence-backed PR draft generation covering task/DoD, validation, review, security, architecture and repository rules without fabricating missing evidence.
+- Added workspace-specific Jira connection profiles so separate VS Code workspaces can use different Jira sites/projects and credentials.
+- Added team-safe Jira `assigned_only` mode as the default and explicit `project_queue` mode for solo/full-project queues.
+- Enforced Jira task ownership at workflow start/validation, including when custom recovery JQL is configured.
+- Added green/yellow/red semantic status colors across Runtime Status and Agent Chat for healthy, attention and blocking/error states.
+- Added a reusable External Connections registry and VS Code Connection Center for browser/manual provider onboarding.
+- Added browser-first Atlassian OAuth 2.0 (3LO) support through a server-side LLMatic OAuth broker, including Jira site/project discovery and rotating-token refresh.
+- Added browser-assisted Kilo Gateway key discovery plus anonymous `kilo-auto/free` / `:free` access without a key.
+
 ## 0.1.2
 
 - Added a visible Kilo Gateway API key action to the LLMatic Activity Bar.

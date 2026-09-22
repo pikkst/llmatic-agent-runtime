@@ -189,6 +189,78 @@ export async function getPullRequestStatus(
   };
 }
 
+export interface FailedPullRequestCheckLog {
+  check: PullRequestCheck;
+  runId?: string;
+  log?: string;
+  error?: string;
+}
+
+export interface FailedPullRequestDiagnostics {
+  status: PullRequestStatus;
+  failed: FailedPullRequestCheckLog[];
+}
+
+const MAX_FAILED_LOG_CHARS = 96_000;
+
+function actionsRunId(link: string | undefined): string | undefined {
+  if (!link) return undefined;
+  return /\/actions\/runs\/(\d+)/.exec(link)?.[1];
+}
+
+export async function getFailedPullRequestDiagnostics(
+  root: string,
+  ref?: string | number,
+  runner: GitHubProcessRunner = defaultRunner,
+): Promise<FailedPullRequestDiagnostics> {
+  const status = await getPullRequestStatus(root, ref, runner);
+  const failedChecks = status.checks.filter(
+    (check) => check.bucket === "fail" || check.bucket === "cancel",
+  );
+
+  const failed: FailedPullRequestCheckLog[] = [];
+  const logCache = new Map<string, { log?: string; error?: string }>();
+
+  for (const check of failedChecks) {
+    const runId = actionsRunId(check.link);
+    if (!runId) {
+      failed.push({
+        check,
+        error: "GitHub Actions run id could not be resolved from the check link.",
+      });
+      continue;
+    }
+
+    let cached = logCache.get(runId);
+    if (!cached) {
+      const args = ["run", "view", runId, "--log-failed"];
+      const result = run(root, args, runner);
+      cached =
+        result.exitCode === 0
+          ? {
+              log:
+                result.stdout.length <= MAX_FAILED_LOG_CHARS
+                  ? result.stdout
+                  : result.stdout.slice(0, MAX_FAILED_LOG_CHARS) + "\n[LOG TRUNCATED]",
+            }
+          : {
+              error:
+                (result.stderr || result.stdout).trim() ||
+                "Unable to read failed GitHub Actions logs.",
+            };
+      logCache.set(runId, cached);
+    }
+
+    failed.push({
+      check,
+      runId,
+      ...cached,
+    });
+  }
+
+  return { status, failed };
+}
+
 export async function createPullRequest(
   root: string,
   config: AgentConfig,

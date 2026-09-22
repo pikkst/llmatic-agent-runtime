@@ -52,6 +52,21 @@
     },
     {
       "path": "../../packages/update-installer"
+    },
+    {
+      "path": "../../packages/workspace-recovery"
+    },
+    {
+      "path": "../../packages/repository-constitution"
+    },
+    {
+      "path": "../../packages/pr-draft"
+    },
+    {
+      "path": "../../packages/jira-adapter"
+    },
+    {
+      "path": "../../packages/external-connections"
     }
   ]
 }

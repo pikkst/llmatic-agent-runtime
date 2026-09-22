@@ -23,7 +23,17 @@ import {
   type DiscoveryQuestion,
   type DiscoverySession,
 } from "@llmatic/discovery-engine";
+import {
+  externalConnectionProvider,
+  getBrokerHealth,
+  pollBrokerConnection,
+  refreshBrokerCredential,
+  startBrokerConnection,
+  type BrokerCredential,
+  type BrokerResource,
+} from "@llmatic/external-connections";
 import { KiloGatewayClient } from "@llmatic/gateway-client";
+import { verifyJiraConnectionFromEnvironment, type JiraWorkMode } from "@llmatic/jira-adapter";
 import {
   approveCurrentProjectPlan,
   initializeApprovedProject,
@@ -32,6 +42,7 @@ import {
   planApprovalStatus,
   requestProjectPlanChanges,
 } from "@llmatic/project-initializer";
+import { buildPullRequestDraft } from "@llmatic/pr-draft";
 import {
   generateProjectPlan,
   loadCurrentProjectPlan,
@@ -44,6 +55,7 @@ import {
   type ReleaseManifest,
 } from "@llmatic/release-metadata";
 import {
+  loadLatestReviewReport,
   runCodeReview,
   runReviewFixLoop,
   type CodeReviewReport,
@@ -67,12 +79,48 @@ import {
 } from "@llmatic/setup-health";
 import { stageVerifiedVsix } from "@llmatic/update-installer";
 import { ensureManagedWorkspace, type ManagedWorkspace } from "@llmatic/workspace-manager";
-import { LlmaticStatusProvider } from "./status-view.js";
+import {
+  decideRepositoryRuleProposal,
+  type ConstitutionEntry,
+} from "@llmatic/repository-constitution";
+import {
+  recoverWorkspace,
+  workspaceRecoveryContext,
+  type WorkspaceRecovery,
+} from "@llmatic/workspace-recovery";
+import { AgentChatViewProvider } from "./agent-chat-view.js";
+import {
+  LlmaticStatusDecorationProvider,
+  LlmaticStatusProvider,
+  type WorkspaceJiraStatus,
+} from "./status-view.js";
 
 const KILO_EXTENSION_ID = "kilocode.kilo-code";
 const KILO_GATEWAY_SECRET = "llmatic.kiloGatewayApiKey";
+const KILO_ANONYMOUS_STATE = "llmatic.kiloGatewayAnonymousAccepted";
+const JIRA_PROFILE_STATE_KEY = "llmatic.jiraProfile.v1";
+const JIRA_SECRET_PREFIX = "llmatic.jira.workspace";
 const AUTO_FREE_WARNING_ACCEPTED = "llmatic.autoFreeDataWarningAccepted";
 const ONBOARDING_VERSION = 1;
+
+interface WorkspaceJiraProfile {
+  baseUrl: string;
+  siteUrl?: string;
+  cloudId?: string;
+  projectKey: string;
+  workMode: JiraWorkMode;
+  authType: "basic" | "bearer" | "oauth_broker";
+  email?: string;
+  recoveryJql?: string;
+  brokerUrl?: string;
+}
+
+interface JiraOAuthCredential extends BrokerCredential {}
+
+interface GatewayAccess {
+  apiKey?: string;
+  anonymous: boolean;
+}
 
 interface ExtensionState {
   activeWorkspace?: ManagedWorkspace;
@@ -82,6 +130,8 @@ interface ExtensionState {
   kiloConnected: boolean;
   kiloReloadRecommended: boolean;
   gatewayKeyConfigured: boolean;
+  recovery?: WorkspaceRecovery;
+  jiraConnectionError?: string;
   lastError?: string;
 }
 
@@ -107,6 +157,884 @@ async function exists(path: string): Promise<boolean> {
 
 function configuration() {
   return vscode.workspace.getConfiguration("llmatic");
+}
+
+function jiraSecretKey(workspaceId: string, authType: "basic" | "bearer" | "oauth_broker"): string {
+  return JIRA_SECRET_PREFIX + "." + workspaceId + "." + authType;
+}
+
+function workspaceJiraProfile(context: vscode.ExtensionContext): WorkspaceJiraProfile | undefined {
+  return context.workspaceState.get<WorkspaceJiraProfile>(JIRA_PROFILE_STATE_KEY);
+}
+
+function connectionBrokerUrl(): string | undefined {
+  const value = configuration().get<string>("connectionBrokerUrl", "").trim();
+  return value ? value.replace(/\/+$/, "") : undefined;
+}
+
+function anonymousKiloAccessAvailable(): boolean {
+  const model =
+    configuration().get<string>("agentModel", "kilo-auto/free").trim() || "kilo-auto/free";
+  return (
+    configuration().get<boolean>("allowAnonymousKiloFree", true) && isAnonymousFreeKiloModel(model)
+  );
+}
+
+function parseJiraOAuthCredential(raw: string | undefined): JiraOAuthCredential | undefined {
+  if (!raw) return undefined;
+  try {
+    const parsed = JSON.parse(raw) as JiraOAuthCredential;
+    return parsed.accessToken?.trim() ? parsed : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+function jiraOAuthCredentialNeedsRefresh(credential: JiraOAuthCredential): boolean {
+  if (!credential.expiresAt) return false;
+  const expiresAt = Date.parse(credential.expiresAt);
+  return Number.isFinite(expiresAt) && expiresAt - Date.now() < 5 * 60 * 1000;
+}
+
+async function jiraOAuthCredential(
+  context: vscode.ExtensionContext,
+  workspaceId: string,
+  profile: WorkspaceJiraProfile,
+): Promise<JiraOAuthCredential | undefined> {
+  const key = jiraSecretKey(workspaceId, "oauth_broker");
+  let credential = parseJiraOAuthCredential(await context.secrets.get(key));
+  if (!credential) return undefined;
+
+  if (jiraOAuthCredentialNeedsRefresh(credential) && credential.refreshToken && profile.brokerUrl) {
+    const refreshed = await refreshBrokerCredential(
+      profile.brokerUrl,
+      "atlassian",
+      credential.refreshToken,
+    );
+    credential = refreshed.credential;
+    await context.secrets.store(key, JSON.stringify(credential));
+  }
+
+  return credential;
+}
+
+function sanitizedJiraEnvironment(): NodeJS.ProcessEnv {
+  const environment: NodeJS.ProcessEnv = { ...process.env };
+  for (const key of [
+    "LLMATIC_JIRA_BASE_URL",
+    "LLMATIC_JIRA_SITE_URL",
+    "LLMATIC_JIRA_EMAIL",
+    "LLMATIC_JIRA_API_TOKEN",
+    "LLMATIC_JIRA_BEARER_TOKEN",
+    "LLMATIC_JIRA_PROJECT_KEY",
+    "LLMATIC_JIRA_RECOVERY_JQL",
+    "LLMATIC_JIRA_WORK_MODE",
+  ]) {
+    delete environment[key];
+  }
+  return environment;
+}
+
+async function taskRecoveryEnvironment(
+  context: vscode.ExtensionContext,
+  state: ExtensionState,
+): Promise<NodeJS.ProcessEnv> {
+  const taskSource = configuration().get<string>("taskSource", "auto").trim() || "auto";
+  const fallbackProjectKey = configuration().get<string>("jiraProjectKey", "").trim();
+  const fallbackRecoveryJql = configuration().get<string>("jiraRecoveryJql", "").trim();
+  const fallbackWorkMode =
+    configuration().get<JiraWorkMode>("jiraWorkMode", "assigned_only") ?? "assigned_only";
+  const profile = workspaceJiraProfile(context);
+
+  if (!profile) {
+    return {
+      ...process.env,
+      LLMATIC_TASK_PROVIDER: taskSource,
+      LLMATIC_JIRA_WORK_MODE: fallbackWorkMode,
+      ...(fallbackProjectKey ? { LLMATIC_JIRA_PROJECT_KEY: fallbackProjectKey } : {}),
+      ...(fallbackRecoveryJql ? { LLMATIC_JIRA_RECOVERY_JQL: fallbackRecoveryJql } : {}),
+    };
+  }
+
+  if (!state.activeWorkspace) {
+    const folder = firstWorkspaceFolder();
+    if (!folder) return sanitizedJiraEnvironment();
+    state.activeWorkspace = await attachWorkspace(context, folder);
+  }
+
+  const environment = sanitizedJiraEnvironment();
+  const secret =
+    profile.authType === "oauth_broker"
+      ? undefined
+      : await context.secrets.get(jiraSecretKey(state.activeWorkspace.id, profile.authType));
+  const oauthCredential =
+    profile.authType === "oauth_broker"
+      ? await jiraOAuthCredential(context, state.activeWorkspace.id, profile)
+      : undefined;
+
+  environment.LLMATIC_TASK_PROVIDER = "jira";
+  environment.LLMATIC_JIRA_BASE_URL = profile.baseUrl;
+  environment.LLMATIC_JIRA_SITE_URL = profile.siteUrl ?? profile.baseUrl;
+  environment.LLMATIC_JIRA_PROJECT_KEY = profile.projectKey;
+  environment.LLMATIC_JIRA_WORK_MODE = profile.workMode;
+  if (profile.recoveryJql) {
+    environment.LLMATIC_JIRA_RECOVERY_JQL = profile.recoveryJql;
+  }
+
+  if (profile.authType === "basic") {
+    if (profile.email) environment.LLMATIC_JIRA_EMAIL = profile.email;
+    if (secret) environment.LLMATIC_JIRA_API_TOKEN = secret;
+  } else if (profile.authType === "oauth_broker") {
+    if (oauthCredential?.accessToken) {
+      environment.LLMATIC_JIRA_BEARER_TOKEN = oauthCredential.accessToken;
+    }
+  } else if (secret) {
+    environment.LLMATIC_JIRA_BEARER_TOKEN = secret;
+  }
+
+  return environment;
+}
+
+async function workspaceJiraStatus(
+  context: vscode.ExtensionContext,
+  state: ExtensionState,
+): Promise<WorkspaceJiraStatus> {
+  const profile = workspaceJiraProfile(context);
+  const required = configuration().get<string>("taskSource", "auto") === "jira";
+
+  if (!profile) {
+    const environment = await taskRecoveryEnvironment(context, state);
+    const baseUrl = environment.LLMATIC_JIRA_BASE_URL?.trim();
+    const projectKey = environment.LLMATIC_JIRA_PROJECT_KEY?.trim();
+    const connected = Boolean(
+      baseUrl &&
+      (environment.LLMATIC_JIRA_BEARER_TOKEN ||
+        (environment.LLMATIC_JIRA_EMAIL && environment.LLMATIC_JIRA_API_TOKEN)),
+    );
+
+    return {
+      connected,
+      required,
+      label: connected ? projectKey || "Environment" : undefined,
+      detail: connected && baseUrl ? new URL(baseUrl).host : undefined,
+      workMode:
+        environment.LLMATIC_JIRA_WORK_MODE === "project_queue" ? "project_queue" : "assigned_only",
+    };
+  }
+
+  if (!state.activeWorkspace) {
+    const folder = firstWorkspaceFolder();
+    if (folder) state.activeWorkspace = await attachWorkspace(context, folder);
+  }
+
+  const secret = state.activeWorkspace
+    ? profile.authType === "oauth_broker"
+      ? await jiraOAuthCredential(context, state.activeWorkspace.id, profile)
+      : await context.secrets.get(jiraSecretKey(state.activeWorkspace.id, profile.authType))
+    : undefined;
+
+  return {
+    connected: Boolean(secret),
+    required: true,
+    label: profile.projectKey,
+    detail: new URL(profile.siteUrl ?? profile.baseUrl).host,
+    workMode: profile.workMode,
+  };
+}
+
+async function refreshJiraStatus(
+  context: vscode.ExtensionContext,
+  state: ExtensionState,
+  statusProvider: LlmaticStatusProvider,
+): Promise<void> {
+  if (state.jiraConnectionError) {
+    const profile = workspaceJiraProfile(context);
+    setJiraConnectionError(statusProvider, state.jiraConnectionError, profile);
+    return;
+  }
+
+  try {
+    const status = await workspaceJiraStatus(context, state);
+    if (status.connected) state.jiraConnectionError = undefined;
+    statusProvider.setJiraStatus(status);
+  } catch (error) {
+    const profile = workspaceJiraProfile(context);
+    statusProvider.setJiraStatus({
+      connected: false,
+      required: Boolean(profile) || configuration().get<string>("taskSource", "auto") === "jira",
+      label: profile?.projectKey,
+      detail: profile?.siteUrl
+        ? new URL(profile.siteUrl).host
+        : profile?.baseUrl
+          ? new URL(profile.baseUrl).host
+          : undefined,
+      workMode: profile?.workMode,
+      error: error instanceof Error ? error.message : String(error),
+    });
+  }
+}
+
+function setJiraConnectionProgress(
+  statusProvider: LlmaticStatusProvider,
+  phase: string,
+  profile?: WorkspaceJiraProfile,
+): void {
+  statusProvider.setJiraStatus({
+    connected: false,
+    required: true,
+    label: profile?.projectKey,
+    detail: profile?.siteUrl
+      ? new URL(profile.siteUrl).host
+      : profile?.baseUrl
+        ? new URL(profile.baseUrl).host
+        : undefined,
+    workMode: profile?.workMode,
+    connecting: true,
+    phase,
+  });
+}
+
+function setJiraConnectionError(
+  statusProvider: LlmaticStatusProvider,
+  message: string,
+  profile?: WorkspaceJiraProfile,
+): void {
+  statusProvider.setJiraStatus({
+    connected: false,
+    required: true,
+    label: profile?.projectKey,
+    detail: profile?.siteUrl
+      ? new URL(profile.siteUrl).host
+      : profile?.baseUrl
+        ? new URL(profile.baseUrl).host
+        : undefined,
+    workMode: profile?.workMode,
+    error: message,
+  });
+}
+
+async function promptConnectionBrokerUrl(): Promise<string | undefined> {
+  const current = connectionBrokerUrl();
+  const value = await vscode.window.showInputBox({
+    title: "LLMatic: Connection Broker URL",
+    prompt: "Public HTTPS origin of the deployed LLMatic OAuth broker — not the Jira site URL.",
+    value: current ?? "",
+    placeHolder: "https://oauth.example.com",
+    ignoreFocusOut: true,
+    validateInput: (input) => {
+      try {
+        return new URL(input.trim()).protocol === "https:"
+          ? undefined
+          : "Use an HTTPS LLMatic OAuth broker URL.";
+      } catch {
+        return "Enter a valid HTTPS URL.";
+      }
+    },
+  });
+
+  return value?.trim().replace(/\/+$/, "") || undefined;
+}
+
+function delay(milliseconds: number): Promise<void> {
+  return new Promise((resolveDelay) => setTimeout(resolveDelay, milliseconds));
+}
+
+async function chooseJiraWorkMode(
+  existing?: WorkspaceJiraProfile,
+): Promise<JiraWorkMode | undefined> {
+  const workModePick = await vscode.window.showQuickPick(
+    [
+      {
+        label: "$(organization) Team project — assigned to me only",
+        description: "Safe default",
+        detail: "LLMatic may only start Jira tasks assigned to your current Jira account.",
+        mode: "assigned_only" as const,
+      },
+      {
+        label: "$(person) Solo project — whole project queue",
+        description: "Explicit opt-in",
+        detail: "LLMatic may choose the next unblocked task from the scoped Jira project queue.",
+        mode: "project_queue" as const,
+      },
+    ],
+    {
+      title: "LLMatic: Jira Work Ownership",
+      placeHolder:
+        existing?.workMode === "project_queue"
+          ? "Current: solo project queue"
+          : "Current: assigned to me only",
+      ignoreFocusOut: true,
+    },
+  );
+
+  return workModePick?.mode;
+}
+
+async function jiraProjectFromOAuthResource(
+  resource: BrokerResource,
+  accessToken: string,
+  existing?: WorkspaceJiraProfile,
+): Promise<string | undefined> {
+  const apiBase = "https://api.atlassian.com/ex/jira/" + encodeURIComponent(resource.id);
+  const response = await vscode.window.withProgress(
+    {
+      location: vscode.ProgressLocation.Notification,
+      title: "LLMatic: Loading Jira projects…",
+      cancellable: false,
+    },
+    async () =>
+      fetch(apiBase + "/rest/api/3/project/search?maxResults=100&orderBy=name", {
+        headers: {
+          Accept: "application/json",
+          Authorization: "Bearer " + accessToken,
+        },
+      }),
+  );
+
+  if (response.ok) {
+    const raw = (await response.json()) as {
+      values?: Array<{ key?: string; name?: string }>;
+    };
+    const projects = (raw.values ?? [])
+      .filter(
+        (project): project is { key: string; name?: string } =>
+          typeof project.key === "string" && Boolean(project.key.trim()),
+      )
+      .map((project) => ({
+        label: project.key,
+        description: project.name,
+        key: project.key.toUpperCase(),
+      }));
+
+    if (projects.length > 0) {
+      const selected = await vscode.window.showQuickPick(projects, {
+        title: "LLMatic: Jira Project",
+        placeHolder: existing?.projectKey
+          ? "Current project: " + existing.projectKey
+          : "Choose the Jira project for this repository",
+        ignoreFocusOut: true,
+      });
+      return selected?.key;
+    }
+  }
+
+  const projectKey = await vscode.window.showInputBox({
+    title: "LLMatic: Jira Project",
+    prompt: "Project key used to scope this repository's Jira work.",
+    value: existing?.projectKey ?? "",
+    placeHolder: "SNAPY or KT",
+    ignoreFocusOut: true,
+    validateInput: (value) =>
+      /^[A-Z][A-Z0-9_]*$/i.test(value.trim())
+        ? undefined
+        : "Enter a Jira project key such as SNAPY or KT.",
+  });
+  return projectKey?.trim().toUpperCase();
+}
+
+async function persistJiraWorkspaceConnection(
+  context: vscode.ExtensionContext,
+  state: ExtensionState,
+  statusProvider: LlmaticStatusProvider,
+  chatProvider: AgentChatViewProvider,
+  output: vscode.OutputChannel,
+  profile: WorkspaceJiraProfile,
+  secret: string,
+  verifySecret: string,
+): Promise<void> {
+  const folder = firstWorkspaceFolder();
+  if (!folder || !state.activeWorkspace) {
+    throw new Error("No attached workspace is available for Jira connection.");
+  }
+  const workspaceId = state.activeWorkspace.id;
+
+  const verifyEnvironment = sanitizedJiraEnvironment();
+  verifyEnvironment.LLMATIC_TASK_PROVIDER = "jira";
+  verifyEnvironment.LLMATIC_JIRA_BASE_URL = profile.baseUrl;
+  verifyEnvironment.LLMATIC_JIRA_SITE_URL = profile.siteUrl ?? profile.baseUrl;
+  verifyEnvironment.LLMATIC_JIRA_PROJECT_KEY = profile.projectKey;
+  verifyEnvironment.LLMATIC_JIRA_WORK_MODE = profile.workMode;
+  if (profile.recoveryJql) {
+    verifyEnvironment.LLMATIC_JIRA_RECOVERY_JQL = profile.recoveryJql;
+  }
+  if (profile.authType === "basic") {
+    verifyEnvironment.LLMATIC_JIRA_EMAIL = profile.email;
+    verifyEnvironment.LLMATIC_JIRA_API_TOKEN = verifySecret;
+  } else {
+    verifyEnvironment.LLMATIC_JIRA_BEARER_TOKEN = verifySecret;
+  }
+
+  const config = await loadAgentConfig(folder.uri.fsPath, {
+    LLMATIC_HOME: context.globalStorageUri.fsPath,
+  });
+
+  const currentUser = await vscode.window.withProgress(
+    {
+      location: vscode.ProgressLocation.Notification,
+      title: "LLMatic: Finalizing Jira connection…",
+      cancellable: false,
+    },
+    async (progress) => {
+      setJiraConnectionProgress(statusProvider, "verifying Jira account…", profile);
+      progress.report({ message: "Verifying Jira account…" });
+      const verifiedUser = await verifyJiraConnectionFromEnvironment(config, verifyEnvironment);
+
+      setJiraConnectionProgress(statusProvider, "saving workspace credentials…", profile);
+      progress.report({ message: "Saving workspace credentials…" });
+      await context.workspaceState.update(JIRA_PROFILE_STATE_KEY, profile);
+      for (const authType of ["basic", "bearer", "oauth_broker"] as const) {
+        await context.secrets.delete(jiraSecretKey(workspaceId, authType));
+      }
+      await context.secrets.store(jiraSecretKey(workspaceId, profile.authType), secret);
+
+      setJiraConnectionProgress(statusProvider, "refreshing repository context…", profile);
+      progress.report({ message: "Refreshing repository context…" });
+      await refreshWorkspaceRecovery(context, state, statusProvider, chatProvider, output, true);
+      state.jiraConnectionError = undefined;
+      await refreshJiraStatus(context, state, statusProvider);
+
+      return verifiedUser;
+    },
+  );
+
+  await vscode.window.showInformationMessage(
+    "Jira connected for this workspace as " +
+      (currentUser.displayName ?? currentUser.emailAddress ?? currentUser.accountId) +
+      ". Project " +
+      profile.projectKey +
+      " · " +
+      (profile.workMode === "assigned_only" ? "assigned to me only" : "whole project queue") +
+      ".",
+  );
+}
+
+async function connectJiraWithBrowser(
+  context: vscode.ExtensionContext,
+  state: ExtensionState,
+  statusProvider: LlmaticStatusProvider,
+  chatProvider: AgentChatViewProvider,
+  output: vscode.OutputChannel,
+): Promise<boolean> {
+  const brokerUrl = connectionBrokerUrl();
+  const provider = externalConnectionProvider("jira");
+
+  if (!brokerUrl) {
+    const action = await vscode.window.showWarningMessage(
+      "One-click Atlassian connection needs the LLMatic OAuth broker URL. The broker keeps the Atlassian client secret out of the VSIX.",
+      "Configure Broker URL",
+      "Use Manual Connection",
+      "Open Setup Guide",
+    );
+
+    if (action === "Configure Broker URL") {
+      const value = await promptConnectionBrokerUrl();
+      if (value) {
+        await configuration().update(
+          "connectionBrokerUrl",
+          value,
+          vscode.ConfigurationTarget.Global,
+        );
+        return connectJiraWithBrowser(context, state, statusProvider, chatProvider, output);
+      }
+    } else if (action === "Open Setup Guide" && provider.documentationUrl) {
+      await vscode.env.openExternal(vscode.Uri.parse(provider.documentationUrl));
+    }
+
+    return action !== "Use Manual Connection";
+  }
+
+  const existing = workspaceJiraProfile(context);
+  const preflight = await vscode.window.withProgress(
+    {
+      location: vscode.ProgressLocation.Notification,
+      title: "LLMatic: Connecting Jira…",
+      cancellable: false,
+    },
+    async (progress) => {
+      setJiraConnectionProgress(statusProvider, "checking OAuth broker…", existing);
+      progress.report({ message: "Checking OAuth broker…" });
+      const health = await getBrokerHealth(brokerUrl);
+      const providerHealth = health.providers[provider.brokerProvider ?? "atlassian"];
+
+      if (!health.ready || !providerHealth?.ready) {
+        return { health, providerHealth, started: undefined };
+      }
+
+      setJiraConnectionProgress(statusProvider, "starting Atlassian sign-in…", existing);
+      progress.report({ message: "Starting Atlassian sign-in…" });
+      const started = await startBrokerConnection(brokerUrl, {
+        provider: provider.brokerProvider ?? "atlassian",
+        returnLabel: firstWorkspaceFolder()?.name,
+      });
+      return { health, providerHealth, started };
+    },
+  );
+
+  if (!preflight.health.ready || !preflight.providerHealth?.ready) {
+    const missing = preflight.providerHealth?.missing ?? [];
+    await refreshJiraStatus(context, state, statusProvider);
+    const action = await vscode.window.showErrorMessage(
+      "LLMatic OAuth broker is reachable but Atlassian is not ready" +
+        (missing.length > 0 ? ": missing " + missing.join(", ") : "."),
+      "Open Broker Setup Guide",
+      "Use Manual Connection",
+    );
+
+    if (action === "Open Broker Setup Guide") {
+      await vscode.env.openExternal(
+        vscode.Uri.parse(
+          "https://github.com/pikkst/llmatic-agent-runtime/tree/main/deploy/oauth-broker",
+        ),
+      );
+      return true;
+    }
+
+    return action !== "Use Manual Connection";
+  }
+
+  const started = preflight.started;
+  if (!started) {
+    await refreshJiraStatus(context, state, statusProvider);
+    throw new Error("LLMatic OAuth broker did not start an Atlassian authorization session.");
+  }
+
+  const opened = await vscode.env.openExternal(vscode.Uri.parse(started.authorizeUrl));
+  if (!opened) {
+    throw new Error("VS Code could not open the Atlassian authorization page.");
+  }
+
+  setJiraConnectionProgress(statusProvider, "waiting for browser authorization…", existing);
+  const connected = await vscode.window.withProgress(
+    {
+      location: vscode.ProgressLocation.Notification,
+      title: "LLMatic: Waiting for Atlassian authorization…",
+      cancellable: true,
+    },
+    async (progress, cancellation) => {
+      const expiresAt = Date.parse(started.expiresAt);
+      while (!cancellation.isCancellationRequested && Date.now() < expiresAt) {
+        const status = await pollBrokerConnection(brokerUrl, started.sessionId, started.pollToken);
+
+        if (status.status === "connected") return status;
+        if (status.status === "error") throw new Error(status.message);
+
+        progress.report({ message: "Complete the Atlassian consent in your browser…" });
+        await delay(1500);
+      }
+      return undefined;
+    },
+  );
+
+  if (!connected) {
+    await refreshJiraStatus(context, state, statusProvider);
+    await vscode.window.showWarningMessage(
+      "Atlassian connection was cancelled or expired. Start Connect Jira Workspace to retry.",
+    );
+    return true;
+  }
+
+  if (connected.resources.length === 0) {
+    throw new Error("Atlassian authorized successfully but returned no accessible Jira sites.");
+  }
+
+  setJiraConnectionProgress(statusProvider, "selecting Jira site…", existing);
+  const resource =
+    connected.resources.length === 1
+      ? connected.resources[0]
+      : await vscode.window
+          .showQuickPick(
+            connected.resources.map((candidate) => ({
+              label: candidate.name,
+              description: candidate.url,
+              resource: candidate,
+            })),
+            {
+              title: "LLMatic: Jira Site",
+              placeHolder: "Choose the Atlassian site for this repository",
+              ignoreFocusOut: true,
+            },
+          )
+          .then((selection) => selection?.resource);
+
+  if (!resource) {
+    await refreshJiraStatus(context, state, statusProvider);
+    return true;
+  }
+
+  setJiraConnectionProgress(statusProvider, "loading Jira projects…", existing);
+  const projectKey = await jiraProjectFromOAuthResource(
+    resource,
+    connected.credential.accessToken,
+    existing,
+  );
+  if (!projectKey) {
+    await refreshJiraStatus(context, state, statusProvider);
+    return true;
+  }
+
+  setJiraConnectionProgress(statusProvider, "selecting work ownership…", existing);
+  const workMode = await chooseJiraWorkMode(existing);
+  if (!workMode) {
+    await refreshJiraStatus(context, state, statusProvider);
+    return true;
+  }
+
+  const profile: WorkspaceJiraProfile = {
+    baseUrl: "https://api.atlassian.com/ex/jira/" + encodeURIComponent(resource.id),
+    siteUrl: resource.url.replace(/\/+$/, ""),
+    cloudId: resource.id,
+    projectKey,
+    workMode,
+    authType: "oauth_broker",
+    recoveryJql: existing?.recoveryJql,
+    brokerUrl,
+  };
+
+  await persistJiraWorkspaceConnection(
+    context,
+    state,
+    statusProvider,
+    chatProvider,
+    output,
+    profile,
+    JSON.stringify(connected.credential),
+    connected.credential.accessToken,
+  );
+  return true;
+}
+
+async function connectJiraManually(
+  context: vscode.ExtensionContext,
+  state: ExtensionState,
+  statusProvider: LlmaticStatusProvider,
+  chatProvider: AgentChatViewProvider,
+  output: vscode.OutputChannel,
+): Promise<void> {
+  if (!state.activeWorkspace) {
+    throw new Error("Attach a workspace before configuring Jira.");
+  }
+
+  const existing = workspaceJiraProfile(context);
+  const baseUrl = await vscode.window.showInputBox({
+    title: "LLMatic: Manual Jira Connection",
+    prompt: "Jira site URL for this repository/workspace.",
+    value: existing?.siteUrl ?? existing?.baseUrl ?? "",
+    placeHolder: "https://your-team.atlassian.net",
+    ignoreFocusOut: true,
+    validateInput: (value) => {
+      try {
+        const url = new URL(value.trim());
+        return url.protocol === "https:" || url.protocol === "http:"
+          ? undefined
+          : "Use an http(s) Jira URL.";
+      } catch {
+        return "Enter a valid Jira URL.";
+      }
+    },
+  });
+  if (baseUrl === undefined) return;
+
+  const projectKey = await vscode.window.showInputBox({
+    title: "LLMatic: Jira Project",
+    prompt: "Project key used to scope this repository's Jira work.",
+    value: existing?.projectKey ?? "",
+    placeHolder: "SNAPY or KT",
+    ignoreFocusOut: true,
+    validateInput: (value) =>
+      /^[A-Z][A-Z0-9_]*$/i.test(value.trim())
+        ? undefined
+        : "Enter a Jira project key such as SNAPY or KT.",
+  });
+  if (projectKey === undefined) return;
+
+  const workMode = await chooseJiraWorkMode(existing);
+  if (!workMode) return;
+
+  const authPick = await vscode.window.showQuickPick(
+    [
+      {
+        label: "$(account) Email + API token",
+        description: "Legacy/manual Jira Cloud authentication",
+        authType: "basic" as const,
+      },
+      {
+        label: "$(key) Bearer token",
+        description: "Manual bearer authentication",
+        authType: "bearer" as const,
+      },
+    ],
+    {
+      title: "LLMatic: Manual Jira Authentication",
+      ignoreFocusOut: true,
+    },
+  );
+  if (!authPick) return;
+
+  let email: string | undefined;
+  if (authPick.authType === "basic") {
+    const value = await vscode.window.showInputBox({
+      title: "LLMatic: Jira Email",
+      value: existing?.authType === "basic" ? (existing.email ?? "") : "",
+      prompt: "Email for the Jira API token.",
+      ignoreFocusOut: true,
+      validateInput: (input) => (input.trim() ? undefined : "Jira email is required."),
+    });
+    if (value === undefined) return;
+    email = value.trim();
+  }
+
+  const existingSecret =
+    existing?.authType === authPick.authType
+      ? await context.secrets.get(jiraSecretKey(state.activeWorkspace.id, authPick.authType))
+      : undefined;
+  const secretInput = await vscode.window.showInputBox({
+    title: authPick.authType === "basic" ? "LLMatic: Jira API Token" : "LLMatic: Jira Bearer Token",
+    prompt: existingSecret
+      ? "Leave blank to keep the existing secure token."
+      : "Stored in VS Code SecretStorage for this workspace only.",
+    password: true,
+    ignoreFocusOut: true,
+  });
+  if (secretInput === undefined) return;
+  const secret = secretInput.trim() || existingSecret;
+  if (!secret) {
+    await vscode.window.showErrorMessage("A Jira credential is required.");
+    return;
+  }
+
+  const profile: WorkspaceJiraProfile = {
+    baseUrl: baseUrl.trim().replace(/\/+$/, ""),
+    siteUrl: baseUrl.trim().replace(/\/+$/, ""),
+    projectKey: projectKey.trim().toUpperCase(),
+    workMode,
+    authType: authPick.authType,
+    email,
+    recoveryJql: existing?.recoveryJql,
+  };
+
+  await persistJiraWorkspaceConnection(
+    context,
+    state,
+    statusProvider,
+    chatProvider,
+    output,
+    profile,
+    secret,
+    secret,
+  );
+}
+
+async function connectJiraWorkspace(
+  context: vscode.ExtensionContext,
+  state: ExtensionState,
+  statusProvider: LlmaticStatusProvider,
+  chatProvider: AgentChatViewProvider,
+  output: vscode.OutputChannel,
+): Promise<void> {
+  state.jiraConnectionError = undefined;
+  const folder = firstWorkspaceFolder();
+  if (!folder) {
+    await vscode.window.showWarningMessage("Open a repository workspace before connecting Jira.");
+    return;
+  }
+
+  if (!state.activeWorkspace) {
+    state.activeWorkspace = await attachWorkspace(context, folder);
+  }
+
+  const existing = workspaceJiraProfile(context);
+  const choice = await vscode.window.showQuickPick(
+    [
+      {
+        label: "$(globe) Continue with Atlassian",
+        description: "Recommended · browser sign-in and consent",
+        detail:
+          "No Jira API token to copy. LLMatic uses the configured OAuth broker and stores the resulting workspace credential securely.",
+        action: "browser" as const,
+      },
+      {
+        label: "$(key) Manual credentials",
+        description: "Fallback",
+        detail: "Use an email + API token or bearer token.",
+        action: "manual" as const,
+      },
+      ...(existing
+        ? [
+            {
+              label: "$(trash) Disconnect current Jira workspace",
+              description: existing.projectKey,
+              action: "disconnect" as const,
+            },
+          ]
+        : []),
+    ],
+    {
+      title: "LLMatic: Connect Jira Workspace",
+      placeHolder: "Choose how to connect Jira for this repository",
+      ignoreFocusOut: true,
+    },
+  );
+
+  if (!choice) return;
+  if (choice.action === "disconnect") {
+    await vscode.commands.executeCommand("llmatic.disconnectJiraWorkspace");
+    return;
+  }
+  if (choice.action === "manual") {
+    await connectJiraManually(context, state, statusProvider, chatProvider, output);
+    return;
+  }
+
+  const handled = await connectJiraWithBrowser(
+    context,
+    state,
+    statusProvider,
+    chatProvider,
+    output,
+  );
+  if (!handled) {
+    await connectJiraManually(context, state, statusProvider, chatProvider, output);
+  }
+}
+
+async function disconnectJiraWorkspace(
+  context: vscode.ExtensionContext,
+  state: ExtensionState,
+  statusProvider: LlmaticStatusProvider,
+  chatProvider: AgentChatViewProvider,
+  output: vscode.OutputChannel,
+): Promise<void> {
+  const profile = workspaceJiraProfile(context);
+  if (!profile) {
+    await vscode.window.showInformationMessage("No workspace-specific Jira profile is connected.");
+    return;
+  }
+
+  const confirmation = await vscode.window.showWarningMessage(
+    "Disconnect Jira from this workspace? Stored workspace credentials will be removed.",
+    { modal: true },
+    "Disconnect",
+  );
+  if (confirmation !== "Disconnect") return;
+
+  if (!state.activeWorkspace) {
+    const folder = firstWorkspaceFolder();
+    if (folder) state.activeWorkspace = await attachWorkspace(context, folder);
+  }
+  if (state.activeWorkspace) {
+    await context.secrets.delete(jiraSecretKey(state.activeWorkspace.id, "basic"));
+    await context.secrets.delete(jiraSecretKey(state.activeWorkspace.id, "bearer"));
+    await context.secrets.delete(jiraSecretKey(state.activeWorkspace.id, "oauth_broker"));
+  }
+  await context.workspaceState.update(JIRA_PROFILE_STATE_KEY, undefined);
+  state.jiraConnectionError = undefined;
+
+  await refreshJiraStatus(context, state, statusProvider);
+  await refreshWorkspaceRecovery(context, state, statusProvider, chatProvider, output, true).catch(
+    () => undefined,
+  );
+
+  await vscode.window.showInformationMessage("Workspace Jira connection removed.");
 }
 
 function firstWorkspaceFolder(): vscode.WorkspaceFolder | undefined {
@@ -318,6 +1246,106 @@ async function refresh(
   }
 
   updateStatusBar(statusBar, state);
+}
+
+async function refreshWorkspaceRecovery(
+  context: vscode.ExtensionContext,
+  state: ExtensionState,
+  statusProvider: LlmaticStatusProvider,
+  chatProvider: AgentChatViewProvider,
+  output?: vscode.OutputChannel,
+  rebuildIndex = false,
+): Promise<WorkspaceRecovery | undefined> {
+  const operation = statusProvider.beginOperation(
+    rebuildIndex ? "Refreshing repository context" : "Loading repository context",
+    rebuildIndex
+      ? "Re-indexing files, symbols, imports and task / PR state…"
+      : "Recovering repository, task and PR state…",
+  );
+
+  try {
+    const folder = firstWorkspaceFolder();
+    if (!folder) {
+      state.recovery = undefined;
+      statusProvider.update(state.health, state.gatewayKeyConfigured, undefined);
+      chatProvider.setRecovery(undefined);
+      return undefined;
+    }
+
+    if (!state.activeWorkspace) {
+      state.activeWorkspace = await attachWorkspace(context, folder);
+    }
+
+    const config = await loadAgentConfig(folder.uri.fsPath, {
+      LLMATIC_HOME: context.globalStorageUri.fsPath,
+    });
+    const store = new WorkflowStateStore(folder.uri.fsPath, config);
+    const recovery = await recoverWorkspace(folder.uri.fsPath, config, store, {
+      rebuildIndex,
+      environment: await taskRecoveryEnvironment(context, state),
+    });
+
+    state.recovery = recovery;
+    statusProvider.update(state.health, state.gatewayKeyConfigured, recovery);
+    chatProvider.setRecovery(recovery);
+    chatProvider.setReview(
+      await loadLatestReviewReport(folder.uri.fsPath, config).catch(() => undefined),
+    );
+
+    if (output) {
+      output.appendLine("");
+      output.appendLine(
+        "[MAP] " +
+          recovery.repository.fileCount +
+          " files, " +
+          recovery.repository.symbolCount +
+          " symbols, " +
+          recovery.repository.importCount +
+          " imports",
+      );
+      output.appendLine(
+        "[RECOVERY] Task source: " +
+          recovery.taskSource.selected +
+          "; branch: " +
+          (recovery.git.branch ?? "detached HEAD"),
+      );
+      if (recovery.workflow) {
+        output.appendLine(
+          "[RECOVERY] Workflow: " + recovery.workflow.taskRef + " / " + recovery.workflow.state,
+        );
+      }
+      if (recovery.task) {
+        output.appendLine(
+          "[RECOVERY] Task: " +
+            recovery.task.key +
+            " — " +
+            recovery.task.summary +
+            " [" +
+            recovery.task.status.name +
+            "]",
+        );
+      } else if (recovery.nextTask) {
+        output.appendLine(
+          "[RECOVERY] Next task: " + recovery.nextTask.key + " — " + recovery.nextTask.summary,
+        );
+      }
+      if (recovery.pullRequest) {
+        output.appendLine(
+          "[RECOVERY] PR #" +
+            recovery.pullRequest.pullRequest.number +
+            " / CI " +
+            recovery.pullRequest.ciState,
+        );
+      }
+      output.appendLine(
+        "[NEXT] " + recovery.recommendation.title + " — " + recovery.recommendation.detail,
+      );
+    }
+
+    return recovery;
+  } finally {
+    operation.dispose();
+  }
 }
 
 function nodeVersion(nodeCommand: string): string | undefined {
@@ -676,6 +1704,41 @@ function formatAgentEvent(event: CodingAgentEvent): string {
   return "[INFO] " + event.message;
 }
 
+function formatAgentActivity(event: CodingAgentEvent): string {
+  if (event.type === "model") return "Thinking…";
+  if (event.type === "info") return event.message;
+
+  if (event.type === "tool-result") {
+    return event.success ? "Reviewing tool results…" : "Tool failed; deciding what to do next…";
+  }
+
+  const labels: Record<string, string> = {
+    repository_rules: "Reading repository rules…",
+    propose_repository_rule: "Preparing a repository rule proposal…",
+    repo_search: "Searching the repository…",
+    task_start: "Starting the selected task workflow…",
+    workflow_analyze_repository: "Analyzing the repository…",
+    workflow_create_branch: "Creating the workflow branch…",
+    workflow_begin_implementation: "Starting implementation…",
+    task_sources: "Checking available task sources…",
+    task_connection: "Checking the task connection…",
+    task_list: "Reading the task queue…",
+    task_get: "Reading task details…",
+    task_next: "Finding the next task…",
+    read_file: "Reading repository files…",
+    replace_in_file: "Updating repository files…",
+    create_file: "Creating a repository file…",
+    run_capability: "Running a project quality check…",
+    validate_workflow: "Validating the workflow…",
+    pull_request_status: "Checking the pull request and CI…",
+    pull_request_failed_logs: "Reading failed CI diagnostics…",
+    git_status: "Checking Git state…",
+    workflow_status: "Checking workflow state…",
+  };
+
+  return labels[event.name] ?? "Using " + event.name.replaceAll("_", " ") + "…";
+}
+
 async function confirmAutoFreeDataHandling(
   context: vscode.ExtensionContext,
   model: string,
@@ -707,6 +1770,18 @@ function printReviewReport(output: vscode.OutputChannel, report: CodeReviewRepor
       report.nonBlockingCount +
       " non-blocking)",
   );
+  output.appendLine("Review lenses: " + report.lenses.join(", "));
+  output.appendLine(
+    "Repository constitution: " +
+      report.constitution.activeRuleCount +
+      " active explicit/approved rule(s), " +
+      report.constitution.blockingRuleCount +
+      " blocking rule(s), " +
+      report.constitution.inferredConventionCount +
+      " inferred convention(s), " +
+      report.constitution.proposedRuleCount +
+      " proposed rule(s)",
+  );
   output.appendLine(
     "Living architecture: " +
       (report.architectureImpact.baselineDetected
@@ -724,11 +1799,18 @@ function printReviewReport(output: vscode.OutputChannel, report: CodeReviewRepor
     output.appendLine(
       "[" +
         (finding.severity === "blocking" ? "BLOCKING" : "NON-BLOCKING") +
+        "][" +
+        finding.lens.toUpperCase() +
         "] " +
         finding.title +
         " — " +
         location,
     );
+    if (finding.ruleId) {
+      output.appendLine(
+        "  Rule: " + finding.ruleId + (finding.ruleSource ? " (" + finding.ruleSource + ")" : ""),
+      );
+    }
     output.appendLine("  " + finding.evidence);
     output.appendLine("  Fix: " + finding.recommendation);
   }
@@ -757,29 +1839,276 @@ function formatReviewLoopEvent(event: ReviewLoopEvent): string {
   return "[INFO] " + event.message;
 }
 
-async function gatewayApiKeyOrPrompt(
-  context: vscode.ExtensionContext,
-): Promise<string | undefined> {
-  const existing = await context.secrets.get(KILO_GATEWAY_SECRET);
-  if (existing) return existing;
+function isAnonymousFreeKiloModel(model: string): boolean {
+  const normalized = model.trim().toLowerCase();
+  return normalized === "kilo-auto/free" || normalized.endsWith(":free");
+}
 
-  const action = await vscode.window.showWarningMessage(
-    "LLMatic direct agent and review need a Kilo Gateway API key. Kilo Code and the LLMatic MCP connection remain usable without it.",
-    "Set API Key",
+async function connectKiloGatewayInUi(
+  context: vscode.ExtensionContext,
+  state: ExtensionState,
+  statusProvider: LlmaticStatusProvider,
+): Promise<void> {
+  const provider = externalConnectionProvider("kilo_gateway");
+  const existing = await context.secrets.get(KILO_GATEWAY_SECRET);
+  const anonymousAccepted = context.globalState.get<boolean>(KILO_ANONYMOUS_STATE, false);
+
+  const choice = await vscode.window.showQuickPick(
+    [
+      {
+        label: "$(globe) Get a Kilo Gateway API key",
+        description: "Open Kilo in your browser",
+        detail:
+          "Sign in at app.kilo.ai, open your personal profile and create an API key. LLMatic will then ask you to paste it securely.",
+        action: "browser" as const,
+      },
+      {
+        label: "$(key) Paste an existing API key",
+        description: existing ? "Replace the stored key" : "Store securely in VS Code",
+        action: "paste" as const,
+      },
+      {
+        label: "$(rocket) Use anonymous Auto Free",
+        description: "No API key required",
+        detail:
+          "Available for kilo-auto/free and explicit :free models; anonymous requests are rate-limited by Kilo.",
+        action: "anonymous" as const,
+      },
+      ...(existing
+        ? [
+            {
+              label: "$(trash) Remove stored API key",
+              description:
+                "Keep Kilo Code/MCP; direct paid Gateway access will no longer use this key",
+              action: "clear" as const,
+            },
+          ]
+        : []),
+    ],
+    {
+      title: "LLMatic: Connect Kilo Gateway",
+      placeHolder: anonymousAccepted
+        ? "Anonymous Auto Free is already allowed; choose another option if needed"
+        : "Choose how LLMatic should access Kilo Gateway",
+      ignoreFocusOut: true,
+    },
   );
 
-  if (action !== "Set API Key") return undefined;
+  if (!choice) return;
 
-  await vscode.commands.executeCommand("llmatic.setKiloGatewayApiKey");
-  return context.secrets.get(KILO_GATEWAY_SECRET);
+  if (choice.action === "clear") {
+    await context.secrets.delete(KILO_GATEWAY_SECRET);
+    state.gatewayKeyConfigured = false;
+    statusProvider.update(state.health, false, state.recovery);
+    await vscode.window.showInformationMessage(
+      "Kilo Gateway API key removed. Auto Free can still run anonymously when enabled.",
+    );
+    return;
+  }
+
+  if (choice.action === "anonymous") {
+    await context.globalState.update(KILO_ANONYMOUS_STATE, true);
+    await vscode.window.showInformationMessage(
+      "Anonymous Kilo Auto Free enabled. No API key is required for kilo-auto/free or explicit :free models.",
+    );
+    return;
+  }
+
+  if (choice.action === "browser") {
+    if (provider.browserUrl) {
+      const opened = await vscode.env.openExternal(vscode.Uri.parse(provider.browserUrl));
+      if (!opened) {
+        throw new Error("VS Code could not open the Kilo account page.");
+      }
+    }
+  }
+
+  const value = await vscode.window.showInputBox({
+    title: "LLMatic: Kilo Gateway API Key",
+    prompt:
+      choice.action === "browser"
+        ? "After creating the key in your Kilo personal profile, paste it here. Stored only in VS Code SecretStorage."
+        : "Paste your Kilo Gateway API key. Stored only in VS Code SecretStorage.",
+    placeHolder: "Paste Kilo Gateway API key",
+    password: true,
+    ignoreFocusOut: true,
+  });
+
+  if (!value?.trim()) return;
+
+  await context.secrets.store(KILO_GATEWAY_SECRET, value.trim());
+  await context.globalState.update(KILO_ANONYMOUS_STATE, false);
+  state.gatewayKeyConfigured = true;
+  statusProvider.update(state.health, true, state.recovery);
+
+  await vscode.window.showInformationMessage(
+    "Kilo Gateway API key stored securely. Direct LLMatic agent and review are enabled.",
+  );
+}
+
+async function gatewayAccessOrPrompt(
+  context: vscode.ExtensionContext,
+  model: string,
+  state: ExtensionState,
+  statusProvider: LlmaticStatusProvider,
+): Promise<GatewayAccess | undefined> {
+  const existing = await context.secrets.get(KILO_GATEWAY_SECRET);
+  if (existing) return { apiKey: existing, anonymous: false };
+
+  const anonymousAllowed =
+    configuration().get<boolean>("allowAnonymousKiloFree", true) && isAnonymousFreeKiloModel(model);
+  if (anonymousAllowed) {
+    return { anonymous: true };
+  }
+
+  const action = await vscode.window.showWarningMessage(
+    "The selected Kilo model needs authenticated Gateway access. You can create an API key in the browser or paste an existing one.",
+    "Connect Kilo Gateway",
+    "Cancel",
+  );
+  if (action !== "Connect Kilo Gateway") return undefined;
+
+  await connectKiloGatewayInUi(context, state, statusProvider);
+  const apiKey = await context.secrets.get(KILO_GATEWAY_SECRET);
+  if (apiKey) return { apiKey, anonymous: false };
+
+  if (
+    configuration().get<boolean>("allowAnonymousKiloFree", true) &&
+    isAnonymousFreeKiloModel(model)
+  ) {
+    return { anonymous: true };
+  }
+
+  return undefined;
+}
+
+async function handleJiraConnectionFailure(
+  context: vscode.ExtensionContext,
+  state: ExtensionState,
+  statusProvider: LlmaticStatusProvider,
+  chatProvider: AgentChatViewProvider,
+  output: vscode.OutputChannel,
+  error: unknown,
+): Promise<void> {
+  const message = error instanceof Error ? error.message : String(error);
+  state.jiraConnectionError = message;
+  const profile = workspaceJiraProfile(context);
+  setJiraConnectionError(statusProvider, message, profile);
+
+  if (!/broker/i.test(message)) {
+    await vscode.window.showErrorMessage("LLMatic Jira connection: " + message);
+    return;
+  }
+
+  const action = await vscode.window.showErrorMessage(
+    "LLMatic Jira connection: " + message,
+    "Configure Broker URL",
+    "Use Manual Connection",
+    "Open Broker Setup Guide",
+  );
+
+  if (action === "Configure Broker URL") {
+    const value = await promptConnectionBrokerUrl();
+    if (!value) return;
+
+    await configuration().update("connectionBrokerUrl", value, vscode.ConfigurationTarget.Global);
+    state.jiraConnectionError = undefined;
+
+    try {
+      await connectJiraWithBrowser(context, state, statusProvider, chatProvider, output);
+    } catch (retryError) {
+      const retryMessage = retryError instanceof Error ? retryError.message : String(retryError);
+      state.jiraConnectionError = retryMessage;
+      setJiraConnectionError(statusProvider, retryMessage, profile);
+      await vscode.window.showErrorMessage("LLMatic Jira connection: " + retryMessage);
+    }
+    return;
+  }
+
+  if (action === "Use Manual Connection") {
+    state.jiraConnectionError = undefined;
+    try {
+      await connectJiraManually(context, state, statusProvider, chatProvider, output);
+    } catch (manualError) {
+      const manualMessage =
+        manualError instanceof Error ? manualError.message : String(manualError);
+      state.jiraConnectionError = manualMessage;
+      setJiraConnectionError(statusProvider, manualMessage, profile);
+      await vscode.window.showErrorMessage("LLMatic Jira connection: " + manualMessage);
+    }
+    return;
+  }
+
+  if (action === "Open Broker Setup Guide") {
+    await vscode.env.openExternal(
+      vscode.Uri.parse(
+        "https://github.com/pikkst/llmatic-agent-runtime/tree/main/deploy/oauth-broker",
+      ),
+    );
+  }
+}
+
+async function openConnectionCenter(
+  context: vscode.ExtensionContext,
+  state: ExtensionState,
+  statusProvider: LlmaticStatusProvider,
+  chatProvider: AgentChatViewProvider,
+  output: vscode.OutputChannel,
+): Promise<void> {
+  const jira = workspaceJiraProfile(context);
+  const kiloKey = await context.secrets.get(KILO_GATEWAY_SECRET);
+  const selected = await vscode.window.showQuickPick(
+    [
+      {
+        label: "$(issues) Jira",
+        description: jira
+          ? jira.projectKey +
+            " · " +
+            (jira.workMode === "assigned_only" ? "assigned to me" : "project queue")
+          : "Not connected for this workspace",
+        detail: "Browser OAuth or manual fallback",
+        id: "jira" as const,
+      },
+      {
+        label: "$(sparkle) Kilo Gateway",
+        description: kiloKey ? "API key configured" : "Auto Free can run without a key",
+        detail: "Browser-assisted API key setup, secure paste, or anonymous Auto Free",
+        id: "kilo_gateway" as const,
+      },
+    ],
+    {
+      title: "LLMatic: External Connections",
+      placeHolder: "Choose a service to connect or reconfigure",
+      ignoreFocusOut: true,
+    },
+  );
+
+  if (!selected) return;
+  if (selected.id === "jira") {
+    try {
+      await connectJiraWorkspace(context, state, statusProvider, chatProvider, output);
+    } catch (error) {
+      await handleJiraConnectionFailure(
+        context,
+        state,
+        statusProvider,
+        chatProvider,
+        output,
+        error,
+      );
+    }
+  } else {
+    await connectKiloGatewayInUi(context, state, statusProvider);
+  }
 }
 
 async function runGatewayReview(
   context: vscode.ExtensionContext,
   state: ExtensionState,
+  statusProvider: LlmaticStatusProvider,
   output: vscode.OutputChannel,
   fixLoop: boolean,
-): Promise<void> {
+): Promise<CodeReviewReport | undefined> {
   const folder = firstWorkspaceFolder();
   if (!folder) {
     throw new Error("Open a repository workspace before running review.");
@@ -789,25 +2118,52 @@ async function runGatewayReview(
     state.activeWorkspace = await attachWorkspace(context, folder);
   }
 
-  const apiKey = await gatewayApiKeyOrPrompt(context);
-  if (!apiKey) return;
-
   const model =
     configuration().get<string>("agentModel", "kilo-auto/free").trim() || "kilo-auto/free";
-  if (!(await confirmAutoFreeDataHandling(context, model))) return;
+  const gatewayAccess = await gatewayAccessOrPrompt(context, model, state, statusProvider);
+  if (!gatewayAccess) return undefined;
+  if (!(await confirmAutoFreeDataHandling(context, model))) return undefined;
 
   const root = folder.uri.fsPath;
   const config = await loadAgentConfig(root, {
     LLMATIC_HOME: context.globalStorageUri.fsPath,
   });
-  const store = new WorkflowStateStore(root, config);
-  const gateway = new KiloGatewayClient({ apiKey });
+  let store = new WorkflowStateStore(root, config);
+  const gateway = new KiloGatewayClient({
+    apiKey: gatewayAccess.apiKey,
+    onRetry: (event) => {
+      output.appendLine(
+        "[RETRY] Kilo Gateway " + event.nextAttempt + "/" + event.maxAttempts + ": " + event.reason,
+      );
+    },
+  });
 
   output.clear();
   output.appendLine(fixLoop ? "LLMatic Review / Fix Loop" : "LLMatic Code Review");
   output.appendLine("Model: " + model);
   output.appendLine("Workspace: " + root);
   output.appendLine("");
+
+  if (fixLoop) {
+    const current = await store.loadCurrent();
+    if (!current || current.state !== "CODE_REVIEW") {
+      const adHocConfig = {
+        ...config,
+        runtime: {
+          ...config.runtime,
+          stateDirectory: resolve(state.activeWorkspace.directory, "ad-hoc-review-state"),
+        },
+      };
+      store = new WorkflowStateStore(root, adHocConfig);
+      output.appendLine(
+        current
+          ? "[INFO] Active workflow is " +
+              current.state +
+              "; running this Review / Fix Loop in ad-hoc mode without changing workflow state."
+          : "[INFO] No active workflow; running ad-hoc Review / Fix Loop.",
+      );
+    }
+  }
 
   if (fixLoop) {
     const result = await vscode.window.withProgress(
@@ -823,8 +2179,10 @@ async function runGatewayReview(
           store,
           gateway,
           model,
+          lenses: ["general", "bug_hunter", "security"],
           maxSteps: configuration().get<number>("agentMaxSteps", 20),
           maxReviewRounds: config.workflow.maxFixAttempts,
+          allowAdHoc: true,
           onEvent: (event) => {
             const line = formatReviewLoopEvent(event);
             output.appendLine(line);
@@ -845,7 +2203,7 @@ async function runGatewayReview(
         result.review.blockingCount +
         " blocking finding(s).",
     );
-    return;
+    return result.review;
   }
 
   const report = await vscode.window.withProgress(
@@ -861,6 +2219,7 @@ async function runGatewayReview(
         store,
         gateway,
         model,
+        lenses: ["general", "bug_hunter", "security"],
       }),
   );
 
@@ -874,90 +2233,96 @@ async function runGatewayReview(
       report.nonBlockingCount +
       " non-blocking finding(s).",
   );
+  return report;
 }
 
-async function runGatewayAgent(
+async function runAgentChatTurn(
   context: vscode.ExtensionContext,
   state: ExtensionState,
+  statusProvider: LlmaticStatusProvider,
+  chatProvider: AgentChatViewProvider,
   output: vscode.OutputChannel,
+  instruction: string,
 ): Promise<void> {
   const folder = firstWorkspaceFolder();
   if (!folder) {
-    throw new Error("Open a repository workspace before running the LLMatic agent.");
+    throw new Error("Open a repository workspace before using Agent Chat.");
   }
 
   if (!state.activeWorkspace) {
     state.activeWorkspace = await attachWorkspace(context, folder);
   }
 
-  const apiKey = await gatewayApiKeyOrPrompt(context);
-  if (!apiKey) return;
-
   const model =
     configuration().get<string>("agentModel", "kilo-auto/free").trim() || "kilo-auto/free";
+  const gatewayAccess = await gatewayAccessOrPrompt(context, model, state, statusProvider);
+  if (!gatewayAccess) return;
   if (!(await confirmAutoFreeDataHandling(context, model))) return;
 
-  const instruction = await vscode.window.showInputBox({
-    title: "LLMatic Gateway Agent",
-    prompt: "Describe the implementation or fix you want the agent to perform in this repository.",
-    ignoreFocusOut: true,
-  });
+  if (!state.recovery) {
+    await refreshWorkspaceRecovery(context, state, statusProvider, chatProvider, output, false);
+  }
 
-  if (!instruction?.trim()) return;
-
-  const maxSteps = configuration().get<number>("agentMaxSteps", 20);
   const root = folder.uri.fsPath;
   const runtimeConfig = await loadAgentConfig(root, {
     LLMATIC_HOME: context.globalStorageUri.fsPath,
   });
   const store = new WorkflowStateStore(root, runtimeConfig);
-  const gateway = new KiloGatewayClient({ apiKey });
+  const maxSteps = configuration().get<number>("agentMaxSteps", 20);
 
-  output.clear();
-  output.appendLine("LLMatic Gateway Agent");
-  output.appendLine("Model: " + model);
-  output.appendLine("Workspace: " + root);
-  output.appendLine("");
-
-  const result = await vscode.window.withProgress(
-    {
-      location: vscode.ProgressLocation.Notification,
-      title: "LLMatic agent is working",
-      cancellable: false,
+  chatProvider.setBusy(true, "Thinking…");
+  const agentOperation = statusProvider.beginOperation(
+    "Agent working",
+    "Thinking and deciding what to do…",
+  );
+  const gateway = new KiloGatewayClient({
+    apiKey: gatewayAccess.apiKey,
+    onRetry: (event) => {
+      const activity =
+        "Model provider temporarily unavailable — retrying (" +
+        event.nextAttempt +
+        "/" +
+        event.maxAttempts +
+        ")…";
+      output.appendLine(
+        "[RETRY] Kilo Gateway " + event.nextAttempt + "/" + event.maxAttempts + ": " + event.reason,
+      );
+      chatProvider.setBusy(true, activity);
+      agentOperation.update("Agent working", activity);
     },
-    async (progress) =>
-      runCodingAgent({
-        root,
-        config: runtimeConfig,
-        store,
-        gateway,
-        instruction: instruction.trim(),
-        model,
-        maxSteps,
-        onEvent: (event) => {
-          const line = formatAgentEvent(event);
-          output.appendLine(line);
-          progress.report({ message: line });
-        },
-      }),
-  );
-
+  });
   output.appendLine("");
-  output.appendLine("Final response:");
-  output.appendLine(result.finalText);
-  output.appendLine("");
-  output.appendLine(
-    "Usage: " +
-      result.usage.promptTokens +
-      " prompt / " +
-      result.usage.completionTokens +
-      " completion tokens",
-  );
-  output.show(true);
+  output.appendLine("[CHAT] User: " + instruction);
 
-  await vscode.window.showInformationMessage(
-    "LLMatic agent completed in " + result.steps + " step(s). See the LLMatic output channel.",
-  );
+  try {
+    const result = await runCodingAgent({
+      root,
+      config: runtimeConfig,
+      store,
+      gateway,
+      instruction,
+      history: chatProvider.conversationHistory(),
+      context: state.recovery ? workspaceRecoveryContext(state.recovery) : undefined,
+      environment: await taskRecoveryEnvironment(context, state),
+      model,
+      maxSteps,
+      onEvent: (event) => {
+        const line = formatAgentEvent(event);
+        const activity = formatAgentActivity(event);
+        output.appendLine(line);
+        chatProvider.setBusy(true, activity);
+        agentOperation.update("Agent working", activity);
+      },
+    });
+
+    output.appendLine("[CHAT] LLMatic: " + result.finalText);
+    chatProvider.appendAssistant(result.finalText);
+
+    await refreshWorkspaceRecovery(context, state, statusProvider, chatProvider, output, true);
+  } finally {
+    agentOperation.dispose();
+    chatProvider.setBusy(false);
+  }
 }
 
 function writeBootstrapReport(output: vscode.OutputChannel, report: BootstrapReport): void {
@@ -1908,6 +3273,195 @@ async function offerOnboarding(
   }
 }
 
+function ruleLabel(rule: ConstitutionEntry): string {
+  const source = rule.source.path + (rule.source.line ? ":" + String(rule.source.line) : "");
+  return rule.id + " · " + rule.kind.replaceAll("_", " ") + " · " + rule.strength + " · " + source;
+}
+
+async function generatePrDraftInUi(
+  context: vscode.ExtensionContext,
+  state: ExtensionState,
+  statusProvider: LlmaticStatusProvider,
+  chatProvider: AgentChatViewProvider,
+  output: vscode.OutputChannel,
+): Promise<void> {
+  const folder = firstWorkspaceFolder();
+  if (!folder) {
+    await vscode.window.showWarningMessage(
+      "Open a repository workspace before generating a PR draft.",
+    );
+    return;
+  }
+
+  if (!state.activeWorkspace) {
+    state.activeWorkspace = await attachWorkspace(context, folder);
+  }
+
+  if (!state.recovery) {
+    await refreshWorkspaceRecovery(context, state, statusProvider, chatProvider, output, false);
+  }
+
+  const config = await loadAgentConfig(folder.uri.fsPath, {
+    LLMATIC_HOME: context.globalStorageUri.fsPath,
+  });
+  const store = new WorkflowStateStore(folder.uri.fsPath, config);
+  const workflow = await store.loadCurrent();
+  const review = await loadLatestReviewReport(folder.uri.fsPath, config);
+  const recovery = state.recovery;
+
+  const draft = buildPullRequestDraft({
+    branch: recovery?.git.branch,
+    base: recovery?.pullRequest?.pullRequest.baseRefName,
+    task: recovery?.task ?? recovery?.nextTask,
+    workflow,
+    review,
+    changedFiles: review?.changedFiles,
+  });
+
+  const document = await vscode.workspace.openTextDocument({
+    language: "markdown",
+    content: "# " + draft.title + "\n\n" + draft.body,
+  });
+  await vscode.window.showTextDocument(document, {
+    preview: false,
+  });
+}
+
+async function showRepositoryRulesInUi(
+  context: vscode.ExtensionContext,
+  state: ExtensionState,
+  statusProvider: LlmaticStatusProvider,
+  chatProvider: AgentChatViewProvider,
+  output: vscode.OutputChannel,
+): Promise<void> {
+  if (!state.recovery) {
+    await refreshWorkspaceRecovery(context, state, statusProvider, chatProvider, output, false);
+  }
+
+  const constitution = state.recovery?.constitution;
+  if (!constitution) {
+    await vscode.window.showWarningMessage(
+      "Repository rules are unavailable until a repository workspace is mapped.",
+    );
+    return;
+  }
+
+  const items = constitution.rules.map((rule) => ({
+    label:
+      (rule.status === "proposed"
+        ? "$(question) "
+        : rule.strength === "blocking"
+          ? "$(lock) "
+          : "$(law) ") + rule.text,
+    description: ruleLabel(rule),
+    detail: rule.rationale,
+    rule,
+  }));
+
+  if (items.length === 0) {
+    await vscode.window.showInformationMessage(
+      "No repository rules or inferred conventions were found.",
+    );
+    return;
+  }
+
+  await vscode.window.showQuickPick(items, {
+    title: "LLMatic Repository Constitution",
+    placeHolder:
+      constitution.counts.explicitRule +
+      " explicit · " +
+      constitution.counts.approvedRule +
+      " approved · " +
+      constitution.counts.inferredConvention +
+      " inferred · " +
+      constitution.counts.proposedRule +
+      " proposed",
+    matchOnDescription: true,
+    matchOnDetail: true,
+    ignoreFocusOut: true,
+  });
+}
+
+async function reviewRepositoryRuleProposalsInUi(
+  context: vscode.ExtensionContext,
+  state: ExtensionState,
+  statusProvider: LlmaticStatusProvider,
+  chatProvider: AgentChatViewProvider,
+  output: vscode.OutputChannel,
+): Promise<void> {
+  if (!state.recovery) {
+    await refreshWorkspaceRecovery(context, state, statusProvider, chatProvider, output, false);
+  }
+
+  const proposals =
+    state.recovery?.constitution.rules.filter(
+      (rule) => rule.kind === "proposed_rule" && rule.status === "proposed",
+    ) ?? [];
+
+  if (proposals.length === 0) {
+    await vscode.window.showInformationMessage(
+      "There are no repository rule proposals awaiting review.",
+    );
+    return;
+  }
+
+  const selected = await vscode.window.showQuickPick(
+    proposals.map((rule) => ({
+      label: "$(question) " + rule.text,
+      description: ruleLabel(rule),
+      detail: rule.rationale,
+      rule,
+    })),
+    {
+      title: "Review Repository Rule Proposals",
+      placeHolder: "A proposal is not enforced until you explicitly approve it.",
+      matchOnDescription: true,
+      matchOnDetail: true,
+      ignoreFocusOut: true,
+    },
+  );
+
+  if (!selected) return;
+
+  const decision = await vscode.window.showWarningMessage(
+    selected.rule.text +
+      "\n\nReason: " +
+      (selected.rule.rationale ?? "No rationale supplied.") +
+      "\n\nSource: " +
+      selected.rule.source.path +
+      (selected.rule.source.line ? ":" + selected.rule.source.line : ""),
+    { modal: true },
+    "Approve Rule",
+    "Reject Rule",
+  );
+
+  if (decision !== "Approve Rule" && decision !== "Reject Rule") return;
+
+  if (!state.activeWorkspace) {
+    const folder = firstWorkspaceFolder();
+    if (!folder) return;
+    state.activeWorkspace = await attachWorkspace(context, folder);
+  }
+
+  const config = await loadAgentConfig(state.activeWorkspace.root, {
+    LLMATIC_HOME: context.globalStorageUri.fsPath,
+  });
+  await decideRepositoryRuleProposal(
+    state.activeWorkspace.root,
+    config,
+    selected.rule.id,
+    decision === "Approve Rule" ? "approved" : "rejected",
+  );
+
+  await refreshWorkspaceRecovery(context, state, statusProvider, chatProvider, output, true);
+
+  await vscode.window.showInformationMessage(
+    decision === "Approve Rule"
+      ? "Repository rule approved and now active in review policy."
+      : "Repository rule proposal rejected.",
+  );
+}
+
 async function showStatus(context: vscode.ExtensionContext, state: ExtensionState): Promise<void> {
   const kiloInstalled = Boolean(vscode.extensions.getExtension(KILO_EXTENSION_ID));
   const kiloServer = kiloInstalled ? await readGlobalKiloLlmaticServer(homedir()) : undefined;
@@ -1925,6 +3479,21 @@ async function showStatus(context: vscode.ExtensionContext, state: ExtensionStat
     "Kilo Code: " + (kiloInstalled ? "installed" : "not installed"),
     "Kilo MCP: " + (kiloServer ? "configured" : "not configured"),
     "Kilo Gateway key: " + (hasGatewayKey ? "stored securely" : "not stored"),
+    state.recovery
+      ? "Repository map: " +
+        state.recovery.repository.fileCount +
+        " files / " +
+        state.recovery.repository.symbolCount +
+        " symbols / " +
+        state.recovery.repository.importCount +
+        " imports"
+      : "Repository map: not loaded",
+    state.recovery
+      ? "Recovered work: " +
+        state.recovery.recommendation.title +
+        " — " +
+        state.recovery.recommendation.detail
+      : undefined,
     state.kiloReloadRecommended ? "Kilo reload: recommended after config update" : undefined,
     state.lastError ? "Error: " + state.lastError : undefined,
   ].filter((line): line is string => Boolean(line));
@@ -1950,9 +3519,59 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   context.subscriptions.push(statusBar);
 
   const statusProvider = new LlmaticStatusProvider();
+  const startupOperation = statusProvider.beginOperation(
+    "Loading LLMatic workspace",
+    "Checking runtime, tools and external connections…",
+  );
   context.subscriptions.push(
     vscode.window.registerTreeDataProvider("llmatic.status", statusProvider),
+    vscode.window.registerFileDecorationProvider(new LlmaticStatusDecorationProvider()),
   );
+
+  const chatProvider = new AgentChatViewProvider(context.extensionUri);
+  chatProvider.setRecoverySource(() => state.recovery);
+  context.subscriptions.push(
+    vscode.window.registerWebviewViewProvider("llmatic.agentChat", chatProvider),
+  );
+  chatProvider.setHandlers({
+    send: (text) => runAgentChatTurn(context, state, statusProvider, chatProvider, output, text),
+    refresh: async () => {
+      chatProvider.setBusy(true, "Refreshing repository context…");
+      try {
+        await refreshWorkspaceRecovery(context, state, statusProvider, chatProvider, output, true);
+      } finally {
+        chatProvider.setBusy(false);
+      }
+    },
+    continueRecommended: async () => {
+      const recommendation = state.recovery?.recommendation;
+      if (!recommendation) {
+        await refreshWorkspaceRecovery(context, state, statusProvider, chatProvider, output, true);
+      }
+
+      const current = state.recovery?.recommendation;
+      if (!current) {
+        chatProvider.appendAssistant(
+          "I could not resolve a recommended next action for this workspace.",
+        );
+        return;
+      }
+
+      if (current.action === "start_discovery") {
+        await vscode.commands.executeCommand("llmatic.startDiscovery");
+        return;
+      }
+
+      await runAgentChatTurn(
+        context,
+        state,
+        statusProvider,
+        chatProvider,
+        output,
+        "Continue with the recommended next action: " + current.title + ". " + current.detail,
+      );
+    },
+  });
 
   context.subscriptions.push(
     vscode.commands.registerCommand("llmatic.startDiscovery", async () => {
@@ -2022,6 +3641,17 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     vscode.commands.registerCommand("llmatic.getReady", async () => {
       try {
         await getReady(context, state, statusBar, statusProvider, output);
+        await refreshJiraStatus(context, state, statusProvider);
+        if (state.health?.status === "READY") {
+          await refreshWorkspaceRecovery(
+            context,
+            state,
+            statusProvider,
+            chatProvider,
+            output,
+            true,
+          );
+        }
       } catch (error) {
         state.lastError = error instanceof Error ? error.message : String(error);
         state.health = {
@@ -2145,45 +3775,106 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       }
     }),
     vscode.commands.registerCommand("llmatic.setKiloGatewayApiKey", async () => {
-      const value = await vscode.window.showInputBox({
-        title: "LLMatic: Kilo Gateway API Key",
-        prompt:
-          "Required only for LLMatic direct agent/review orchestration. Stored in VS Code SecretStorage and never written to the repository or Kilo config.",
-        placeHolder: "Paste your Kilo Gateway API key",
-        password: true,
-        ignoreFocusOut: true,
-      });
-
-      if (!value?.trim()) return;
-
-      await context.secrets.store(KILO_GATEWAY_SECRET, value.trim());
-      state.gatewayKeyConfigured = true;
-      statusProvider.update(state.health, state.gatewayKeyConfigured);
-
-      await vscode.window.showInformationMessage(
-        "Kilo Gateway API key stored securely. Direct LLMatic agent and review are enabled.",
-      );
+      await connectKiloGatewayInUi(context, state, statusProvider);
+      statusProvider.setGatewayAccess(state.gatewayKeyConfigured, anonymousKiloAccessAvailable());
+    }),
+    vscode.commands.registerCommand("llmatic.connectKiloGateway", async () => {
+      await connectKiloGatewayInUi(context, state, statusProvider);
+      statusProvider.setGatewayAccess(state.gatewayKeyConfigured, anonymousKiloAccessAvailable());
+    }),
+    vscode.commands.registerCommand("llmatic.openConnectionCenter", async () => {
+      await openConnectionCenter(context, state, statusProvider, chatProvider, output);
+      statusProvider.setGatewayAccess(state.gatewayKeyConfigured, anonymousKiloAccessAvailable());
     }),
     vscode.commands.registerCommand("llmatic.clearKiloGatewayApiKey", async () => {
       await context.secrets.delete(KILO_GATEWAY_SECRET);
       state.gatewayKeyConfigured = false;
       statusProvider.update(state.health, state.gatewayKeyConfigured);
+      statusProvider.setGatewayAccess(state.gatewayKeyConfigured, anonymousKiloAccessAvailable());
 
       await vscode.window.showInformationMessage(
-        "Kilo Gateway API key cleared. Kilo MCP remains available; direct agent and review will ask for a key when needed.",
+        "Kilo Gateway API key cleared. Kilo MCP remains available; Auto Free can run anonymously when enabled.",
       );
     }),
-    vscode.commands.registerCommand("llmatic.runAgent", async () => {
+    vscode.commands.registerCommand("llmatic.connectJiraWorkspace", async () => {
       try {
-        await runGatewayAgent(context, state, output);
+        await connectJiraWorkspace(context, state, statusProvider, chatProvider, output);
+      } catch (error) {
+        await handleJiraConnectionFailure(
+          context,
+          state,
+          statusProvider,
+          chatProvider,
+          output,
+          error,
+        );
+      }
+    }),
+    vscode.commands.registerCommand("llmatic.disconnectJiraWorkspace", async () => {
+      try {
+        await disconnectJiraWorkspace(context, state, statusProvider, chatProvider, output);
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
-        await vscode.window.showErrorMessage("LLMatic agent: " + message);
+        await vscode.window.showErrorMessage("LLMatic Jira disconnect: " + message);
       }
+    }),
+    vscode.commands.registerCommand("llmatic.openAgentChat", async () => {
+      await vscode.commands.executeCommand("workbench.view.extension.llmatic");
+      await vscode.commands.executeCommand("llmatic.agentChat.focus");
+    }),
+    vscode.commands.registerCommand("llmatic.agentChatProbe", async () => {
+      return chatProvider.waitUntilClientReady(8_000);
+    }),
+    vscode.commands.registerCommand("llmatic.generatePrDraft", async () => {
+      try {
+        await generatePrDraftInUi(context, state, statusProvider, chatProvider, output);
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        await vscode.window.showErrorMessage("LLMatic PR draft: " + message);
+      }
+    }),
+    vscode.commands.registerCommand("llmatic.showRepositoryRules", async () => {
+      try {
+        await showRepositoryRulesInUi(context, state, statusProvider, chatProvider, output);
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        await vscode.window.showErrorMessage("LLMatic rules: " + message);
+      }
+    }),
+    vscode.commands.registerCommand("llmatic.reviewRuleProposals", async () => {
+      try {
+        await reviewRepositoryRuleProposalsInUi(
+          context,
+          state,
+          statusProvider,
+          chatProvider,
+          output,
+        );
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        await vscode.window.showErrorMessage("LLMatic rule proposal review: " + message);
+      }
+    }),
+    vscode.commands.registerCommand("llmatic.refreshWorkspaceRecovery", async () => {
+      try {
+        await refreshWorkspaceRecovery(context, state, statusProvider, chatProvider, output, true);
+        await vscode.window.showInformationMessage(
+          state.recovery
+            ? "LLMatic repository context refreshed: " + state.recovery.recommendation.title
+            : "LLMatic repository context cleared.",
+        );
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        await vscode.window.showErrorMessage("LLMatic recovery: " + message);
+      }
+    }),
+    vscode.commands.registerCommand("llmatic.runAgent", async () => {
+      await vscode.commands.executeCommand("llmatic.openAgentChat");
     }),
     vscode.commands.registerCommand("llmatic.review", async () => {
       try {
-        await runGatewayReview(context, state, output, false);
+        const review = await runGatewayReview(context, state, statusProvider, output, false);
+        if (review) chatProvider.setReview(review);
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
         await vscode.window.showErrorMessage("LLMatic review: " + message);
@@ -2191,7 +3882,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     }),
     vscode.commands.registerCommand("llmatic.reviewFixLoop", async () => {
       try {
-        await runGatewayReview(context, state, output, true);
+        const review = await runGatewayReview(context, state, statusProvider, output, true);
+        if (review) chatProvider.setReview(review);
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
         await vscode.window.showErrorMessage("LLMatic review/fix loop: " + message);
@@ -2220,19 +3912,66 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     }),
     vscode.workspace.onDidChangeWorkspaceFolders(async () => {
       await refresh(context, statusBar, state);
-      statusProvider.update(state.health, state.gatewayKeyConfigured);
+      statusProvider.update(state.health, state.gatewayKeyConfigured, state.recovery);
+      await refreshJiraStatus(context, state, statusProvider);
+      await refreshWorkspaceRecovery(
+        context,
+        state,
+        statusProvider,
+        chatProvider,
+        output,
+        false,
+      ).catch((error) => {
+        output.appendLine(
+          "[WARN] Workspace recovery failed after folder change: " +
+            (error instanceof Error ? error.message : String(error)),
+        );
+      });
     }),
     vscode.workspace.onDidChangeConfiguration(async (event) => {
       if (event.affectsConfiguration("llmatic")) {
         await refresh(context, statusBar, state);
-        statusProvider.update(state.health, state.gatewayKeyConfigured);
+        statusProvider.update(state.health, state.gatewayKeyConfigured, state.recovery);
+        statusProvider.setGatewayAccess(state.gatewayKeyConfigured, anonymousKiloAccessAvailable());
+        await refreshJiraStatus(context, state, statusProvider);
+        await refreshWorkspaceRecovery(
+          context,
+          state,
+          statusProvider,
+          chatProvider,
+          output,
+          false,
+        ).catch((error) => {
+          output.appendLine(
+            "[WARN] Workspace recovery failed after configuration change: " +
+              (error instanceof Error ? error.message : String(error)),
+          );
+        });
       }
     }),
   );
 
+  startupOperation.update(
+    "Loading LLMatic workspace",
+    "Checking runtime, tools and Kilo integration…",
+  );
   await refresh(context, statusBar, state);
-  statusProvider.update(state.health, state.gatewayKeyConfigured);
+  statusProvider.update(state.health, state.gatewayKeyConfigured, state.recovery);
+  statusProvider.setGatewayAccess(state.gatewayKeyConfigured, anonymousKiloAccessAvailable());
+
+  startupOperation.update("Loading LLMatic workspace", "Checking workspace connections…");
+  await refreshJiraStatus(context, state, statusProvider);
   await vscode.commands.executeCommand("setContext", "llmatic.health", state.health?.status);
+  startupOperation.dispose();
+
+  void refreshWorkspaceRecovery(context, state, statusProvider, chatProvider, output, false).catch(
+    (error) => {
+      output.appendLine(
+        "[WARN] Initial workspace recovery failed: " +
+          (error instanceof Error ? error.message : String(error)),
+      );
+    },
+  );
 
   // Onboarding must never block extension activation. In headless Extension Host
   // acceptance there is no user available to answer the notification, and in

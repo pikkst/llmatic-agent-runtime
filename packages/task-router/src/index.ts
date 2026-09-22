@@ -1,5 +1,11 @@
 import type { AgentConfig, WorkflowRun, WorkflowStateStore } from "@llmatic/core";
-import type { TaskProvider, TaskRecord, TaskTransition } from "@llmatic/task-provider";
+import {
+  selectWorkflowTask,
+  validateWorkflowTask,
+  type TaskProvider,
+  type TaskRecord,
+  type TaskTransition,
+} from "@llmatic/task-provider";
 import { createMarkdownTaskProvider, detectMarkdownTaskFile } from "@llmatic/markdown-task-source";
 import { createJiraTaskProviderFromEnvironment } from "@llmatic/jira-adapter";
 import {
@@ -112,10 +118,18 @@ export async function detectTaskSources(
     },
   ];
 
+  const preferred = environment.LLMATIC_TASK_PROVIDER?.trim().toLowerCase();
+  const preferredCandidate =
+    preferred && preferred !== "auto"
+      ? candidates.find((candidate) => candidate.id === preferred && candidate.available)
+      : undefined;
+
   const selected =
+    preferredCandidate?.id ??
     candidates
       .filter((candidate) => candidate.available)
-      .sort((left, right) => right.priority - left.priority)[0]?.id ?? "manual";
+      .sort((left, right) => right.priority - left.priority)[0]?.id ??
+    "manual";
 
   return {
     selected,
@@ -191,4 +205,37 @@ export async function resolveWorkflowTaskProvider(
   const selected = workflowProviderId(current);
 
   return resolveTaskProvider(root, config, selected ?? "auto", environment);
+}
+
+export async function startTaskWorkflow(
+  root: string,
+  config: AgentConfig,
+  store: WorkflowStateStore,
+  options: {
+    provider?: TaskProviderId;
+    reference?: string;
+    environment?: NodeJS.ProcessEnv;
+  } = {},
+): Promise<{ task: TaskRecord; workflow: WorkflowRun; provider: string }> {
+  const environment = options.environment ?? process.env;
+  const provider = await resolveTaskProvider(root, config, options.provider ?? "auto", environment);
+
+  const task = options.reference?.trim()
+    ? await provider.getTask(options.reference.trim())
+    : provider.getNextTask
+      ? await provider.getNextTask()
+      : undefined;
+
+  if (!task) {
+    throw new Error("No actionable task could be resolved from provider " + provider.id + ".");
+  }
+
+  await selectWorkflowTask(store, provider, task.key);
+  const validated = await validateWorkflowTask(store, provider);
+
+  return {
+    task: validated.task,
+    workflow: validated.workflow,
+    provider: provider.id,
+  };
 }

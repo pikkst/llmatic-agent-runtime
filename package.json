@@ -1,6 +1,6 @@
 {
   "name": "llmatic-agent-runtime",
-  "version": "0.1.2",
+  "version": "0.2.0",
   "private": true,
   "type": "module",
   "packageManager": "pnpm@10.17.1",
@@ -21,7 +21,11 @@
     "release:manifest": "node scripts/create-release-manifest.mjs",
     "release:acceptance": "node scripts/release-acceptance.mjs",
     "product:acceptance": "node scripts/product-acceptance.mjs",
-    "vscode:acceptance": "node scripts/vscode-clean-install-acceptance.mjs"
+    "vscode:acceptance": "node scripts/vscode-clean-install-acceptance.mjs",
+    "broker:smoke": "node scripts/oauth-broker-smoke.mjs",
+    "broker:deploy": "pnpm dlx wrangler@latest deploy --config deploy/oauth-broker/wrangler.jsonc",
+    "broker:whoami": "pnpm dlx wrangler@latest whoami",
+    "broker:secret:atlassian": "pnpm dlx wrangler@latest secret put ATLASSIAN_CLIENT_SECRET --config deploy/oauth-broker/wrangler.jsonc"
   },
   "devDependencies": {
     "@types/node": "^22.10.0",
@@ -29,10 +33,5 @@
     "typescript": "^5.7.2",
     "vitest": "^2.1.8",
     "@vscode/test-electron": "3.1.0"
-  },
-  "pnpm": {
-    "onlyBuiltDependencies": [
-      "esbuild"
-    ]
   }
 }

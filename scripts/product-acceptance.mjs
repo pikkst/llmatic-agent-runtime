@@ -29,7 +29,7 @@ function run(root, command, args, label) {
     cwd: root,
     env: process.env,
     encoding: "utf8",
-    shell: process.platform === "win32",
+    shell: false,
   });
 
   if (result.error) {

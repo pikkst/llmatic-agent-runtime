@@ -203,7 +203,7 @@ A release candidate is not product-ready if this lifecycle gate fails.
 
 ## M26 — First Real Release & Clean-Install Acceptance
 
-Status: in progress.
+Status: completed.
 
 Goal: prove the packaged VSIX as a real installed extension from an isolated VS Code profile before the first public semantic release.
 
@@ -239,3 +239,74 @@ The repository connector cannot create Git tags. Once main is green, the only ma
     git pull --ff-only origin main
     git tag -a v0.1.0 -m "LLMatic Agent Runtime v0.1.0"
     git push origin v0.1.0
+
+## M27 — Intelligent Workspace Recovery & Agent Chat
+
+Status: in progress.
+
+Goal: make LLMatic resume engineering work automatically instead of presenting a manual command menu.
+
+Recovery context combines:
+
+- repository intelligence map
+- current Git branch and working tree
+- active LLMatic workflow
+- canonical task source
+- active/next task candidates
+- open pull request
+- remote CI state
+- latest structured review
+
+The VS Code Agent Chat is the primary interaction surface. It supports multi-turn context, visible tool activity and a single recommended next action.
+
+Recommended actions must be executable where safe:
+
+- start greenfield discovery
+- start/validate the next provider-ranked task
+- analyze the repository
+- create a feature branch subject to repository-write permission
+- begin implementation
+- inspect failing PR checks/logs
+- continue implementation/fixing
+
+Direct Agent Chat must still not receive push, merge, deployment, arbitrary shell, package-install or remote-database mutation tools.
+
+## M28 — Repository Constitution & Review Policy
+
+Status: in progress.
+
+Goal: make LLMatic adapt to each repository without allowing the model to silently invent or strengthen project policy.
+
+Canonical knowledge classes:
+
+    FACT
+    EXPLICIT_RULE
+    INFERRED_CONVENTION
+    PROPOSED_RULE
+    APPROVED_RULE
+
+Every explicit/approved rule carries provenance and scope.
+
+Policy sources include repository documentation, contribution/review instructions, security docs, planning docs, CI/workflow evidence and package quality scripts.
+
+Inferred conventions are advisory only.
+
+Repeated review findings may create a rule proposal only after the same semantic pattern appears in at least three separate reviews. Proposals require explicit human approval before they are enforced.
+
+VS Code review runs:
+
+    General Engineering Review
+    Bug Hunter
+    Security
+
+Findings must be evidence-backed. Concrete violations of active project rules record the exact rule ID/source.
+
+PR drafts are generated from captured task/workflow/check/review/security/architecture/rule evidence. Missing evidence is identified rather than fabricated.
+
+## M29 — External Pull Request Review
+
+Status: planned after v0.2.0.
+
+Goal: support reviewing pull requests authored by other engineers without conflating that workflow with the current task owner/recovery lifecycle.
+
+The review flow should be explicitly user-invoked, read the target PR/diff/checks/review threads, apply repository constitution + Bug Hunter + Security lenses, and produce review findings/comments without changing Jira task ownership or selecting the PR author's task as the user's active workflow.

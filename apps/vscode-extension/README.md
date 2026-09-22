@@ -31,7 +31,7 @@ Extensions → … → Install from VSIX…
 or:
 
 ```powershell
-code --install-extension .\llmatic-agent-runtime-0.1.2.vsix
+code --install-extension .\llmatic-agent-runtime-0.2.0.vsix
 ```
 
 ## First run
@@ -84,23 +84,50 @@ Repository files remain untouched until you explicitly choose **Approve & Initia
 
 ## Existing repository workflow
 
-For an existing codebase:
+For an existing codebase, run:
 
 ```text
 LLMatic: Get Ready
-LLMatic: Doctor
 ```
 
-Then use LLMatic's agent, review, and task workflows as needed.
+LLMatic maps the repository and automatically recovers current engineering work from Git/worktree state, active LLMatic workflow, open pull request/CI and the configured task source.
 
-Task sources are detected in this order:
+The sidebar then shows:
 
 ```text
-TASKS.md / Tasks.md / TODO.md
-  -> Jira when configured
-  -> GitHub Issues when available
-  -> manual workflow references
+Repository Map
+Recovered task / workflow / PR
+Recommended next action
+Agent Chat
 ```
+
+Agent Chat is a persistent multi-turn conversation. It shows the agent's tool activity and keeps the recovered repository context available across messages.
+
+Use **Refresh Repository Context** whenever you want to rebuild the map and re-check task/PR/CI state.
+
+Task sources can be auto-detected or explicitly selected with `llmatic.taskSource`:
+
+```text
+auto | jira | markdown | github
+```
+
+For Jira, use **LLMatic: Connect Jira Workspace**. The preferred path is **Continue with Atlassian**, which opens a browser OAuth flow when the LLMatic connection broker is configured. Authorized Jira sites and projects are discovered interactively, while manual API-token/bearer authentication remains a fallback. Each workspace keeps its own Jira site/project/work-mode profile and workspace-ID-scoped SecretStorage credential, so different repositories can safely connect to different Jira environments in separate VS Code windows.
+
+The default team-safe mode is `assigned_only`: LLMatic can list/order your assigned work but cannot start another user's task. `project_queue` is an explicit solo/full-project mode and requires a scoped project key or custom JQL.
+
+LLMatic also builds a **Repository Constitution** from repository documentation and tooling evidence. Explicit rules preserve source provenance; inferred conventions stay advisory. Repeated review patterns may be proposed as new rules, but only a human can approve them.
+
+Code review runs General, Bug Hunter and Security lenses in VS Code and keeps the latest findings visible in Agent Chat.
+
+Useful actions:
+
+```text
+LLMatic: Show Repository Rules
+LLMatic: Review Repository Rule Proposals
+LLMatic: Generate PR Draft
+```
+
+The PR draft uses captured engineering evidence and marks missing evidence instead of fabricating claims.
 
 ## Kilo Code
 
@@ -122,17 +149,17 @@ llmatic.agentModel
 
 LLMatic shows a data-handling warning before first use of Auto Free. Use an appropriate model/provider for confidential repositories.
 
-### Gateway API key
+### Gateway access
 
-Kilo Code MCP connectivity works without a Gateway API key. The key is needed only for LLMatic's direct Gateway Agent and automated review/fix orchestration.
+Kilo Code MCP connectivity works without a Gateway API key. `kilo-auto/free` and explicit `:free` models can also run through Kilo's anonymous Gateway access when enabled.
 
-Use **Set Kilo Gateway API Key** in the LLMatic Activity Bar or run:
+For authenticated or paid model access run:
 
 ```text
-LLMatic: Set Kilo Gateway API Key
+LLMatic: Connect Kilo Gateway
 ```
 
-LLMatic opens a password input and stores the value only in VS Code SecretStorage. Starting a direct agent or review without a key also offers this setup automatically.
+The connection UI can open the Kilo account page in your browser, explain where the Gateway key is created, and then stores the pasted key only in VS Code SecretStorage.
 
 ## Core commands
 
@@ -144,7 +171,15 @@ LLMatic: Start Project Discovery
 LLMatic: Generate Project Plan
 LLMatic: Review Project Plan
 LLMatic: Review & Approve Project Plan
-LLMatic: Run Gateway Agent
+LLMatic: Open Agent Chat
+LLMatic: Refresh Repository Context
+LLMatic: External Connections
+LLMatic: Connect Jira Workspace
+LLMatic: Disconnect Jira Workspace
+LLMatic: Connect Kilo Gateway
+LLMatic: Show Repository Rules
+LLMatic: Review Repository Rule Proposals
+LLMatic: Generate PR Draft
 LLMatic: Run Code Review
 LLMatic: Run Review / Fix Loop
 LLMatic: Check for Updates

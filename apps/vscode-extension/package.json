@@ -2,7 +2,7 @@
   "name": "llmatic-agent-runtime",
   "displayName": "LLMatic Agent Runtime",
   "description": "Deterministic local software-engineering runtime for AI coding agents, with Kilo Code integration, project discovery, planning, review and safe workflow automation.",
-  "version": "0.1.2",
+  "version": "0.2.0",
   "publisher": "eventnexus",
   "type": "module",
   "engines": {
@@ -33,7 +33,12 @@
     "@llmatic/update-installer": "workspace:*",
     "@llmatic/discovery-engine": "workspace:*",
     "@llmatic/planning-engine": "workspace:*",
-    "@llmatic/project-initializer": "workspace:*"
+    "@llmatic/project-initializer": "workspace:*",
+    "@llmatic/workspace-recovery": "workspace:*",
+    "@llmatic/repository-constitution": "workspace:*",
+    "@llmatic/pr-draft": "workspace:*",
+    "@llmatic/jira-adapter": "workspace:*",
+    "@llmatic/external-connections": "workspace:*"
   },
   "devDependencies": {
     "@types/vscode": "1.105.0",
@@ -156,6 +161,51 @@
         "command": "llmatic.openWorkspaceData",
         "title": "Reveal Workspace Runtime Data",
         "category": "LLMatic"
+      },
+      {
+        "command": "llmatic.refreshWorkspaceRecovery",
+        "title": "Refresh Repository Context",
+        "category": "LLMatic"
+      },
+      {
+        "command": "llmatic.openAgentChat",
+        "title": "Open Agent Chat",
+        "category": "LLMatic"
+      },
+      {
+        "command": "llmatic.showRepositoryRules",
+        "title": "Show Repository Rules",
+        "category": "LLMatic"
+      },
+      {
+        "command": "llmatic.reviewRuleProposals",
+        "title": "Review Repository Rule Proposals",
+        "category": "LLMatic"
+      },
+      {
+        "command": "llmatic.generatePrDraft",
+        "title": "Generate PR Draft",
+        "category": "LLMatic"
+      },
+      {
+        "command": "llmatic.connectJiraWorkspace",
+        "title": "Connect Jira Workspace",
+        "category": "LLMatic"
+      },
+      {
+        "command": "llmatic.disconnectJiraWorkspace",
+        "title": "Disconnect Jira Workspace",
+        "category": "LLMatic"
+      },
+      {
+        "command": "llmatic.openConnectionCenter",
+        "title": "External Connections",
+        "category": "LLMatic"
+      },
+      {
+        "command": "llmatic.connectKiloGateway",
+        "title": "Connect Kilo Gateway",
+        "category": "LLMatic"
       }
     ],
     "configuration": {
@@ -197,6 +247,46 @@
           "type": "string",
           "default": "pikkst/llmatic-agent-runtime",
           "description": "GitHub owner/repository used by LLMatic update checks."
+        },
+        "llmatic.taskSource": {
+          "type": "string",
+          "enum": [
+            "auto",
+            "jira",
+            "markdown",
+            "github"
+          ],
+          "default": "auto",
+          "description": "Canonical task source for workspace recovery. Auto uses detected sources; choose Jira to prefer Jira even when TASKS.md exists."
+        },
+        "llmatic.jiraProjectKey": {
+          "type": "string",
+          "default": "",
+          "description": "Optional Jira project key used to scope automatic recovery and next-task ordering."
+        },
+        "llmatic.jiraRecoveryJql": {
+          "type": "string",
+          "default": "",
+          "description": "Optional advanced Jira JQL override for recovery candidates. When empty, LLMatic uses assigned open work ordered by Jira Rank."
+        },
+        "llmatic.jiraWorkMode": {
+          "type": "string",
+          "enum": [
+            "assigned_only",
+            "project_queue"
+          ],
+          "default": "assigned_only",
+          "description": "Fallback Jira work-ownership mode when no workspace Jira profile is connected. assigned_only is team-safe; project_queue is for solo/full-project queues."
+        },
+        "llmatic.connectionBrokerUrl": {
+          "type": "string",
+          "default": "",
+          "description": "HTTPS origin of the LLMatic browser OAuth broker. Required for one-click Atlassian OAuth; manual Jira credentials remain available when empty."
+        },
+        "llmatic.allowAnonymousKiloFree": {
+          "type": "boolean",
+          "default": true,
+          "description": "Allow direct LLMatic agent/review requests to use Kilo anonymous access when the selected model is kilo-auto/free or another explicit free model."
         }
       }
     },
@@ -211,6 +301,11 @@
     },
     "views": {
       "llmatic": [
+        {
+          "id": "llmatic.agentChat",
+          "name": "Agent Chat",
+          "type": "webview"
+        },
         {
           "id": "llmatic.status",
           "name": "Runtime Status"
