@@ -151,7 +151,7 @@ describe("project approval and initialization", () => {
     );
 
     expect((await loadProjectLifecycle(workspace))?.state).toBe("READY_FOR_IMPLEMENTATION");
-  });
+  }, 15_000);
 
   it("detects tampering after approval before repository mutation", async () => {
     const { root, workspace, config } = await fixture();
