@@ -42,6 +42,11 @@ describe("VS Code extension activation surface", () => {
     expect(source).toContain("refreshBrokerCredential");
     expect(source).toContain("Continue with Atlassian");
     expect(source).toContain("Atlassian is not ready");
+    expect(source).toContain("checking OAuth broker…");
+    expect(source).toContain("starting Atlassian sign-in…");
+    expect(source).toContain("waiting for browser authorization…");
+    expect(source).toContain("loading Jira projects…");
+    expect(source).toContain("refreshing repository context…");
     expect(source).toContain("JIRA_PROFILE_STATE_KEY");
     expect(source).toContain("jiraSecretKey");
     expect(source).toContain('"assigned_only"');
@@ -76,6 +81,8 @@ describe("VS Code extension activation surface", () => {
     expect(source).toContain("list.warningForeground");
     expect(source).toContain("list.errorForeground");
     expect(source).toContain("connection error · reconnect required");
+    expect(source).toContain("loading~spin");
+    expect(source).toContain("connecting…");
   });
   it("contributes a persistent Agent Chat webview with repository recovery controls", async () => {
     const packageJson = JSON.parse(
@@ -126,5 +133,8 @@ describe("VS Code extension activation surface", () => {
     expect(source).toContain("status-ok");
     expect(source).toContain("status-attention");
     expect(source).toContain("status-error");
+    expect(source).toContain("busy-indicator");
+    expect(source).toContain("llmatic-spin");
+    expect(source).toContain("Working…");
   });
 });
