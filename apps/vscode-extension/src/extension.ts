@@ -1874,7 +1874,17 @@ function printReviewReport(output: vscode.OutputChannel, report: CodeReviewRepor
           " required impact area(s)"
         : "baseline not detected"),
   );
-  output.appendLine("Total blocking review items: " + report.blockingCount);
+  const externalStatus =
+    "reviewStatus" in report && typeof report.reviewStatus === "string"
+      ? report.reviewStatus
+      : undefined;
+  output.appendLine(
+    externalStatus === "partial"
+      ? "Validated blocking review items: " +
+          report.blockingCount +
+          " — review incomplete; this is not an approval verdict"
+      : "Total blocking review items: " + report.blockingCount,
+  );
   output.appendLine("");
 
   for (const finding of report.findings) {
@@ -2640,7 +2650,7 @@ function externalPullRequestReviewDraft(
     "",
     "Reviewed head: `" + report.headRefOid + "`",
     "Remote CI: **" + report.ciState + "**",
-    "Review coverage: **" + report.coverage + "**",
+    "Diff coverage: **" + report.coverage + "**",
     "Review status: **" + report.reviewStatus + "**",
     ...(report.lensFailures.length > 0
       ? [
@@ -2859,7 +2869,7 @@ async function reviewExternalPullRequestInUi(
     output.appendLine("Author: " + (report.authorLogin ?? "unknown"));
     output.appendLine("Reviewed head: " + report.headRefOid);
     output.appendLine("Remote CI: " + report.ciState);
-    output.appendLine("Review coverage: " + report.coverage);
+    output.appendLine("Diff coverage: " + report.coverage);
     output.appendLine("Review status: " + report.reviewStatus);
     if (report.lensFailures.length > 0) {
       output.appendLine(
