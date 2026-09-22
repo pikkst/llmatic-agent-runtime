@@ -158,6 +158,7 @@ describe("review engine", () => {
       lenses: ["general"],
       material: {
         reference: "42",
+        headRefOid: "head-42",
         title: "Change value",
         body: "Please review this change.",
         authorLogin: "contributor",
@@ -180,6 +181,7 @@ describe("review engine", () => {
 
     expect(report.source).toBe("external_pull_request");
     expect(report.reference).toBe("42");
+    expect(report.headRefOid).toBe("head-42");
     expect(report.coverage).toBe("complete");
     expect(report.unreviewedFiles).toEqual([]);
     expect(report.blockingCount).toBe(1);
@@ -227,6 +229,7 @@ describe("review engine", () => {
       }),
       material: {
         reference: "42",
+        headRefOid: "head-42",
         title: "Read target head",
         body: "",
         ciState: "passing",
@@ -260,6 +263,7 @@ describe("review engine", () => {
       lenses: ["general"],
       material: {
         reference: "42",
+        headRefOid: "head-42",
         title: "Large pull request",
         body: "",
         ciState: "passing",
@@ -300,6 +304,7 @@ describe("review engine", () => {
       lenses: ["general"],
       material: {
         reference: "42",
+        headRefOid: "head-42",
         title: "Independent review",
         body: "",
         ciState: "passing",
