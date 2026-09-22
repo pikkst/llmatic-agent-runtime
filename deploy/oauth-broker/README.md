@@ -81,7 +81,8 @@ Do not commit account-specific secrets or Atlassian client credentials.
    `read:jira-user`, `read:jira-work`, `write:jira-work`, and `offline_access`.
 5. Configure the non-secret Worker variables `ATLASSIAN_CLIENT_ID` and
    `ATLASSIAN_REDIRECT_URI` in Cloudflare. The redirect URI must exactly match the Atlassian
-   callback configured in step 3.
+   callback configured in step 3. The canonical Wrangler config uses `keep_vars: true` so
+   dashboard-managed non-secret variables survive subsequent code deployments.
 6. Store the client secret through Wrangler:
    `pnpm run broker:secret:atlassian`.
    Paste the Atlassian client secret only into the Wrangler prompt; never put it in the repository.
