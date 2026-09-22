@@ -33,7 +33,6 @@ describe("VS Code extension activation surface", () => {
     expect(source).toContain("gatewayAccessOrPrompt");
     expect(source).toContain("Use anonymous Auto Free");
     expect(source).toContain("Get a Kilo Gateway API key");
-    expect(source).toContain("https://app.kilo.ai");
     expect(source).toContain("recoverWorkspace");
     expect(source).toContain("workspaceRecoveryContext");
     expect(source).toContain("verifyJiraConnectionFromEnvironment");
@@ -52,9 +51,9 @@ describe("VS Code extension activation surface", () => {
     expect(source).toContain("loadLatestReviewReport");
     expect(source).toContain('lenses: ["general", "bug_hunter", "security"]');
     expect(source).toContain("allowAdHoc: true");
-    expect(source).toContain('"Set API Key"');
+    expect(source).toContain('"Connect Kilo Gateway"');
     expect(source).toContain("password: true");
-    expect(source).toContain("Kilo Code and the LLMatic MCP connection remain usable without it.");
+    expect(source).toContain("Auto Free can run anonymously");
     expect(source).toContain("export function deactivate");
   });
 
@@ -62,9 +61,8 @@ describe("VS Code extension activation surface", () => {
     const source = await readFile(new URL("../src/status-view.ts", import.meta.url), "utf8");
 
     expect(source).toContain("gatewayKeyConfigured");
-    expect(source).toContain("Set Kilo Gateway API Key");
-    expect(source).toContain("configured securely — click to replace");
     expect(source).toContain("Kilo Gateway");
+    expect(source).toContain("API key configured securely");
     expect(source).toContain("anonymous Auto Free ready");
     expect(source).toContain('command: "llmatic.connectKiloGateway"');
     expect(source).toContain("External Connections");
@@ -97,6 +95,20 @@ describe("VS Code extension activation surface", () => {
       "llmatic.jiraProjectKey",
     );
     expect(packageJson.contributes.configuration.properties).toHaveProperty("llmatic.jiraWorkMode");
+    expect(packageJson.contributes.configuration.properties).toHaveProperty(
+      "llmatic.connectionBrokerUrl",
+    );
+    expect(packageJson.contributes.configuration.properties).toHaveProperty(
+      "llmatic.allowAnonymousKiloFree",
+    );
+
+    const connectionSource = await readFile(
+      new URL("../../../packages/external-connections/src/index.ts", import.meta.url),
+      "utf8",
+    );
+    expect(connectionSource).toContain("https://app.kilo.ai");
+    expect(connectionSource).toContain("browser_oauth");
+    expect(connectionSource).toContain("browser_api_key");
 
     const source = await readFile(new URL("../src/agent-chat-view.ts", import.meta.url), "utf8");
     expect(source).toContain("Continue recommended");
