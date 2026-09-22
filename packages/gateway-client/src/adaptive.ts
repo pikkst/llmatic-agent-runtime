@@ -63,7 +63,7 @@ function stableHash(value: string): number {
 
 function fallbackEligible(error: unknown): boolean {
   const message = error instanceof Error ? error.message : String(error);
-  return /timed? out|timeout|temporar|overload|rate.?limit|too many requests|\b429\b|\b500\b|\b502\b|\b503\b|upstream|service.*unavailable|without choices|invalid json|unsupported|not support|response.?format|tool.?choice/i.test(
+  return /timed? out|timeout|temporar|overload|rate.?limit|too many requests|\b429\b|\b500\b|\b502\b|\b503\b|upstream|service.*unavailable|without choices|invalid json|unsupported|not support|response.?format|tool.?choice|context.*window|context.*length|exceeds.*context|no compatible free model/i.test(
     message,
   );
 }
