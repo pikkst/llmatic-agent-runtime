@@ -2781,6 +2781,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     vscode.commands.registerCommand("llmatic.getReady", async () => {
       try {
         await getReady(context, state, statusBar, statusProvider, output);
+        await refreshJiraStatus(context, state, statusProvider);
         if (state.health?.status === "READY") {
           await refreshWorkspaceRecovery(
             context,
@@ -2942,6 +2943,35 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         "Kilo Gateway API key cleared. Kilo MCP remains available; direct agent and review will ask for a key when needed.",
       );
     }),
+    vscode.commands.registerCommand("llmatic.connectJiraWorkspace", async () => {
+      try {
+        await connectJiraWorkspace(
+          context,
+          state,
+          statusProvider,
+          chatProvider,
+          output,
+        );
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        await refreshJiraStatus(context, state, statusProvider).catch(() => undefined);
+        await vscode.window.showErrorMessage("LLMatic Jira connection: " + message);
+      }
+    }),
+    vscode.commands.registerCommand("llmatic.disconnectJiraWorkspace", async () => {
+      try {
+        await disconnectJiraWorkspace(
+          context,
+          state,
+          statusProvider,
+          chatProvider,
+          output,
+        );
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        await vscode.window.showErrorMessage("LLMatic Jira disconnect: " + message);
+      }
+    }),
     vscode.commands.registerCommand("llmatic.openAgentChat", async () => {
       await vscode.commands.executeCommand("workbench.view.extension.llmatic");
       await vscode.commands.executeCommand("llmatic.agentChat.focus");
@@ -3034,6 +3064,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     vscode.workspace.onDidChangeWorkspaceFolders(async () => {
       await refresh(context, statusBar, state);
       statusProvider.update(state.health, state.gatewayKeyConfigured, state.recovery);
+      await refreshJiraStatus(context, state, statusProvider);
       await refreshWorkspaceRecovery(
         context,
         state,
@@ -3052,6 +3083,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       if (event.affectsConfiguration("llmatic")) {
         await refresh(context, statusBar, state);
         statusProvider.update(state.health, state.gatewayKeyConfigured, state.recovery);
+        await refreshJiraStatus(context, state, statusProvider);
         await refreshWorkspaceRecovery(
           context,
           state,
@@ -3071,6 +3103,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 
   await refresh(context, statusBar, state);
   statusProvider.update(state.health, state.gatewayKeyConfigured, state.recovery);
+  await refreshJiraStatus(context, state, statusProvider);
   await vscode.commands.executeCommand("setContext", "llmatic.health", state.health?.status);
 
   void refreshWorkspaceRecovery(context, state, statusProvider, chatProvider, output, false).catch(
