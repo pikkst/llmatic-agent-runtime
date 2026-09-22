@@ -5,6 +5,7 @@
 - Started the v0.3.0 development line after the accepted v0.2.0 release.
 - External pull-request review is the first active milestone: explicitly review another engineer's PR without changing Jira ownership or workspace task recovery state.
 - Added bounded read-only external PR context for Agent Chat, including metadata, changed files, unified diff, CI state, reviews and comments.
+- Added an explicit `LLMatic: Review External Pull Request` flow that runs General, Bug Hunter and Security lenses with Repository Constitution context without mutating Jira ownership or the active workflow.
 
 ## 0.2.0
 
