@@ -72,9 +72,7 @@ export function jiraWorkModeFromEnvironment(
   if (!value || value === "assigned_only") return "assigned_only";
   if (value === "project_queue") return "project_queue";
 
-  throw new Error(
-    "LLMATIC_JIRA_WORK_MODE must be assigned_only or project_queue.",
-  );
+  throw new Error("LLMATIC_JIRA_WORK_MODE must be assigned_only or project_queue.");
 }
 
 export function jiraConnectionFromEnvironment(
@@ -366,10 +364,8 @@ export class JiraTaskProvider implements TaskProvider {
 
     return {
       accountId,
-      displayName:
-        typeof raw.displayName === "string" ? raw.displayName : undefined,
-      emailAddress:
-        typeof raw.emailAddress === "string" ? raw.emailAddress : undefined,
+      displayName: typeof raw.displayName === "string" ? raw.displayName : undefined,
+      emailAddress: typeof raw.emailAddress === "string" ? raw.emailAddress : undefined,
     };
   }
 

@@ -24,10 +24,7 @@ import {
   type DiscoverySession,
 } from "@llmatic/discovery-engine";
 import { KiloGatewayClient } from "@llmatic/gateway-client";
-import {
-  verifyJiraConnectionFromEnvironment,
-  type JiraWorkMode,
-} from "@llmatic/jira-adapter";
+import { verifyJiraConnectionFromEnvironment, type JiraWorkMode } from "@llmatic/jira-adapter";
 import {
   approveCurrentProjectPlan,
   initializeApprovedProject,
@@ -230,8 +227,8 @@ async function workspaceJiraStatus(
     const projectKey = environment.LLMATIC_JIRA_PROJECT_KEY?.trim();
     const connected = Boolean(
       baseUrl &&
-        (environment.LLMATIC_JIRA_BEARER_TOKEN ||
-          (environment.LLMATIC_JIRA_EMAIL && environment.LLMATIC_JIRA_API_TOKEN)),
+      (environment.LLMATIC_JIRA_BEARER_TOKEN ||
+        (environment.LLMATIC_JIRA_EMAIL && environment.LLMATIC_JIRA_API_TOKEN)),
     );
 
     return {
@@ -240,9 +237,7 @@ async function workspaceJiraStatus(
       label: connected ? projectKey || "Environment" : undefined,
       detail: connected && baseUrl ? new URL(baseUrl).host : undefined,
       workMode:
-        environment.LLMATIC_JIRA_WORK_MODE === "project_queue"
-          ? "project_queue"
-          : "assigned_only",
+        environment.LLMATIC_JIRA_WORK_MODE === "project_queue" ? "project_queue" : "assigned_only",
     };
   }
 
@@ -281,9 +276,7 @@ async function connectJiraWorkspace(
 ): Promise<void> {
   const folder = firstWorkspaceFolder();
   if (!folder) {
-    await vscode.window.showWarningMessage(
-      "Open a repository workspace before connecting Jira.",
-    );
+    await vscode.window.showWarningMessage("Open a repository workspace before connecting Jira.");
     return;
   }
 
@@ -329,15 +322,13 @@ async function connectJiraWorkspace(
       {
         label: "$(organization) Team project — assigned to me only",
         description: "Safe default",
-        detail:
-          "LLMatic may only start Jira tasks assigned to your current Jira account.",
+        detail: "LLMatic may only start Jira tasks assigned to your current Jira account.",
         mode: "assigned_only" as const,
       },
       {
         label: "$(person) Solo project — whole project queue",
         description: "Explicit opt-in",
-        detail:
-          "LLMatic may choose the next unblocked task from the scoped Jira project queue.",
+        detail: "LLMatic may choose the next unblocked task from the scoped Jira project queue.",
         mode: "project_queue" as const,
       },
     ],
@@ -378,7 +369,7 @@ async function connectJiraWorkspace(
   if (authPick.authType === "basic") {
     const value = await vscode.window.showInputBox({
       title: "LLMatic: Jira Email",
-      value: existing?.authType === "basic" ? existing.email ?? "" : "",
+      value: existing?.authType === "basic" ? (existing.email ?? "") : "",
       prompt: "Email for the Jira API token.",
       ignoreFocusOut: true,
       validateInput: (input) => (input.trim() ? undefined : "Jira email is required."),
@@ -440,14 +431,7 @@ async function connectJiraWorkspace(
   await context.secrets.store(jiraSecretKey(state.activeWorkspace.id, profile.authType), secret);
 
   await refreshJiraStatus(context, state, statusProvider);
-  await refreshWorkspaceRecovery(
-    context,
-    state,
-    statusProvider,
-    chatProvider,
-    output,
-    true,
-  );
+  await refreshWorkspaceRecovery(context, state, statusProvider, chatProvider, output, true);
 
   await vscode.window.showInformationMessage(
     "Jira connected for this workspace as " +
@@ -469,9 +453,7 @@ async function disconnectJiraWorkspace(
 ): Promise<void> {
   const profile = workspaceJiraProfile(context);
   if (!profile) {
-    await vscode.window.showInformationMessage(
-      "No workspace-specific Jira profile is connected.",
-    );
+    await vscode.window.showInformationMessage("No workspace-specific Jira profile is connected.");
     return;
   }
 
@@ -493,14 +475,9 @@ async function disconnectJiraWorkspace(
   await context.workspaceState.update(JIRA_PROFILE_STATE_KEY, undefined);
 
   await refreshJiraStatus(context, state, statusProvider);
-  await refreshWorkspaceRecovery(
-    context,
-    state,
-    statusProvider,
-    chatProvider,
-    output,
-    true,
-  ).catch(() => undefined);
+  await refreshWorkspaceRecovery(context, state, statusProvider, chatProvider, output, true).catch(
+    () => undefined,
+  );
 
   await vscode.window.showInformationMessage("Workspace Jira connection removed.");
 }
@@ -2945,13 +2922,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     }),
     vscode.commands.registerCommand("llmatic.connectJiraWorkspace", async () => {
       try {
-        await connectJiraWorkspace(
-          context,
-          state,
-          statusProvider,
-          chatProvider,
-          output,
-        );
+        await connectJiraWorkspace(context, state, statusProvider, chatProvider, output);
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
         await refreshJiraStatus(context, state, statusProvider).catch(() => undefined);
@@ -2960,13 +2931,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     }),
     vscode.commands.registerCommand("llmatic.disconnectJiraWorkspace", async () => {
       try {
-        await disconnectJiraWorkspace(
-          context,
-          state,
-          statusProvider,
-          chatProvider,
-          output,
-        );
+        await disconnectJiraWorkspace(context, state, statusProvider, chatProvider, output);
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
         await vscode.window.showErrorMessage("LLMatic Jira disconnect: " + message);

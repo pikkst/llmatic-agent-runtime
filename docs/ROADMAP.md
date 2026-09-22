@@ -303,7 +303,6 @@ Findings must be evidence-backed. Concrete violations of active project rules re
 
 PR drafts are generated from captured task/workflow/check/review/security/architecture/rule evidence. Missing evidence is identified rather than fabricated.
 
-
 ## M29 — External Pull Request Review
 
 Status: planned after v0.2.0.

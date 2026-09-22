@@ -85,9 +85,7 @@ describe("VS Code extension activation surface", () => {
     expect(packageJson.contributes.configuration.properties).toHaveProperty(
       "llmatic.jiraProjectKey",
     );
-    expect(packageJson.contributes.configuration.properties).toHaveProperty(
-      "llmatic.jiraWorkMode",
-    );
+    expect(packageJson.contributes.configuration.properties).toHaveProperty("llmatic.jiraWorkMode");
 
     const source = await readFile(new URL("../src/agent-chat-view.ts", import.meta.url), "utf8");
     expect(source).toContain("Continue recommended");

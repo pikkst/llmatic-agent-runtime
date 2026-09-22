@@ -53,10 +53,7 @@ export interface TaskProvider {
 
   getNextTask?(options?: TaskProviderOperationOptions): Promise<TaskRecord | undefined>;
 
-  assertSelectableTask?(
-    reference: string,
-    options?: TaskProviderOperationOptions,
-  ): Promise<void>;
+  assertSelectableTask?(reference: string, options?: TaskProviderOperationOptions): Promise<void>;
 
   listTransitions(
     reference: string,

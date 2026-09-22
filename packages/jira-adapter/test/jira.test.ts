@@ -180,8 +180,7 @@ describe("jira adapter", () => {
     };
     const provider = new JiraTaskProvider(configFor("/repo"), connection, transport, {
       LLMATIC_JIRA_WORK_MODE: "assigned_only",
-      LLMATIC_JIRA_RECOVERY_JQL:
-        'project = "KT" AND statusCategory != Done ORDER BY updated DESC',
+      LLMATIC_JIRA_RECOVERY_JQL: 'project = "KT" AND statusCategory != Done ORDER BY updated DESC',
     });
 
     await provider.listTasks();
@@ -221,9 +220,7 @@ describe("jira adapter", () => {
       { LLMATIC_JIRA_WORK_MODE: "project_queue" },
     );
 
-    await expect(provider.listTasks()).rejects.toThrow(
-      "project_queue work mode requires",
-    );
+    await expect(provider.listTasks()).rejects.toThrow("project_queue work mode requires");
   });
 
   it("blocks starting a task assigned to another user in assigned_only mode", async () => {

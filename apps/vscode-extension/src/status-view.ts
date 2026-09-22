@@ -93,11 +93,7 @@ export class LlmaticStatusDecorationProvider implements vscode.FileDecorationPro
     return {
       color,
       tooltip:
-        status === "ok"
-          ? "OK"
-          : status === "attention"
-            ? "Needs attention"
-            : "Blocking or error",
+        status === "ok" ? "OK" : status === "attention" ? "Needs attention" : "Blocking or error",
       propagate: false,
     };
   }
@@ -170,11 +166,7 @@ export class LlmaticStatusProvider implements vscode.TreeDataProvider<vscode.Tre
     );
     decorateStatusItem(
       jira,
-      this.jiraStatus?.connected
-        ? "ok"
-        : this.jiraStatus?.required
-          ? "error"
-          : "attention",
+      this.jiraStatus?.connected ? "ok" : this.jiraStatus?.required ? "error" : "attention",
       "jira-workspace",
       this.jiraStatus?.connected ? "issues" : "plug",
     );
@@ -186,7 +178,9 @@ export class LlmaticStatusProvider implements vscode.TreeDataProvider<vscode.Tre
         : "workspace-specific Jira profile";
     jira.command = {
       command: "llmatic.connectJiraWorkspace",
-      title: this.jiraStatus?.connected ? "Edit Jira Workspace Connection" : "Connect Jira Workspace",
+      title: this.jiraStatus?.connected
+        ? "Edit Jira Workspace Connection"
+        : "Connect Jira Workspace",
     };
     recoveryItems.push(jira);
 
