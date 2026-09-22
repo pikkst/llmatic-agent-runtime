@@ -1,6 +1,9 @@
-import { KiloGatewayClient, type KiloGatewayClientOptions } from "./client.js";
+import {
+  KiloGatewayClient,
+  type GatewayChatClient,
+  type KiloGatewayClientOptions,
+} from "./client.js";
 import type {
-  GatewayChatClient,
   GatewayChatRequest,
   GatewayChatResponse,
   GatewayModelInfo,
