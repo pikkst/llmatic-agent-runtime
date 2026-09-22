@@ -1076,9 +1076,7 @@ export async function runExternalPullRequestReview(
     );
   }
 
-  const findings = deduplicateFindings(
-    lensResults.flatMap(({ result }) => result.findings),
-  );
+  const findings = deduplicateFindings(lensResults.flatMap(({ result }) => result.findings));
   const codeBlockingCount = findings.filter((finding) => finding.severity === "blocking").length;
   options.onActivity?.({ type: "architecture-start" });
   const architectureStartedAt = Date.now();

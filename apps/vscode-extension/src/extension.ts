@@ -2367,10 +2367,7 @@ function reviewActivityDescription(event: ReviewActivityEvent): {
       return {
         phase: event.lens.replaceAll("_", " ") + " incomplete",
         detail:
-          "Lens stopped after " +
-          formatElapsedDuration(event.durationMs) +
-          ": " +
-          event.reason,
+          "Lens stopped after " + formatElapsedDuration(event.durationMs) + ": " + event.reason,
       };
     case "model-request":
       return {
@@ -2762,9 +2759,7 @@ async function reviewExternalPullRequestInUi(
     if (report.lensFailures.length > 0) {
       output.appendLine(
         "Incomplete lenses: " +
-          report.lensFailures
-            .map((failure) => failure.lens + " — " + failure.reason)
-            .join("; "),
+          report.lensFailures.map((failure) => failure.lens + " — " + failure.reason).join("; "),
       );
     }
     output.appendLine("Review duration: " + formatElapsedDuration(durationMs));

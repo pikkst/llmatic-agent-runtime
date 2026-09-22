@@ -235,10 +235,9 @@ describe("review engine", () => {
         }
         return response(
           JSON.stringify({
-            summary:
-              request.messages[0]?.content?.includes("Security lens")
-                ? "Security review completed."
-                : "General review completed.",
+            summary: request.messages[0]?.content?.includes("Security lens")
+              ? "Security review completed."
+              : "General review completed.",
             findings: [],
           }),
         );
