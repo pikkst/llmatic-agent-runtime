@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import { mkdir, readFile, stat, writeFile } from "node:fs/promises";
 import { basename, dirname, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 import {
   assertReleaseVersion,
   parseReleaseManifest,
@@ -20,7 +21,7 @@ const version = assertReleaseVersion(
   String(extensionPackage.version),
 );
 
-const root = resolve(new URL("..", import.meta.url).pathname);
+const root = fileURLToPath(new URL("..", import.meta.url));
 const sourceVsix = resolve(root, "artifacts", "llmatic-agent-runtime.vsix");
 const versionedVsix = resolve(root, "artifacts", "llmatic-agent-runtime-" + version + ".vsix");
 const runtimeManifestPath = resolve(
