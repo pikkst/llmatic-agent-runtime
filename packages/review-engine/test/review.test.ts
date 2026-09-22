@@ -270,8 +270,9 @@ describe("review engine", () => {
         reason: "simulated bug-hunter timeout",
       },
     ]);
-    expect(report.summary).toContain("general: General review completed.");
-    expect(report.summary).toContain("security: Security review completed.");
+    expect(report.summary).toContain(
+      "Focused review: 0 documented DoD/acceptance violation(s), 0 concrete defect/rule violation(s).",
+    );
     expect(report.summary).toContain("Incomplete lenses: bug_hunter");
     expect(events).toContainEqual(
       expect.objectContaining({
@@ -305,7 +306,9 @@ describe("review engine", () => {
       },
     });
 
-    expect(report.summary).toContain("Prefixed report parsed.");
+    expect(report.summary).toContain(
+      "Focused review: 0 documented DoD/acceptance violation(s), 0 concrete defect/rule violation(s).",
+    );
     expect(gateway.requests).toHaveLength(1);
   });
 
@@ -336,7 +339,9 @@ describe("review engine", () => {
       },
     });
 
-    expect(report.summary).toContain("Repaired report.");
+    expect(report.summary).toContain(
+      "Focused review: 0 documented DoD/acceptance violation(s), 0 concrete defect/rule violation(s).",
+    );
     expect(gateway.requests).toHaveLength(2);
     expect(gateway.requests[1]?.messages.at(-1)).toMatchObject({
       role: "user",
