@@ -80,5 +80,7 @@ describe("VS Code extension activation surface", () => {
     expect(source).toContain("Repository rules");
     expect(source).toContain("Latest review");
     expect(source).toContain('type: "continue"');
+    expect(source).toContain('type: "ready"');
+    expect(source).toContain('input.type === "ready"');
   });
 });
