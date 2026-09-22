@@ -534,7 +534,10 @@ async function persistJiraWorkspaceConnection(
       for (const authType of ["basic", "bearer", "oauth_broker"] as const) {
         await context.secrets.delete(jiraSecretKey(state.activeWorkspace.id, authType));
       }
-      await context.secrets.store(jiraSecretKey(state.activeWorkspace.id, profile.authType), secret);
+      await context.secrets.store(
+        jiraSecretKey(state.activeWorkspace.id, profile.authType),
+        secret,
+      );
 
       setJiraConnectionProgress(statusProvider, "refreshing repository context…", profile);
       progress.report({ message: "Refreshing repository context…" });

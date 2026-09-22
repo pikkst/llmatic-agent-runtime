@@ -209,7 +209,7 @@ export class LlmaticStatusProvider implements vscode.TreeDataProvider<vscode.Tre
     jira.tooltip =
       this.jiraStatus?.error ??
       (this.jiraStatus?.connecting
-        ? this.jiraStatus.phase ?? "Connecting Jira…"
+        ? (this.jiraStatus.phase ?? "Connecting Jira…")
         : this.jiraStatus?.connected
           ? "Jira workspace connection is healthy."
           : "Connect Jira for this workspace.");
