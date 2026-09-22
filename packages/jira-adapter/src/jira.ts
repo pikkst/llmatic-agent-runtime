@@ -622,6 +622,7 @@ export async function selectJiraWorkflowTask(
   reference: string,
   options: TaskProviderOperationOptions = {},
 ): Promise<{ task: TaskRecord; workflow: WorkflowRun }> {
+  await provider.assertSelectableTask(reference, options);
   const task = await provider.getTask(reference, options);
   let workflow = await startWorkflow(store, task.key);
 
@@ -649,6 +650,7 @@ export async function validateJiraWorkflowTask(
   }
 
   try {
+    await provider.assertSelectableTask(current.taskRef, options);
     const task = await provider.getTask(current.taskRef, options);
 
     await recordActionCheckpoint(store, {
