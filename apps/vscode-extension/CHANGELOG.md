@@ -10,7 +10,8 @@
 - Review results can be copied as a Markdown draft or published as a GitHub review comment only after explicit modal confirmation and the dedicated `pullRequestReview` permission.
 - Pull requests without CI checks are treated as `ciState=none` instead of failing review context loading, and bounded/truncated diffs are explicitly reported as partial review coverage with omitted changed files.
 - External PR changed-file inventory is read through paginated GitHub REST results so review coverage does not silently stop at a single GraphQL file page.
-- Agent Chat no longer receives raw external PR diff bytes; it gets secret-policy-filtered metadata only, while the explicit structured review path keeps per-file diff access behind the existing sensitive-path guard. Inline review threads on sensitive paths are also excluded from model context.
+- Agent Chat no longer receives or downloads raw external PR diff bytes; it gets secret-policy-filtered metadata only, while the explicit structured review path keeps per-file diff access behind the existing sensitive-path guard. Inline review threads on sensitive paths are also excluded from model context.
+- External review now rejects pull requests from a different repository than the opened workspace, preventing local Constitution/source context from being applied to an unrelated repository.
 
 ## 0.2.0
 
