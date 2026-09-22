@@ -30,13 +30,21 @@ jobs:
       - name: Install dependencies
         run: pnpm install --no-frozen-lockfile
 
-      - name: Canonical format M26 release acceptance
-        run: pnpm exec prettier --write scripts/release-acceptance.mjs
+      - name: Canonical format browser connection update
+        run: >
+          pnpm exec prettier --write
+          apps/vscode-extension/src/extension.ts
+          apps/vscode-extension/src/status-view.ts
+          apps/vscode-extension/tsconfig.json
+          deploy/oauth-broker/worker.mjs
+          packages/external-connections/src/index.ts
+          packages/external-connections/test/registry.test.ts
+          packages/external-connections/tsconfig.json
 
-      - name: Commit canonical M26 release acceptance
+      - name: Commit canonical browser connection update
         shell: bash
         run: |
-          if git diff --quiet -- scripts/release-acceptance.mjs
+          if git diff --quiet
           then
             echo "No canonical formatting changes to commit."
             exit 0
@@ -44,8 +52,8 @@ jobs:
 
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add scripts/release-acceptance.mjs
-          git commit -m "style: format M26 release acceptance"
+          git add             apps/vscode-extension/src/extension.ts             apps/vscode-extension/src/status-view.ts             apps/vscode-extension/tsconfig.json             deploy/oauth-broker/worker.mjs             packages/external-connections/src/index.ts             packages/external-connections/test/registry.test.ts             packages/external-connections/tsconfig.json
+          git commit -m "style: format browser connection update"
           git push origin HEAD:"${{ github.head_ref || github.ref_name }}"
 
       - name: Validate
