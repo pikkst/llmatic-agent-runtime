@@ -39,6 +39,7 @@ export type AdaptiveGatewayRouteEvent =
 export interface AdaptiveFreeGatewayClientOptions extends KiloGatewayClientOptions {
   maxModelAttempts?: number;
   catalogTtlMs?: number;
+  modelCooldownMs?: number;
   onRoute?: (event: AdaptiveGatewayRouteEvent) => void | Promise<void>;
 }
 
@@ -78,15 +79,18 @@ export class AdaptiveFreeGatewayClient implements GatewayChatClient {
   private readonly client: KiloGatewayClient;
   private readonly maxModelAttempts: number;
   private readonly catalogTtlMs: number;
+  private readonly modelCooldownMs: number;
   private readonly onRoute?: (event: AdaptiveGatewayRouteEvent) => void | Promise<void>;
   private catalog?: GatewayModelInfo[];
   private catalogExpiresAt = 0;
   private readonly stats = new Map<string, Map<string, ModelStats>>();
+  private readonly unhealthyUntil = new Map<string, number>();
 
   public constructor(options: AdaptiveFreeGatewayClientOptions) {
     this.client = new KiloGatewayClient(options);
     this.maxModelAttempts = Math.max(1, Math.min(8, Math.trunc(options.maxModelAttempts ?? 4)));
     this.catalogTtlMs = Math.max(30_000, Math.trunc(options.catalogTtlMs ?? 5 * 60_000));
+    this.modelCooldownMs = Math.max(30_000, Math.trunc(options.modelCooldownMs ?? 5 * 60_000));
     this.onRoute = options.onRoute;
   }
 
@@ -118,6 +122,7 @@ export class AdaptiveFreeGatewayClient implements GatewayChatClient {
         });
         const latencyMs = Date.now() - startedAt;
         this.record(task, candidateModel, true, latencyMs);
+        this.unhealthyUntil.delete(candidateModel);
         await this.onRoute?.({
           type: "success",
           task,
@@ -142,6 +147,9 @@ export class AdaptiveFreeGatewayClient implements GatewayChatClient {
         lastError = error;
 
         if (!fallbackEligible(error)) throw error;
+        if (candidateModel !== "kilo-auto/free") {
+          this.unhealthyUntil.set(candidateModel, Date.now() + this.modelCooldownMs);
+        }
       }
     }
 
@@ -166,8 +174,13 @@ export class AdaptiveFreeGatewayClient implements GatewayChatClient {
 
     try {
       const models = await this.freeModels();
+      const now = Date.now();
       const ranked = [...models]
-        .filter((model) => !avoided.has(model.id))
+        .filter(
+          (model) =>
+            !avoided.has(model.id) &&
+            (this.unhealthyUntil.get(model.id) ?? 0) <= now,
+        )
         .sort((left, right) => this.score(task, right) - this.score(task, left));
 
       const usedProviders = new Set<string>();
