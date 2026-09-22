@@ -38,6 +38,7 @@
     "@llmatic/repository-constitution": "workspace:*",
     "@llmatic/pr-draft": "workspace:*",
     "@llmatic/jira-adapter": "workspace:*",
+    "@llmatic/github-adapter": "workspace:*",
     "@llmatic/external-connections": "workspace:*"
   },
   "devDependencies": {
@@ -187,6 +188,12 @@
         "title": "Generate PR Draft",
         "category": "LLMatic"
       },
+      {
+        "command": "llmatic.reviewExternalPullRequest",
+        "title": "Review External Pull Request",
+        "category": "LLMatic"
+      },
+
       {
         "command": "llmatic.connectJiraWorkspace",
         "title": "Connect Jira Workspace",
