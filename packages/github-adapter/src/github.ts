@@ -9,6 +9,7 @@ import type {
   MergeMethod,
   MergePullRequestOptions,
   MergePullRequestResult,
+  PullRequestChangedFile,
   PullRequestCheck,
   PullRequestCommentSnapshot,
   PublishPullRequestReviewInput,
@@ -48,7 +49,6 @@ const PR_REVIEW_FIELDS = [
   "title",
   "body",
   "author",
-  "files",
   "reviews",
   "comments",
 ].join(",");
@@ -317,23 +317,73 @@ function normalizeReviewThreads(value: unknown): PullRequestReviewThreadSnapshot
     .filter((thread) => Boolean(thread.path));
 }
 
+interface PullRequestCoordinates {
+  owner: string;
+  name: string;
+  number: number;
+}
+
+function pullRequestCoordinates(pullRequest: PullRequestSummary): PullRequestCoordinates {
+  let pullRequestUrl: URL;
+  try {
+    pullRequestUrl = new URL(pullRequest.url);
+  } catch {
+    throw new Error("Pull-request URL is invalid and cannot resolve its repository.");
+  }
+
+  const pathParts = pullRequestUrl.pathname.split("/").filter(Boolean);
+  const [owner, name, pullSegment, numberSegment] = pathParts;
+  const number = Number(numberSegment);
+  if (
+    !owner ||
+    !name ||
+    pullSegment !== "pull" ||
+    !Number.isInteger(number) ||
+    number <= 0 ||
+    number !== pullRequest.number
+  ) {
+    throw new Error("Pull-request repository/number could not be resolved from its canonical URL.");
+  }
+
+  return { owner, name, number };
+}
+
+function readPullRequestChangedFiles(
+  root: string,
+  pullRequest: PullRequestSummary,
+  runner: GitHubProcessRunner,
+): PullRequestChangedFile[] {
+  const { owner, name, number } = pullRequestCoordinates(pullRequest);
+  const args = [
+    "api",
+    "--paginate",
+    "--slurp",
+    "repos/" + owner + "/" + name + "/pulls/" + String(number) + "/files?per_page=100",
+  ];
+  const pages = parseJson<unknown[]>(requireSuccess(run(root, args, runner), args), args);
+  const rawFiles = pages.flatMap((page) => (Array.isArray(page) ? page : []));
+
+  return rawFiles
+    .map((item) => {
+      const file =
+        item && typeof item === "object" && !Array.isArray(item)
+          ? (item as Record<string, unknown>)
+          : {};
+      return {
+        path: typeof file.filename === "string" ? file.filename.replaceAll("\\", "/") : "",
+        additions: typeof file.additions === "number" ? file.additions : 0,
+        deletions: typeof file.deletions === "number" ? file.deletions : 0,
+      };
+    })
+    .filter((file) => Boolean(file.path));
+}
+
 function readPullRequestReviewThreads(
   root: string,
   pullRequest: PullRequestSummary,
   runner: GitHubProcessRunner,
 ): PullRequestReviewThreadSnapshot[] {
-  let pullRequestUrl: URL;
-  try {
-    pullRequestUrl = new URL(pullRequest.url);
-  } catch {
-    throw new Error("Pull-request URL is invalid and cannot be used to resolve review threads.");
-  }
-
-  const pathParts = pullRequestUrl.pathname.split("/").filter(Boolean);
-  const [owner, name, pullSegment] = pathParts;
-  if (!owner || !name || pullSegment !== "pull") {
-    throw new Error("Pull-request repository could not be resolved from its canonical URL.");
-  }
+  const { owner, name, number } = pullRequestCoordinates(pullRequest);
 
   const args = [
     "api",
@@ -345,7 +395,7 @@ function readPullRequestReviewThreads(
     "-f",
     "name=" + name,
     "-F",
-    "number=" + String(pullRequest.number),
+    "number=" + String(number),
   ];
   const result = parseJson<{
     data?: {
@@ -382,7 +432,7 @@ export async function getPullRequestReviewContext(
   const diffArgs = [...prArgs("diff", target), "--color", "never"];
   const rawDiff = requireSuccess(run(root, diffArgs, runner), diffArgs).stdout;
   const diffTruncated = rawDiff.length > MAX_PULL_REQUEST_REVIEW_DIFF_CHARS;
-  const files = Array.isArray(raw.files) ? raw.files : [];
+  const changedFiles = readPullRequestChangedFiles(root, status.pullRequest, runner);
   const reviewThreads = readPullRequestReviewThreads(root, status.pullRequest, runner);
 
   return {
@@ -390,19 +440,7 @@ export async function getPullRequestReviewContext(
     title: typeof raw.title === "string" ? raw.title : "",
     body: boundedPullRequestText(raw.body),
     authorLogin: actorLogin(raw.author),
-    changedFiles: files
-      .map((item) => {
-        const file =
-          item && typeof item === "object" && !Array.isArray(item)
-            ? (item as Record<string, unknown>)
-            : {};
-        return {
-          path: typeof file.path === "string" ? file.path.replaceAll("\\", "/") : "",
-          additions: typeof file.additions === "number" ? file.additions : 0,
-          deletions: typeof file.deletions === "number" ? file.deletions : 0,
-        };
-      })
-      .filter((file) => Boolean(file.path)),
+    changedFiles,
     reviews: normalizeReviewSnapshots(raw.reviews),
     comments: normalizeCommentSnapshots(raw.comments),
     reviewThreads,
