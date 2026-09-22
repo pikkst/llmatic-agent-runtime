@@ -16,6 +16,8 @@ describe("VS Code extension activation surface", () => {
     expect(source).toContain('vscode.commands.registerCommand("llmatic.setKiloGatewayApiKey"');
     expect(source).toContain('vscode.commands.registerCommand("llmatic.reviewFixLoop"');
     expect(source).toContain('vscode.commands.registerCommand("llmatic.openAgentChat"');
+    expect(source).toContain('vscode.commands.registerCommand("llmatic.connectJiraWorkspace"');
+    expect(source).toContain('vscode.commands.registerCommand("llmatic.disconnectJiraWorkspace"');
     expect(source).toContain('vscode.commands.registerCommand("llmatic.refreshWorkspaceRecovery"');
     expect(source).toContain('vscode.commands.registerCommand("llmatic.showRepositoryRules"');
     expect(source).toContain('vscode.commands.registerCommand("llmatic.reviewRuleProposals"');
@@ -29,6 +31,11 @@ describe("VS Code extension activation surface", () => {
     expect(source).toContain("gatewayApiKeyOrPrompt");
     expect(source).toContain("recoverWorkspace");
     expect(source).toContain("workspaceRecoveryContext");
+    expect(source).toContain("verifyJiraConnectionFromEnvironment");
+    expect(source).toContain("JIRA_PROFILE_STATE_KEY");
+    expect(source).toContain("jiraSecretKey");
+    expect(source).toContain('"assigned_only"');
+    expect(source).toContain('"project_queue"');
     expect(source).toContain("AgentChatViewProvider");
     expect(source).toContain("runAgentChatTurn");
     expect(source).toContain("decideRepositoryRuleProposal");
@@ -50,6 +57,13 @@ describe("VS Code extension activation surface", () => {
     expect(source).toContain("configured securely — click to replace");
     expect(source).toContain("optional; required for direct agent and review");
     expect(source).toContain('command: "llmatic.setKiloGatewayApiKey"');
+    expect(source).toContain("WorkspaceJiraStatus");
+    expect(source).toContain("Connect Jira Workspace");
+    expect(source).toContain("assigned to me");
+    expect(source).toContain("project queue");
+    expect(source).toContain("testing.iconPassed");
+    expect(source).toContain("list.warningForeground");
+    expect(source).toContain("list.errorForeground");
   });
   it("contributes a persistent Agent Chat webview with repository recovery controls", async () => {
     const packageJson = JSON.parse(
@@ -71,6 +85,9 @@ describe("VS Code extension activation surface", () => {
     expect(packageJson.contributes.configuration.properties).toHaveProperty(
       "llmatic.jiraProjectKey",
     );
+    expect(packageJson.contributes.configuration.properties).toHaveProperty(
+      "llmatic.jiraWorkMode",
+    );
 
     const source = await readFile(new URL("../src/agent-chat-view.ts", import.meta.url), "utf8");
     expect(source).toContain("Continue recommended");
@@ -82,5 +99,8 @@ describe("VS Code extension activation surface", () => {
     expect(source).toContain('type: "continue"');
     expect(source).toContain('type: "ready"');
     expect(source).toContain('input.type === "ready"');
+    expect(source).toContain("status-ok");
+    expect(source).toContain("status-attention");
+    expect(source).toContain("status-error");
   });
 });
