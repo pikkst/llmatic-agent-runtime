@@ -2266,6 +2266,10 @@ function externalPullRequestReviewDraft(
     report.summary,
     "",
     "Remote CI: **" + report.ciState + "**",
+    "Review coverage: **" + report.coverage + "**",
+    ...(report.unreviewedFiles.length > 0
+      ? ["Unreviewed changed files: " + report.unreviewedFiles.map((path) => "`" + path + "`").join(", ")]
+      : []),
     "Review lenses: " + report.lenses.join(", "),
     "",
     "### Findings",
@@ -2359,7 +2363,11 @@ async function reviewExternalPullRequestInUi(
   output.appendLine("PR: " + report.reference + " — " + report.title);
   output.appendLine("Author: " + (report.authorLogin ?? "unknown"));
   output.appendLine("Remote CI: " + report.ciState);
+  output.appendLine("Review coverage: " + report.coverage);
   output.appendLine("Diff truncated: " + String(report.diffTruncated));
+  if (report.unreviewedFiles.length > 0) {
+    output.appendLine("Unreviewed changed files: " + report.unreviewedFiles.join(", "));
+  }
   output.appendLine("");
   printReviewReport(output, report);
   output.show(true);
@@ -2372,7 +2380,9 @@ async function reviewExternalPullRequestInUi(
   output.show(true);
 
   const action = await vscode.window.showInformationMessage(
-    "LLMatic external PR review completed with " +
+    "LLMatic external PR review completed (" +
+      report.coverage +
+      " coverage) with " +
       report.blockingCount +
       " blocking / " +
       report.nonBlockingCount +
