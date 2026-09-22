@@ -18,6 +18,8 @@ export interface WorkspaceJiraStatus {
   detail?: string;
   workMode?: "assigned_only" | "project_queue";
   error?: string;
+  connecting?: boolean;
+  phase?: string;
 }
 
 const STATUS_COLOR_IDS: Record<Exclude<SemanticStatus, "neutral">, string> = {
@@ -167,42 +169,58 @@ export class LlmaticStatusProvider implements vscode.TreeDataProvider<vscode.Tre
     const recoveryItems: vscode.TreeItem[] = [];
 
     const jira = new vscode.TreeItem(
-      this.jiraStatus?.connected
-        ? "Jira " + (this.jiraStatus.label ?? "Workspace")
-        : "Connect Jira Workspace",
+      this.jiraStatus?.connecting
+        ? "Jira Connecting…"
+        : this.jiraStatus?.connected
+          ? "Jira " + (this.jiraStatus.label ?? "Workspace")
+          : "Connect Jira Workspace",
       vscode.TreeItemCollapsibleState.None,
     );
     decorateStatusItem(
       jira,
       this.jiraStatus?.error
         ? "error"
-        : this.jiraStatus?.connected
-          ? "ok"
-          : this.jiraStatus?.required
-            ? "error"
-            : "attention",
+        : this.jiraStatus?.connecting
+          ? "attention"
+          : this.jiraStatus?.connected
+            ? "ok"
+            : this.jiraStatus?.required
+              ? "error"
+              : "attention",
       "jira-workspace",
-      this.jiraStatus?.error ? "error" : this.jiraStatus?.connected ? "issues" : "plug",
+      this.jiraStatus?.error
+        ? "error"
+        : this.jiraStatus?.connecting
+          ? "loading~spin"
+          : this.jiraStatus?.connected
+            ? "issues"
+            : "plug",
     );
     jira.description = this.jiraStatus?.error
       ? "connection error · reconnect required"
-      : this.jiraStatus?.connected
-        ? (this.jiraStatus.workMode === "project_queue" ? "project queue" : "assigned to me") +
-          (this.jiraStatus.detail ? " · " + this.jiraStatus.detail : "")
-        : this.jiraStatus?.required
-          ? "required for canonical Jira task source"
-          : "workspace-specific Jira profile";
+      : this.jiraStatus?.connecting
+        ? (this.jiraStatus.phase ?? "connecting…")
+        : this.jiraStatus?.connected
+          ? (this.jiraStatus.workMode === "project_queue" ? "project queue" : "assigned to me") +
+            (this.jiraStatus.detail ? " · " + this.jiraStatus.detail : "")
+          : this.jiraStatus?.required
+            ? "required for canonical Jira task source"
+            : "workspace-specific Jira profile";
     jira.tooltip =
       this.jiraStatus?.error ??
-      (this.jiraStatus?.connected
-        ? "Jira workspace connection is healthy."
-        : "Connect Jira for this workspace.");
-    jira.command = {
-      command: "llmatic.connectJiraWorkspace",
-      title: this.jiraStatus?.connected
-        ? "Edit Jira Workspace Connection"
-        : "Connect Jira Workspace",
-    };
+      (this.jiraStatus?.connecting
+        ? this.jiraStatus.phase ?? "Connecting Jira…"
+        : this.jiraStatus?.connected
+          ? "Jira workspace connection is healthy."
+          : "Connect Jira for this workspace.");
+    if (!this.jiraStatus?.connecting) {
+      jira.command = {
+        command: "llmatic.connectJiraWorkspace",
+        title: this.jiraStatus?.connected
+          ? "Edit Jira Workspace Connection"
+          : "Connect Jira Workspace",
+      };
+    }
     recoveryItems.push(jira);
 
     if (this.recovery) {
