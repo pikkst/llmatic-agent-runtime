@@ -86,6 +86,7 @@ export type PullRequestReviewEvent = "COMMENT";
 export interface PublishPullRequestReviewInput {
   body: string;
   event?: PullRequestReviewEvent;
+  expectedHeadOid?: string;
 }
 
 export interface PullRequestReviewMetadata {
