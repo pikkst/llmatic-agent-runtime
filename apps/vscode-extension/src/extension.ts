@@ -2883,7 +2883,7 @@ async function runAutomaticExternalPullRequestReview(
   } finally {
     state.activeExternalReviewPrNumbers.delete(pullRequest.number);
   }
-
+}
 
 async function runAutoReviewScan(
   context: vscode.ExtensionContext,
