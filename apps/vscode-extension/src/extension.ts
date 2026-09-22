@@ -2128,7 +2128,19 @@ async function runGatewayReview(
     LLMATIC_HOME: context.globalStorageUri.fsPath,
   });
   let store = new WorkflowStateStore(root, config);
-  const gateway = new KiloGatewayClient({ apiKey: gatewayAccess.apiKey });
+  const gateway = new KiloGatewayClient({
+    apiKey: gatewayAccess.apiKey,
+    onRetry: (event) => {
+      output.appendLine(
+        "[RETRY] Kilo Gateway " +
+          event.nextAttempt +
+          "/" +
+          event.maxAttempts +
+          ": " +
+          event.reason,
+      );
+    },
+  });
 
   output.clear();
   output.appendLine(fixLoop ? "LLMatic Review / Fix Loop" : "LLMatic Code Review");
@@ -2260,7 +2272,6 @@ async function runAgentChatTurn(
     LLMATIC_HOME: context.globalStorageUri.fsPath,
   });
   const store = new WorkflowStateStore(root, runtimeConfig);
-  const gateway = new KiloGatewayClient({ apiKey: gatewayAccess.apiKey });
   const maxSteps = configuration().get<number>("agentMaxSteps", 20);
 
   chatProvider.setBusy(true, "Thinking…");
@@ -2268,6 +2279,27 @@ async function runAgentChatTurn(
     "Agent working",
     "Thinking and deciding what to do…",
   );
+  const gateway = new KiloGatewayClient({
+    apiKey: gatewayAccess.apiKey,
+    onRetry: (event) => {
+      const activity =
+        "Model provider temporarily unavailable — retrying (" +
+        event.nextAttempt +
+        "/" +
+        event.maxAttempts +
+        ")…";
+      output.appendLine(
+        "[RETRY] Kilo Gateway " +
+          event.nextAttempt +
+          "/" +
+          event.maxAttempts +
+          ": " +
+          event.reason,
+      );
+      chatProvider.setBusy(true, activity);
+      agentOperation.update("Agent working", activity);
+    },
+  });
   output.appendLine("");
   output.appendLine("[CHAT] User: " + instruction);
 
