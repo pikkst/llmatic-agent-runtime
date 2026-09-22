@@ -8,10 +8,18 @@ import type {
 } from "@llmatic/task-provider";
 import { normalizeTaskLifecycleStatus } from "@llmatic/task-provider";
 
+export type JiraWorkMode = "assigned_only" | "project_queue";
+
 export interface JiraConnectionConfig {
   baseUrl: string;
   siteUrl?: string;
   auth: { type: "basic"; email: string; apiToken: string } | { type: "bearer"; token: string };
+}
+
+export interface JiraCurrentUser {
+  accountId: string;
+  displayName?: string;
+  emailAddress?: string;
 }
 
 export interface JiraHttpRequest {
@@ -54,6 +62,19 @@ function requireEnvironment(environment: NodeJS.ProcessEnv, name: string): strin
   const value = environment[name]?.trim();
   if (!value) throw new Error("Missing required environment variable " + name + ".");
   return value;
+}
+
+export function jiraWorkModeFromEnvironment(
+  environment: NodeJS.ProcessEnv = process.env,
+): JiraWorkMode {
+  const value = environment.LLMATIC_JIRA_WORK_MODE?.trim().toLowerCase();
+
+  if (!value || value === "assigned_only") return "assigned_only";
+  if (value === "project_queue") return "project_queue";
+
+  throw new Error(
+    "LLMATIC_JIRA_WORK_MODE must be assigned_only or project_queue.",
+  );
 }
 
 export function jiraConnectionFromEnvironment(
@@ -105,6 +126,33 @@ async function defaultTransport(request: JiraHttpRequest): Promise<JiraHttpRespo
     statusText: response.statusText,
     body: await response.text(),
   };
+}
+
+function splitJqlOrderBy(jql: string): { filter: string; orderBy?: string } {
+  const match = /\border\s+by\b/i.exec(jql);
+  if (!match || match.index === undefined) {
+    return { filter: jql.trim() };
+  }
+
+  return {
+    filter: jql.slice(0, match.index).trim(),
+    orderBy: jql.slice(match.index).trim(),
+  };
+}
+
+function assignedOnlyJql(jql: string): string {
+  const { filter, orderBy } = splitJqlOrderBy(jql);
+  const scoped = "(" + (filter || "statusCategory != Done") + ") AND assignee = currentUser()";
+  return orderBy ? scoped + " " + orderBy : scoped;
+}
+
+function issueAssigneeAccountId(raw: Record<string, unknown>): string | undefined {
+  const fields = (raw.fields ?? {}) as Record<string, unknown>;
+  const assignee =
+    fields.assignee && typeof fields.assignee === "object"
+      ? (fields.assignee as Record<string, unknown>)
+      : undefined;
+  return typeof assignee?.accountId === "string" ? assignee.accountId : undefined;
 }
 
 function pathFor(reference: string): string {
@@ -296,6 +344,62 @@ export class JiraTaskProvider implements TaskProvider {
     private readonly environment: NodeJS.ProcessEnv = process.env,
   ) {}
 
+  public workMode(): JiraWorkMode {
+    return jiraWorkModeFromEnvironment(this.environment);
+  }
+
+  public async getCurrentUser(
+    options: TaskProviderOperationOptions = {},
+  ): Promise<JiraCurrentUser> {
+    permission(this.runtimeConfig.permissions.taskRead, "Task read", options.approved ?? false);
+
+    const raw = await requestJson<Record<string, unknown>>(
+      this.connection,
+      this.transport,
+      "GET",
+      "/rest/api/3/myself",
+    );
+    const accountId = String(raw.accountId ?? "").trim();
+    if (!accountId) {
+      throw new Error("Jira current-user response is missing accountId.");
+    }
+
+    return {
+      accountId,
+      displayName:
+        typeof raw.displayName === "string" ? raw.displayName : undefined,
+      emailAddress:
+        typeof raw.emailAddress === "string" ? raw.emailAddress : undefined,
+    };
+  }
+
+  public async assertSelectableTask(
+    reference: string,
+    options: TaskProviderOperationOptions = {},
+  ): Promise<void> {
+    if (this.workMode() === "project_queue") return;
+
+    permission(this.runtimeConfig.permissions.taskRead, "Task read", options.approved ?? false);
+    const [currentUser, issue] = await Promise.all([
+      this.getCurrentUser(options),
+      requestJson<Record<string, unknown>>(
+        this.connection,
+        this.transport,
+        "GET",
+        "/rest/api/3/issue/" + pathFor(reference) + "?fields=assignee",
+      ),
+    ]);
+
+    const assigneeAccountId = issueAssigneeAccountId(issue);
+    if (!assigneeAccountId || assigneeAccountId !== currentUser.accountId) {
+      throw new Error(
+        "Jira task " +
+          reference +
+          " is not assigned to the current Jira user. Work mode assigned_only forbids starting it.",
+      );
+    }
+  }
+
   public async getTask(
     reference: string,
     options: TaskProviderOperationOptions = {},
@@ -323,11 +427,23 @@ export class JiraTaskProvider implements TaskProvider {
     }
 
     const configuredJql = this.environment.LLMATIC_JIRA_RECOVERY_JQL?.trim();
+    const workMode = this.workMode();
+
+    if (workMode === "project_queue" && !projectKey && !configuredJql) {
+      throw new Error(
+        "Jira project_queue work mode requires LLMATIC_JIRA_PROJECT_KEY or LLMATIC_JIRA_RECOVERY_JQL.",
+      );
+    }
+
     const scope = projectKey ? 'project = "' + projectKey.toUpperCase() + '" AND ' : "";
-    const jql =
-      configuredJql ||
+    const defaultJql =
       scope +
-        "assignee = currentUser() AND statusCategory != Done ORDER BY Rank ASC, priority DESC, updated ASC";
+      (workMode === "assigned_only" ? "assignee = currentUser() AND " : "") +
+      "statusCategory != Done ORDER BY Rank ASC, priority DESC, updated ASC";
+    const jql =
+      workMode === "assigned_only" && configuredJql
+        ? assignedOnlyJql(configuredJql)
+        : configuredJql || defaultJql;
 
     const result = await requestJson<{ issues?: Array<Record<string, unknown>> }>(
       this.connection,
@@ -476,6 +592,13 @@ export function createJiraTaskProviderFromEnvironment(
     defaultTransport,
     environment,
   );
+}
+
+export async function verifyJiraConnectionFromEnvironment(
+  runtimeConfig: AgentConfig,
+  environment: NodeJS.ProcessEnv = process.env,
+): Promise<JiraCurrentUser> {
+  return createJiraTaskProviderFromEnvironment(runtimeConfig, environment).getCurrentUser();
 }
 
 function taskMetadata(task: TaskRecord): Record<string, string> {
