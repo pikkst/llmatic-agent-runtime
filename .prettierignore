@@ -5,3 +5,4 @@ dist
 pnpm-lock.yaml
 artifacts
 .kilo/worktrees
+apps/vscode-extension/lib
