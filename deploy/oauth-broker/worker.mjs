@@ -1,10 +1,8 @@
 const ATLASSIAN_AUTHORIZE_URL = "https://auth.atlassian.com/authorize";
 const ATLASSIAN_TOKEN_URL = "https://auth.atlassian.com/oauth/token";
-const ATLASSIAN_RESOURCES_URL =
-  "https://api.atlassian.com/oauth/token/accessible-resources";
+const ATLASSIAN_RESOURCES_URL = "https://api.atlassian.com/oauth/token/accessible-resources";
 const SESSION_TTL_SECONDS = 600;
-const ATLASSIAN_SCOPES =
-  "read:jira-user read:jira-work write:jira-work offline_access";
+const ATLASSIAN_SCOPES = "read:jira-user read:jira-work write:jira-work offline_access";
 
 function json(body, init = {}) {
   const headers = new Headers(init.headers || {});
@@ -15,8 +13,8 @@ function json(body, init = {}) {
 
 function html(body, status = 200) {
   return new Response(
-    "<!doctype html><html><head><meta charset=\"utf-8\"><title>LLMatic connection</title></head>" +
-      "<body style=\"font-family:system-ui;padding:32px;max-width:720px;margin:auto\">" +
+    '<!doctype html><html><head><meta charset="utf-8"><title>LLMatic connection</title></head>' +
+      '<body style="font-family:system-ui;padding:32px;max-width:720px;margin:auto">' +
       body +
       "</body></html>",
     {
@@ -45,13 +43,8 @@ function randomToken(bytes = 32) {
 }
 
 async function sha256(value) {
-  const digest = await crypto.subtle.digest(
-    "SHA-256",
-    new TextEncoder().encode(value),
-  );
-  return Array.from(new Uint8Array(digest), (byte) =>
-    byte.toString(16).padStart(2, "0"),
-  ).join("");
+  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(value));
+  return Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, "0")).join("");
 }
 
 async function readJson(request) {
@@ -92,10 +85,7 @@ async function startConnection(request, env) {
 
   const sessions = env.CONNECTION_SESSIONS;
   if (!sessions) {
-    return json(
-      { error: "CONNECTION_SESSIONS KV binding is not configured." },
-      { status: 503 },
-    );
+    return json({ error: "CONNECTION_SESSIONS KV binding is not configured." }, { status: 503 });
   }
 
   const sessionId = crypto.randomUUID();
@@ -109,8 +99,7 @@ async function startConnection(request, env) {
     pollTokenHash: await sha256(pollToken),
     state,
     expiresAt,
-    returnLabel:
-      typeof body.returnLabel === "string" ? body.returnLabel.slice(0, 160) : undefined,
+    returnLabel: typeof body.returnLabel === "string" ? body.returnLabel.slice(0, 160) : undefined,
   };
 
   await Promise.all([
@@ -191,9 +180,7 @@ async function atlassianCallback(request, env) {
     });
     if (!resourcesResponse.ok) {
       throw new Error(
-        "Atlassian accessible-resources lookup failed with " +
-          resourcesResponse.status +
-          ".",
+        "Atlassian accessible-resources lookup failed with " + resourcesResponse.status + ".",
       );
     }
 
@@ -234,10 +221,7 @@ async function atlassianCallback(request, env) {
     await sessions.put("session:" + sessionId, JSON.stringify(session), {
       expirationTtl: SESSION_TTL_SECONDS,
     });
-    return html(
-      "<h1>LLMatic connection failed</h1><p>Return to VS Code for details.</p>",
-      500,
-    );
+    return html("<h1>LLMatic connection failed</h1><p>Return to VS Code for details.</p>", 500);
   }
 }
 
@@ -306,10 +290,7 @@ async function refreshConnection(request, env) {
       },
     });
   } catch (cause) {
-    return json(
-      { error: cause instanceof Error ? cause.message : String(cause) },
-      { status: 502 },
-    );
+    return json({ error: cause instanceof Error ? cause.message : String(cause) }, { status: 502 });
   }
 }
 
@@ -323,10 +304,7 @@ export default {
     if (request.method === "POST" && url.pathname === "/v1/connections/start") {
       return startConnection(request, env);
     }
-    if (
-      request.method === "GET" &&
-      url.pathname === "/v1/connections/callback/atlassian"
-    ) {
+    if (request.method === "GET" && url.pathname === "/v1/connections/callback/atlassian") {
       return atlassianCallback(request, env);
     }
     if (request.method === "GET" && url.pathname === "/v1/connections/status") {

@@ -157,10 +157,7 @@ function configuration() {
   return vscode.workspace.getConfiguration("llmatic");
 }
 
-function jiraSecretKey(
-  workspaceId: string,
-  authType: "basic" | "bearer" | "oauth_broker",
-): string {
+function jiraSecretKey(workspaceId: string, authType: "basic" | "bearer" | "oauth_broker"): string {
   return JIRA_SECRET_PREFIX + "." + workspaceId + "." + authType;
 }
 
@@ -177,8 +174,7 @@ function anonymousKiloAccessAvailable(): boolean {
   const model =
     configuration().get<string>("agentModel", "kilo-auto/free").trim() || "kilo-auto/free";
   return (
-    configuration().get<boolean>("allowAnonymousKiloFree", true) &&
-    isAnonymousFreeKiloModel(model)
+    configuration().get<boolean>("allowAnonymousKiloFree", true) && isAnonymousFreeKiloModel(model)
   );
 }
 
@@ -207,11 +203,7 @@ async function jiraOAuthCredential(
   let credential = parseJiraOAuthCredential(await context.secrets.get(key));
   if (!credential) return undefined;
 
-  if (
-    jiraOAuthCredentialNeedsRefresh(credential) &&
-    credential.refreshToken &&
-    profile.brokerUrl
-  ) {
+  if (jiraOAuthCredentialNeedsRefresh(credential) && credential.refreshToken && profile.brokerUrl) {
     const refreshed = await refreshBrokerCredential(
       profile.brokerUrl,
       "atlassian",
@@ -272,9 +264,7 @@ async function taskRecoveryEnvironment(
   const secret =
     profile.authType === "oauth_broker"
       ? undefined
-      : await context.secrets.get(
-          jiraSecretKey(state.activeWorkspace.id, profile.authType),
-        );
+      : await context.secrets.get(jiraSecretKey(state.activeWorkspace.id, profile.authType));
   const oauthCredential =
     profile.authType === "oauth_broker"
       ? await jiraOAuthCredential(context, state.activeWorkspace.id, profile)
@@ -399,15 +389,12 @@ async function jiraProjectFromOAuthResource(
   existing?: WorkspaceJiraProfile,
 ): Promise<string | undefined> {
   const apiBase = "https://api.atlassian.com/ex/jira/" + encodeURIComponent(resource.id);
-  const response = await fetch(
-    apiBase + "/rest/api/3/project/search?maxResults=100&orderBy=name",
-    {
-      headers: {
-        Accept: "application/json",
-        Authorization: "Bearer " + accessToken,
-      },
+  const response = await fetch(apiBase + "/rest/api/3/project/search?maxResults=100&orderBy=name", {
+    headers: {
+      Accept: "application/json",
+      Authorization: "Bearer " + accessToken,
     },
-  );
+  });
 
   if (response.ok) {
     const raw = (await response.json()) as {
@@ -490,10 +477,7 @@ async function persistJiraWorkspaceConnection(
   for (const authType of ["basic", "bearer", "oauth_broker"] as const) {
     await context.secrets.delete(jiraSecretKey(state.activeWorkspace.id, authType));
   }
-  await context.secrets.store(
-    jiraSecretKey(state.activeWorkspace.id, profile.authType),
-    secret,
-  );
+  await context.secrets.store(jiraSecretKey(state.activeWorkspace.id, profile.authType), secret);
 
   await refreshJiraStatus(context, state, statusProvider);
   await refreshWorkspaceRecovery(context, state, statusProvider, chatProvider, output, true);
@@ -577,11 +561,7 @@ async function connectJiraWithBrowser(
     async (progress, cancellation) => {
       const expiresAt = Date.parse(started.expiresAt);
       while (!cancellation.isCancellationRequested && Date.now() < expiresAt) {
-        const status = await pollBrokerConnection(
-          brokerUrl,
-          started.sessionId,
-          started.pollToken,
-        );
+        const status = await pollBrokerConnection(brokerUrl, started.sessionId, started.pollToken);
 
         if (status.status === "connected") return status;
         if (status.status === "error") throw new Error(status.message);
@@ -607,18 +587,20 @@ async function connectJiraWithBrowser(
   const resource =
     connected.resources.length === 1
       ? connected.resources[0]
-      : await vscode.window.showQuickPick(
-          connected.resources.map((candidate) => ({
-            label: candidate.name,
-            description: candidate.url,
-            resource: candidate,
-          })),
-          {
-            title: "LLMatic: Jira Site",
-            placeHolder: "Choose the Atlassian site for this repository",
-            ignoreFocusOut: true,
-          },
-        ).then((selection) => selection?.resource);
+      : await vscode.window
+          .showQuickPick(
+            connected.resources.map((candidate) => ({
+              label: candidate.name,
+              description: candidate.url,
+              resource: candidate,
+            })),
+            {
+              title: "LLMatic: Jira Site",
+              placeHolder: "Choose the Atlassian site for this repository",
+              ignoreFocusOut: true,
+            },
+          )
+          .then((selection) => selection?.resource);
 
   if (!resource) return true;
 
@@ -634,8 +616,7 @@ async function connectJiraWithBrowser(
   if (!workMode) return true;
 
   const profile: WorkspaceJiraProfile = {
-    baseUrl:
-      "https://api.atlassian.com/ex/jira/" + encodeURIComponent(resource.id),
+    baseUrl: "https://api.atlassian.com/ex/jira/" + encodeURIComponent(resource.id),
     siteUrl: resource.url.replace(/\/+$/, ""),
     cloudId: resource.id,
     projectKey,
@@ -740,15 +721,10 @@ async function connectJiraManually(
 
   const existingSecret =
     existing?.authType === authPick.authType
-      ? await context.secrets.get(
-          jiraSecretKey(state.activeWorkspace.id, authPick.authType),
-        )
+      ? await context.secrets.get(jiraSecretKey(state.activeWorkspace.id, authPick.authType))
       : undefined;
   const secretInput = await vscode.window.showInputBox({
-    title:
-      authPick.authType === "basic"
-        ? "LLMatic: Jira API Token"
-        : "LLMatic: Jira Bearer Token",
+    title: authPick.authType === "basic" ? "LLMatic: Jira API Token" : "LLMatic: Jira Bearer Token",
     prompt: existingSecret
       ? "Leave blank to keep the existing secure token."
       : "Stored in VS Code SecretStorage for this workspace only.",
@@ -1690,7 +1666,8 @@ async function connectKiloGatewayInUi(
         ? [
             {
               label: "$(trash) Remove stored API key",
-              description: "Keep Kilo Code/MCP; direct paid Gateway access will no longer use this key",
+              description:
+                "Keep Kilo Code/MCP; direct paid Gateway access will no longer use this key",
               action: "clear" as const,
             },
           ]
@@ -1767,8 +1744,7 @@ async function gatewayAccessOrPrompt(
   if (existing) return { apiKey: existing, anonymous: false };
 
   const anonymousAllowed =
-    configuration().get<boolean>("allowAnonymousKiloFree", true) &&
-    isAnonymousFreeKiloModel(model);
+    configuration().get<boolean>("allowAnonymousKiloFree", true) && isAnonymousFreeKiloModel(model);
   if (anonymousAllowed) {
     return { anonymous: true };
   }
@@ -1808,7 +1784,8 @@ async function openConnectionCenter(
       {
         label: "$(issues) Jira",
         description: jira
-          ? jira.projectKey + " · " +
+          ? jira.projectKey +
+            " · " +
             (jira.workMode === "assigned_only" ? "assigned to me" : "project queue")
           : "Not connected for this workspace",
         detail: "Browser OAuth or manual fallback",
@@ -3472,39 +3449,21 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     }),
     vscode.commands.registerCommand("llmatic.setKiloGatewayApiKey", async () => {
       await connectKiloGatewayInUi(context, state, statusProvider);
-      statusProvider.setGatewayAccess(
-        state.gatewayKeyConfigured,
-        anonymousKiloAccessAvailable(),
-      );
+      statusProvider.setGatewayAccess(state.gatewayKeyConfigured, anonymousKiloAccessAvailable());
     }),
     vscode.commands.registerCommand("llmatic.connectKiloGateway", async () => {
       await connectKiloGatewayInUi(context, state, statusProvider);
-      statusProvider.setGatewayAccess(
-        state.gatewayKeyConfigured,
-        anonymousKiloAccessAvailable(),
-      );
+      statusProvider.setGatewayAccess(state.gatewayKeyConfigured, anonymousKiloAccessAvailable());
     }),
     vscode.commands.registerCommand("llmatic.openConnectionCenter", async () => {
-      await openConnectionCenter(
-        context,
-        state,
-        statusProvider,
-        chatProvider,
-        output,
-      );
-      statusProvider.setGatewayAccess(
-        state.gatewayKeyConfigured,
-        anonymousKiloAccessAvailable(),
-      );
+      await openConnectionCenter(context, state, statusProvider, chatProvider, output);
+      statusProvider.setGatewayAccess(state.gatewayKeyConfigured, anonymousKiloAccessAvailable());
     }),
     vscode.commands.registerCommand("llmatic.clearKiloGatewayApiKey", async () => {
       await context.secrets.delete(KILO_GATEWAY_SECRET);
       state.gatewayKeyConfigured = false;
       statusProvider.update(state.health, state.gatewayKeyConfigured);
-      statusProvider.setGatewayAccess(
-        state.gatewayKeyConfigured,
-        anonymousKiloAccessAvailable(),
-      );
+      statusProvider.setGatewayAccess(state.gatewayKeyConfigured, anonymousKiloAccessAvailable());
 
       await vscode.window.showInformationMessage(
         "Kilo Gateway API key cleared. Kilo MCP remains available; Auto Free can run anonymously when enabled.",
@@ -3638,10 +3597,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       if (event.affectsConfiguration("llmatic")) {
         await refresh(context, statusBar, state);
         statusProvider.update(state.health, state.gatewayKeyConfigured, state.recovery);
-        statusProvider.setGatewayAccess(
-          state.gatewayKeyConfigured,
-          anonymousKiloAccessAvailable(),
-        );
+        statusProvider.setGatewayAccess(state.gatewayKeyConfigured, anonymousKiloAccessAvailable());
         await refreshJiraStatus(context, state, statusProvider);
         await refreshWorkspaceRecovery(
           context,
@@ -3662,10 +3618,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 
   await refresh(context, statusBar, state);
   statusProvider.update(state.health, state.gatewayKeyConfigured, state.recovery);
-  statusProvider.setGatewayAccess(
-    state.gatewayKeyConfigured,
-    anonymousKiloAccessAvailable(),
-  );
+  statusProvider.setGatewayAccess(state.gatewayKeyConfigured, anonymousKiloAccessAvailable());
   await refreshJiraStatus(context, state, statusProvider);
   await vscode.commands.executeCommand("setContext", "llmatic.health", state.health?.status);
 

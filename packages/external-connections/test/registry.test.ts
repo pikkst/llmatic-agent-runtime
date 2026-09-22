@@ -52,8 +52,6 @@ describe("external connection registry", () => {
 
     expect(requests[1]?.url).toContain("session=session-1");
     expect(requests[1]?.url).not.toContain("poll-secret");
-    expect(new Headers(requests[1]?.init?.headers).get("Authorization")).toBe(
-      "Bearer poll-secret",
-    );
+    expect(new Headers(requests[1]?.init?.headers).get("Authorization")).toBe("Bearer poll-secret");
   });
 });

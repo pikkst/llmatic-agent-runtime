@@ -400,16 +400,10 @@ export class LlmaticStatusProvider implements vscode.TreeDataProvider<vscode.Tre
         const gatewayAction = action.command === "llmatic.connectKiloGateway";
         const gatewayReady = this.gatewayKeyConfigured || this.gatewayAnonymousAvailable;
         item.iconPath = gatewayAction
-          ? new vscode.ThemeIcon(
-              action.icon,
-              semanticColor(gatewayReady ? "ok" : "attention"),
-            )
+          ? new vscode.ThemeIcon(action.icon, semanticColor(gatewayReady ? "ok" : "attention"))
           : new vscode.ThemeIcon(action.icon);
         if (gatewayAction) {
-          item.resourceUri = semanticResource(
-            gatewayReady ? "ok" : "attention",
-            "gateway-access",
-          );
+          item.resourceUri = semanticResource(gatewayReady ? "ok" : "attention", "gateway-access");
         }
         item.command = {
           command: action.command,

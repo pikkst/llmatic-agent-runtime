@@ -1,11 +1,7 @@
 export type ExternalConnectionId = "jira" | "kilo_gateway";
 
 export type ExternalConnectionMethod =
-  | "browser_oauth"
-  | "browser_api_key"
-  | "manual_api_key"
-  | "manual_bearer"
-  | "anonymous";
+  "browser_oauth" | "browser_api_key" | "manual_api_key" | "manual_bearer" | "anonymous";
 
 export interface ExternalConnectionProvider {
   id: ExternalConnectionId;
@@ -61,8 +57,7 @@ export const EXTERNAL_CONNECTION_PROVIDERS: readonly ExternalConnectionProvider[
     description: "Workspace task source and workflow synchronization.",
     workspaceScoped: true,
     methods: ["browser_oauth", "manual_api_key", "manual_bearer"],
-    documentationUrl:
-      "https://developer.atlassian.com/cloud/jira/platform/oauth-2-3lo-apps/",
+    documentationUrl: "https://developer.atlassian.com/cloud/jira/platform/oauth-2-3lo-apps/",
     brokerProvider: "atlassian",
   },
   {
@@ -76,9 +71,7 @@ export const EXTERNAL_CONNECTION_PROVIDERS: readonly ExternalConnectionProvider[
   },
 ] as const;
 
-export function externalConnectionProvider(
-  id: ExternalConnectionId,
-): ExternalConnectionProvider {
+export function externalConnectionProvider(id: ExternalConnectionId): ExternalConnectionProvider {
   const provider = EXTERNAL_CONNECTION_PROVIDERS.find((candidate) => candidate.id === id);
   if (!provider) throw new Error("Unknown external connection provider: " + id);
   return provider;
@@ -90,10 +83,7 @@ function brokerEndpoint(baseUrl: string, path: string): string {
   return base + path;
 }
 
-async function brokerJson<T>(
-  response: Response,
-  operation: string,
-): Promise<T> {
+async function brokerJson<T>(response: Response, operation: string): Promise<T> {
   const raw = await response.text();
   if (!response.ok) {
     let detail = raw.trim();
