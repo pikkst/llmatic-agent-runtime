@@ -487,7 +487,9 @@ interface ExternalReviewBatch {
 }
 
 function reviewableCodePath(path: string): boolean {
-  return /\.(?:[cm]?[jt]sx?|json|sql|ya?ml)$/i.test(path) && !/(?:^|\/)(?:dist|build)\//i.test(path);
+  return (
+    /\.(?:[cm]?[jt]sx?|json|sql|ya?ml)$/i.test(path) && !/(?:^|\/)(?:dist|build)\//i.test(path)
+  );
 }
 
 function externalLensFiles(lens: ReviewLens, files: string[]): string[] {
@@ -1355,9 +1357,7 @@ export async function runExternalPullRequestReview(
         );
       } catch (error) {
         const reason = error instanceof Error ? error.message : String(error);
-        batchFailures.push(
-          "batch " + batchNumber + "/" + batches.length + ": " + reason,
-        );
+        batchFailures.push("batch " + batchNumber + "/" + batches.length + ": " + reason);
         options.onActivity?.({
           type: "lens-batch-failed",
           lens,

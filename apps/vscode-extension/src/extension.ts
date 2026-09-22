@@ -2366,11 +2366,7 @@ function reviewActivityDescription(event: ReviewActivityEvent): {
     case "lens-batch-start":
       return {
         phase:
-          event.lens.replaceAll("_", " ") +
-          " · batch " +
-          event.batch +
-          "/" +
-          event.totalBatches,
+          event.lens.replaceAll("_", " ") + " · batch " + event.batch + "/" + event.totalBatches,
         detail:
           "Reviewing " +
           event.files.length +
@@ -2388,10 +2384,7 @@ function reviewActivityDescription(event: ReviewActivityEvent): {
           event.totalBatches +
           " incomplete",
         detail:
-          "Batch stopped after " +
-          formatElapsedDuration(event.durationMs) +
-          ": " +
-          event.reason,
+          "Batch stopped after " + formatElapsedDuration(event.durationMs) + ": " + event.reason,
       };
     case "lens-failed":
       return {

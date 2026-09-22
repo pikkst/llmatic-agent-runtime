@@ -186,9 +186,7 @@ describe("review engine", () => {
     expect(gateway.requests[0]?.tools?.map((tool) => tool.function.name)).not.toContain(
       "read_diff",
     );
-    expect(JSON.stringify(gateway.requests[0]?.messages[1])).toContain(
-      "+export const value = 2;",
-    );
+    expect(JSON.stringify(gateway.requests[0]?.messages[1])).toContain("+export const value = 2;");
     const system = JSON.stringify(gateway.requests[0]?.messages[0]);
     expect(system).toContain("external pull request");
     expect(system).toContain("untrusted project data");
