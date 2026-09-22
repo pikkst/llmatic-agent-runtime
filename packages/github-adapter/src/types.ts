@@ -88,7 +88,7 @@ export interface PublishPullRequestReviewInput {
   event?: PullRequestReviewEvent;
 }
 
-export interface PullRequestReviewContext {
+export interface PullRequestReviewMetadata {
   status: PullRequestStatus;
   title: string;
   body: string;
@@ -97,6 +97,9 @@ export interface PullRequestReviewContext {
   reviews: PullRequestReviewSnapshot[];
   comments: PullRequestCommentSnapshot[];
   reviewThreads: PullRequestReviewThreadSnapshot[];
+}
+
+export interface PullRequestReviewContext extends PullRequestReviewMetadata {
   diff: string;
   diffTruncated: boolean;
 }
