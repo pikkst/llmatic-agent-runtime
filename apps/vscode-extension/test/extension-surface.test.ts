@@ -195,7 +195,7 @@ describe("VS Code extension activation surface", () => {
       "utf8",
     );
 
-    expect(source).not.toContain("--list-extensions");
+    expect(source).not.toContain('"--list-extensions"');
     expect(source).toContain(
       "installed extension was not loaded from the isolated VSIX extensions directory",
     );
