@@ -2423,6 +2423,11 @@ function reviewActivityDescription(event: ReviewActivityEvent): {
         phase: "Review complete",
         detail: "Total review time " + formatElapsedDuration(event.durationMs),
       };
+    default:
+      return {
+        phase: "Review activity",
+        detail: "Review state updated.",
+      };
   }
 }
 
