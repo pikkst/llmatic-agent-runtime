@@ -265,7 +265,7 @@ async function taskRecoveryEnvironment(
   const secret =
     profile.authType === "oauth_broker"
       ? undefined
-      : await context.secrets.get(jiraSecretKey(state.activeWorkspace.id, profile.authType));
+      : await context.secrets.get(jiraSecretKey(workspaceId, profile.authType));
   const oauthCredential =
     profile.authType === "oauth_broker"
       ? await jiraOAuthCredential(context, state.activeWorkspace.id, profile)
@@ -496,6 +496,7 @@ async function persistJiraWorkspaceConnection(
   if (!folder || !state.activeWorkspace) {
     throw new Error("No attached workspace is available for Jira connection.");
   }
+  const workspaceId = state.activeWorkspace.id;
 
   const verifyEnvironment = sanitizedJiraEnvironment();
   verifyEnvironment.LLMATIC_TASK_PROVIDER = "jira";
@@ -532,7 +533,7 @@ async function persistJiraWorkspaceConnection(
       progress.report({ message: "Saving workspace credentials…" });
       await context.workspaceState.update(JIRA_PROFILE_STATE_KEY, profile);
       for (const authType of ["basic", "bearer", "oauth_broker"] as const) {
-        await context.secrets.delete(jiraSecretKey(state.activeWorkspace.id, authType));
+        await context.secrets.delete(jiraSecretKey(workspaceId, authType));
       }
       await context.secrets.store(
         jiraSecretKey(state.activeWorkspace.id, profile.authType),
