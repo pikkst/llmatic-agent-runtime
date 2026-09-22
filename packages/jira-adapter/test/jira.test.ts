@@ -367,11 +367,24 @@ describe("jira adapter", () => {
 
     const config = configFor(root);
     const store = new WorkflowStateStore(root, config);
-    const transport: JiraHttpTransport = async () => ({
-      status: 200,
-      statusText: "OK",
-      body: JSON.stringify(issueJson()),
-    });
+    const transport: JiraHttpTransport = async (request) => {
+      if (request.url.endsWith("/rest/api/3/myself")) {
+        return {
+          status: 200,
+          statusText: "OK",
+          body: JSON.stringify({
+            accountId: "acct-current",
+            displayName: "Engineer",
+          }),
+        };
+      }
+
+      return {
+        status: 200,
+        statusText: "OK",
+        body: JSON.stringify(issueJson()),
+      };
+    };
     const provider = new JiraTaskProvider(config, connection, transport);
 
     const selected = await selectJiraWorkflowTask(store, provider, "KT-123");
@@ -420,11 +433,24 @@ describe("jira adapter", () => {
 
     await selectJiraWorkflowTask(
       store,
-      new JiraTaskProvider(config, connection, async () => ({
-        status: 200,
-        statusText: "OK",
-        body: JSON.stringify(issueJson()),
-      })),
+      new JiraTaskProvider(config, connection, async (request) => {
+        if (request.url.endsWith("/rest/api/3/myself")) {
+          return {
+            status: 200,
+            statusText: "OK",
+            body: JSON.stringify({
+              accountId: "acct-current",
+              displayName: "Engineer",
+            }),
+          };
+        }
+
+        return {
+          status: 200,
+          statusText: "OK",
+          body: JSON.stringify(issueJson()),
+        };
+      }),
       "KT-123",
     );
     await transitionWorkflow(store, "TASK_VALIDATED");
