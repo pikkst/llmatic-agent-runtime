@@ -1,12 +1,5 @@
 import { createHash, randomUUID } from "node:crypto";
-import {
-  mkdir,
-  readFile,
-  rename,
-  rm,
-  stat,
-  writeFile,
-} from "node:fs/promises";
+import { mkdir, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
 import { basename, dirname, resolve } from "node:path";
 import type { AgentConfig } from "@llmatic/core";
 import {
@@ -17,11 +10,7 @@ import {
 } from "@llmatic/repo-intelligence";
 
 export type ConstitutionEntryKind =
-  | "fact"
-  | "explicit_rule"
-  | "inferred_convention"
-  | "approved_rule"
-  | "proposed_rule";
+  "fact" | "explicit_rule" | "inferred_convention" | "approved_rule" | "proposed_rule";
 
 export type ConstitutionRuleStrength = "blocking" | "advisory" | "informational";
 
@@ -197,12 +186,7 @@ function entry(
           : "RULE";
 
   return {
-    id: stableId(prefix, [
-      kind,
-      source.path,
-      String(source.line ?? 0),
-      text.toLowerCase(),
-    ]),
+    id: stableId(prefix, [kind, source.path, String(source.line ?? 0), text.toLowerCase()]),
     kind,
     text,
     strength,
@@ -417,8 +401,7 @@ function proposalEntries(stored: StoredRuleProposalFile): ConstitutionEntry[] {
   return stored.proposals
     .filter((proposal) => proposal.status !== "rejected")
     .map((proposal) => {
-      const kind =
-        proposal.status === "approved" ? "approved_rule" : "proposed_rule";
+      const kind = proposal.status === "approved" ? "approved_rule" : "proposed_rule";
       const source: ConstitutionSource = {
         path: proposal.sourcePath ?? "<llmatic-rule-proposal>",
         line: proposal.sourceLine,
@@ -523,12 +506,10 @@ export async function buildRepositoryConstitution(
       inferredConvention: rules.filter((rule) => rule.kind === "inferred_convention").length,
       approvedRule: rules.filter((rule) => rule.kind === "approved_rule").length,
       proposedRule: rules.filter((rule) => rule.kind === "proposed_rule").length,
-      blocking: rules.filter(
-        (rule) => rule.status === "active" && rule.strength === "blocking",
-      ).length,
-      advisory: rules.filter(
-        (rule) => rule.status === "active" && rule.strength === "advisory",
-      ).length,
+      blocking: rules.filter((rule) => rule.status === "active" && rule.strength === "blocking")
+        .length,
+      advisory: rules.filter((rule) => rule.status === "active" && rule.strength === "advisory")
+        .length,
     },
   };
 
@@ -545,9 +526,7 @@ export async function loadRepositoryConstitution(
   } catch (error) {
     const code = error instanceof Error && "code" in error ? String(error.code) : undefined;
     if (code === "ENOENT") {
-      throw new Error(
-        "Repository constitution was not found. Run repository analysis first.",
-      );
+      throw new Error("Repository constitution was not found. Run repository analysis first.");
     }
     throw error;
   }
@@ -610,13 +589,10 @@ export async function decideRepositoryRuleProposal(
   return proposal;
 }
 
-export function activeRepositoryRules(
-  constitution: RepositoryConstitution,
-): ConstitutionEntry[] {
+export function activeRepositoryRules(constitution: RepositoryConstitution): ConstitutionEntry[] {
   return constitution.rules.filter(
     (rule) =>
-      rule.status === "active" &&
-      (rule.kind === "explicit_rule" || rule.kind === "approved_rule"),
+      rule.status === "active" && (rule.kind === "explicit_rule" || rule.kind === "approved_rule"),
   );
 }
 
@@ -644,9 +620,9 @@ export function repositoryConstitutionContext(
     "- Active advisory rules: " + constitution.counts.advisory,
     "- Inferred conventions: " + constitution.counts.inferredConvention,
     "- Proposed rules awaiting human decision: " + constitution.counts.proposedRule,
-    ...constitution.facts.slice(0, 20).map(
-      (fact) => "- FACT " + fact.id + ": " + fact.text + " [" + fact.source.path + "]",
-    ),
+    ...constitution.facts
+      .slice(0, 20)
+      .map((fact) => "- FACT " + fact.id + ": " + fact.text + " [" + fact.source.path + "]"),
     ...rules.map(
       (rule) =>
         "- " +

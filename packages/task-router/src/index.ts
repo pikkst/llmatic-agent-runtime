@@ -207,7 +207,6 @@ export async function resolveWorkflowTaskProvider(
   return resolveTaskProvider(root, config, selected ?? "auto", environment);
 }
 
-
 export async function startTaskWorkflow(
   root: string,
   config: AgentConfig,
@@ -219,12 +218,7 @@ export async function startTaskWorkflow(
   } = {},
 ): Promise<{ task: TaskRecord; workflow: WorkflowRun; provider: string }> {
   const environment = options.environment ?? process.env;
-  const provider = await resolveTaskProvider(
-    root,
-    config,
-    options.provider ?? "auto",
-    environment,
-  );
+  const provider = await resolveTaskProvider(root, config, options.provider ?? "auto", environment);
 
   const task = options.reference?.trim()
     ? await provider.getTask(options.reference.trim())
@@ -233,9 +227,7 @@ export async function startTaskWorkflow(
       : undefined;
 
   if (!task) {
-    throw new Error(
-      "No actionable task could be resolved from provider " + provider.id + ".",
-    );
+    throw new Error("No actionable task could be resolved from provider " + provider.id + ".");
   }
 
   await selectWorkflowTask(store, provider, task.key);

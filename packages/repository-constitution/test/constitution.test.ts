@@ -81,10 +81,7 @@ async function repository(): Promise<string> {
 
   await writeFile(join(root, "src", "example.ts"), "export const value = 1;\n");
   for (let index = 0; index < 5; index += 1) {
-    await writeFile(
-      join(root, "test", "feature-" + index + ".test.ts"),
-      "export {};\n",
-    );
+    await writeFile(join(root, "test", "feature-" + index + ".test.ts"), "export {};\n");
   }
 
   return root;
@@ -117,9 +114,7 @@ describe("repository constitution", () => {
     const root = await repository();
     const constitution = await buildRepositoryConstitution(root, configFor(root));
 
-    const convention = constitution.rules.find(
-      (rule) => rule.kind === "inferred_convention",
-    );
+    const convention = constitution.rules.find((rule) => rule.kind === "inferred_convention");
     expect(convention).toBeDefined();
     expect(convention?.status).toBe("active");
     expect(convention?.strength).not.toBe("blocking");

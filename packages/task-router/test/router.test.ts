@@ -2,16 +2,8 @@ import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import {
-  WorkflowStateStore,
-  createDefaultConfig,
-  type RepositoryDetection,
-} from "@llmatic/core";
-import {
-  detectTaskSources,
-  resolveTaskProvider,
-  startTaskWorkflow,
-} from "../src/index.js";
+import { WorkflowStateStore, createDefaultConfig, type RepositoryDetection } from "@llmatic/core";
+import { detectTaskSources, resolveTaskProvider, startTaskWorkflow } from "../src/index.js";
 
 const roots: string[] = [];
 
@@ -106,9 +98,7 @@ describe("task router", () => {
     expect(result.workflow.state).toBe("TASK_VALIDATED");
     expect(
       result.workflow.checkpoints.find(
-        (checkpoint) =>
-          checkpoint.kind === "ACTION" &&
-          checkpoint.action === "task.select",
+        (checkpoint) => checkpoint.kind === "ACTION" && checkpoint.action === "task.select",
       ),
     ).toMatchObject({
       provider: "markdown",

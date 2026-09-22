@@ -401,10 +401,7 @@ async function refreshWorkspaceRecovery(
     );
     if (recovery.workflow) {
       output.appendLine(
-        "[RECOVERY] Workflow: " +
-          recovery.workflow.taskRef +
-          " / " +
-          recovery.workflow.state,
+        "[RECOVERY] Workflow: " + recovery.workflow.taskRef + " / " + recovery.workflow.state,
       );
     }
     if (recovery.task) {
@@ -419,10 +416,7 @@ async function refreshWorkspaceRecovery(
       );
     } else if (recovery.nextTask) {
       output.appendLine(
-        "[RECOVERY] Next task: " +
-          recovery.nextTask.key +
-          " — " +
-          recovery.nextTask.summary,
+        "[RECOVERY] Next task: " + recovery.nextTask.key + " — " + recovery.nextTask.summary,
       );
     }
     if (recovery.pullRequest) {
@@ -434,10 +428,7 @@ async function refreshWorkspaceRecovery(
       );
     }
     output.appendLine(
-      "[NEXT] " +
-        recovery.recommendation.title +
-        " — " +
-        recovery.recommendation.detail,
+      "[NEXT] " + recovery.recommendation.title + " — " + recovery.recommendation.detail,
     );
   }
 
@@ -831,9 +822,7 @@ function printReviewReport(output: vscode.OutputChannel, report: CodeReviewRepor
       report.nonBlockingCount +
       " non-blocking)",
   );
-  output.appendLine(
-    "Review lenses: " + report.lenses.join(", "),
-  );
+  output.appendLine("Review lenses: " + report.lenses.join(", "));
   output.appendLine(
     "Repository constitution: " +
       report.constitution.activeRuleCount +
@@ -871,9 +860,7 @@ function printReviewReport(output: vscode.OutputChannel, report: CodeReviewRepor
     );
     if (finding.ruleId) {
       output.appendLine(
-        "  Rule: " +
-          finding.ruleId +
-          (finding.ruleSource ? " (" + finding.ruleSource + ")" : ""),
+        "  Rule: " + finding.ruleId + (finding.ruleSource ? " (" + finding.ruleSource + ")" : ""),
       );
     }
     output.appendLine("  " + finding.evidence);
@@ -1073,14 +1060,7 @@ async function runAgentChatTurn(
   if (!(await confirmAutoFreeDataHandling(context, model))) return;
 
   if (!state.recovery) {
-    await refreshWorkspaceRecovery(
-      context,
-      state,
-      statusProvider,
-      chatProvider,
-      output,
-      false,
-    );
+    await refreshWorkspaceRecovery(context, state, statusProvider, chatProvider, output, false);
   }
 
   const root = folder.uri.fsPath;
@@ -1110,24 +1090,14 @@ async function runAgentChatTurn(
       onEvent: (event) => {
         const line = formatAgentEvent(event);
         output.appendLine(line);
-        chatProvider.appendActivity(
-          line,
-          event.type === "tool-result" ? event.success : undefined,
-        );
+        chatProvider.appendActivity(line, event.type === "tool-result" ? event.success : undefined);
       },
     });
 
     output.appendLine("[CHAT] LLMatic: " + result.finalText);
     chatProvider.appendAssistant(result.finalText);
 
-    await refreshWorkspaceRecovery(
-      context,
-      state,
-      statusProvider,
-      chatProvider,
-      output,
-      true,
-    );
+    await refreshWorkspaceRecovery(context, state, statusProvider, chatProvider, output, true);
   } finally {
     chatProvider.setBusy(false);
   }
@@ -2082,18 +2052,8 @@ async function offerOnboarding(
 }
 
 function ruleLabel(rule: ConstitutionEntry): string {
-  const source =
-    rule.source.path +
-    (rule.source.line ? ":" + String(rule.source.line) : "");
-  return (
-    rule.id +
-    " · " +
-    rule.kind.replaceAll("_", " ") +
-    " · " +
-    rule.strength +
-    " · " +
-    source
-  );
+  const source = rule.source.path + (rule.source.line ? ":" + String(rule.source.line) : "");
+  return rule.id + " · " + rule.kind.replaceAll("_", " ") + " · " + rule.strength + " · " + source;
 }
 
 async function generatePrDraftInUi(
@@ -2116,14 +2076,7 @@ async function generatePrDraftInUi(
   }
 
   if (!state.recovery) {
-    await refreshWorkspaceRecovery(
-      context,
-      state,
-      statusProvider,
-      chatProvider,
-      output,
-      false,
-    );
+    await refreshWorkspaceRecovery(context, state, statusProvider, chatProvider, output, false);
   }
 
   const config = await loadAgentConfig(folder.uri.fsPath, {
@@ -2160,14 +2113,7 @@ async function showRepositoryRulesInUi(
   output: vscode.OutputChannel,
 ): Promise<void> {
   if (!state.recovery) {
-    await refreshWorkspaceRecovery(
-      context,
-      state,
-      statusProvider,
-      chatProvider,
-      output,
-      false,
-    );
+    await refreshWorkspaceRecovery(context, state, statusProvider, chatProvider, output, false);
   }
 
   const constitution = state.recovery?.constitution;
@@ -2180,8 +2126,11 @@ async function showRepositoryRulesInUi(
 
   const items = constitution.rules.map((rule) => ({
     label:
-      (rule.status === "proposed" ? "$(question) " : rule.strength === "blocking" ? "$(lock) " : "$(law) ") +
-      rule.text,
+      (rule.status === "proposed"
+        ? "$(question) "
+        : rule.strength === "blocking"
+          ? "$(lock) "
+          : "$(law) ") + rule.text,
     description: ruleLabel(rule),
     detail: rule.rationale,
     rule,
@@ -2219,14 +2168,7 @@ async function reviewRepositoryRuleProposalsInUi(
   output: vscode.OutputChannel,
 ): Promise<void> {
   if (!state.recovery) {
-    await refreshWorkspaceRecovery(
-      context,
-      state,
-      statusProvider,
-      chatProvider,
-      output,
-      false,
-    );
+    await refreshWorkspaceRecovery(context, state, statusProvider, chatProvider, output, false);
   }
 
   const proposals =
@@ -2250,8 +2192,7 @@ async function reviewRepositoryRuleProposalsInUi(
     })),
     {
       title: "Review Repository Rule Proposals",
-      placeHolder:
-        "A proposal is not enforced until you explicitly approve it.",
+      placeHolder: "A proposal is not enforced until you explicitly approve it.",
       matchOnDescription: true,
       matchOnDetail: true,
       ignoreFocusOut: true,
@@ -2290,14 +2231,7 @@ async function reviewRepositoryRuleProposalsInUi(
     decision === "Approve Rule" ? "approved" : "rejected",
   );
 
-  await refreshWorkspaceRecovery(
-    context,
-    state,
-    statusProvider,
-    chatProvider,
-    output,
-    true,
-  );
+  await refreshWorkspaceRecovery(context, state, statusProvider, chatProvider, output, true);
 
   await vscode.window.showInformationMessage(
     decision === "Approve Rule"
@@ -2372,38 +2306,16 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     vscode.window.registerWebviewViewProvider("llmatic.agentChat", chatProvider),
   );
   chatProvider.setHandlers({
-    send: (text) =>
-      runAgentChatTurn(
-        context,
-        state,
-        statusProvider,
-        chatProvider,
-        output,
-        text,
-      ),
+    send: (text) => runAgentChatTurn(context, state, statusProvider, chatProvider, output, text),
     refresh: async () => {
       chatProvider.appendActivity("Refreshing repository map and workspace recovery…");
-      await refreshWorkspaceRecovery(
-        context,
-        state,
-        statusProvider,
-        chatProvider,
-        output,
-        true,
-      );
+      await refreshWorkspaceRecovery(context, state, statusProvider, chatProvider, output, true);
       chatProvider.appendActivity("Repository context refreshed.", true);
     },
     continueRecommended: async () => {
       const recommendation = state.recovery?.recommendation;
       if (!recommendation) {
-        await refreshWorkspaceRecovery(
-          context,
-          state,
-          statusProvider,
-          chatProvider,
-          output,
-          true,
-        );
+        await refreshWorkspaceRecovery(context, state, statusProvider, chatProvider, output, true);
       }
 
       const current = state.recovery?.recommendation;
@@ -2425,10 +2337,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         statusProvider,
         chatProvider,
         output,
-        "Continue with the recommended next action: " +
-          current.title +
-          ". " +
-          current.detail,
+        "Continue with the recommended next action: " + current.title + ". " + current.detail,
       );
     },
   });
@@ -2668,13 +2577,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     }),
     vscode.commands.registerCommand("llmatic.generatePrDraft", async () => {
       try {
-        await generatePrDraftInUi(
-          context,
-          state,
-          statusProvider,
-          chatProvider,
-          output,
-        );
+        await generatePrDraftInUi(context, state, statusProvider, chatProvider, output);
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
         await vscode.window.showErrorMessage("LLMatic PR draft: " + message);
@@ -2682,13 +2585,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     }),
     vscode.commands.registerCommand("llmatic.showRepositoryRules", async () => {
       try {
-        await showRepositoryRulesInUi(
-          context,
-          state,
-          statusProvider,
-          chatProvider,
-          output,
-        );
+        await showRepositoryRulesInUi(context, state, statusProvider, chatProvider, output);
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
         await vscode.window.showErrorMessage("LLMatic rules: " + message);
@@ -2705,25 +2602,15 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         );
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
-        await vscode.window.showErrorMessage(
-          "LLMatic rule proposal review: " + message,
-        );
+        await vscode.window.showErrorMessage("LLMatic rule proposal review: " + message);
       }
     }),
     vscode.commands.registerCommand("llmatic.refreshWorkspaceRecovery", async () => {
       try {
-        await refreshWorkspaceRecovery(
-          context,
-          state,
-          statusProvider,
-          chatProvider,
-          output,
-          true,
-        );
+        await refreshWorkspaceRecovery(context, state, statusProvider, chatProvider, output, true);
         await vscode.window.showInformationMessage(
           state.recovery
-            ? "LLMatic repository context refreshed: " +
-                state.recovery.recommendation.title
+            ? "LLMatic repository context refreshed: " + state.recovery.recommendation.title
             : "LLMatic repository context cleared.",
         );
       } catch (error) {
@@ -2815,19 +2702,14 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   statusProvider.update(state.health, state.gatewayKeyConfigured, state.recovery);
   await vscode.commands.executeCommand("setContext", "llmatic.health", state.health?.status);
 
-  void refreshWorkspaceRecovery(
-    context,
-    state,
-    statusProvider,
-    chatProvider,
-    output,
-    false,
-  ).catch((error) => {
-    output.appendLine(
-      "[WARN] Initial workspace recovery failed: " +
-        (error instanceof Error ? error.message : String(error)),
-    );
-  });
+  void refreshWorkspaceRecovery(context, state, statusProvider, chatProvider, output, false).catch(
+    (error) => {
+      output.appendLine(
+        "[WARN] Initial workspace recovery failed: " +
+          (error instanceof Error ? error.message : String(error)),
+      );
+    },
+  );
 
   // Onboarding must never block extension activation. In headless Extension Host
   // acceptance there is no user available to answer the notification, and in

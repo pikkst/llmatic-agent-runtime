@@ -1,8 +1,5 @@
 import { describe, expect, it } from "vitest";
-import {
-  recommendWorkspaceAction,
-  type RepositoryMapSummary,
-} from "../src/index.js";
+import { recommendWorkspaceAction, type RepositoryMapSummary } from "../src/index.js";
 import type { GitStatus } from "@llmatic/git-adapter";
 import type { PullRequestStatus } from "@llmatic/github-adapter";
 import type { TaskRecord } from "@llmatic/task-provider";
@@ -124,7 +121,13 @@ describe("workspace recovery recommendation", () => {
 
   it("sends an empty repository to discovery", () => {
     const result = recommendWorkspaceAction({
-      repository: { ...repository, fileCount: 0, sourceFileCount: 0, symbolCount: 0, importCount: 0 },
+      repository: {
+        ...repository,
+        fileCount: 0,
+        sourceFileCount: 0,
+        symbolCount: 0,
+        importCount: 0,
+      },
       git: cleanGit,
     });
 

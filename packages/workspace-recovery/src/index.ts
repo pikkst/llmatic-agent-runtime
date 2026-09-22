@@ -1,9 +1,6 @@
 import type { AgentConfig, WorkflowRun, WorkflowStateStore } from "@llmatic/core";
 import { getGitStatus, type GitStatus } from "@llmatic/git-adapter";
-import {
-  getPullRequestStatus,
-  type PullRequestStatus,
-} from "@llmatic/github-adapter";
+import { getPullRequestStatus, type PullRequestStatus } from "@llmatic/github-adapter";
 import {
   buildRepositoryIndex,
   loadRepositoryIndex,
@@ -127,13 +124,7 @@ async function recoverWorkflowTask(
   environment: NodeJS.ProcessEnv,
 ): Promise<TaskRecord | undefined> {
   try {
-    const provider = await resolveWorkflowTaskProvider(
-      root,
-      config,
-      store,
-      "auto",
-      environment,
-    );
+    const provider = await resolveWorkflowTaskProvider(root, config, store, "auto", environment);
     return await providerTask(provider, workflow.taskRef);
   } catch {
     return undefined;
@@ -165,12 +156,7 @@ async function recoverBranchTask(
 
   for (const candidate of available) {
     try {
-      const provider = await resolveTaskProvider(
-        root,
-        config,
-        candidate.id,
-        environment,
-      );
+      const provider = await resolveTaskProvider(root, config, candidate.id, environment);
       const task = await providerTask(provider, reference);
       if (task) return task;
     } catch {
@@ -190,12 +176,7 @@ async function recoverProviderTasks(
   if (detection.selected === "manual") return { candidates: [] };
 
   try {
-    const provider = await resolveTaskProvider(
-      root,
-      config,
-      detection.selected,
-      environment,
-    );
+    const provider = await resolveTaskProvider(root, config, detection.selected, environment);
 
     if (provider.listTasks) {
       const tasks = await provider.listTasks();
@@ -203,25 +184,19 @@ async function recoverProviderTasks(
       if (active) {
         return {
           task: active,
-          candidates: tasks
-            .filter((task) => task.status.lifecycle !== "done")
-            .slice(0, 10),
+          candidates: tasks.filter((task) => task.status.lifecycle !== "done").slice(0, 10),
         };
       }
 
       if (provider.getNextTask) {
         return {
           nextTask: await provider.getNextTask(),
-          candidates: tasks
-            .filter((task) => task.status.lifecycle !== "done")
-            .slice(0, 10),
+          candidates: tasks.filter((task) => task.status.lifecycle !== "done").slice(0, 10),
         };
       }
 
       return {
-        candidates: tasks
-          .filter((task) => task.status.lifecycle !== "done")
-          .slice(0, 10),
+        candidates: tasks.filter((task) => task.status.lifecycle !== "done").slice(0, 10),
       };
     }
 
@@ -387,11 +362,7 @@ export async function recoverWorkspace(
   const environment = options.environment ?? process.env;
   const warnings: string[] = [];
 
-  const index = await loadOrBuildRepositoryIndex(
-    root,
-    config,
-    options.rebuildIndex ?? false,
-  );
+  const index = await loadOrBuildRepositoryIndex(root, config, options.rebuildIndex ?? false);
   const repository = indexSummary(index);
   const constitution = await buildRepositoryConstitution(root, config, {
     rebuildIndex: false,
@@ -411,21 +382,10 @@ export async function recoverWorkspace(
       warnings.push("Active workflow task metadata could not be refreshed from its provider.");
     }
   } else {
-    task = await recoverBranchTask(
-      root,
-      config,
-      taskSource,
-      git.branch,
-      environment,
-    );
+    task = await recoverBranchTask(root, config, taskSource, git.branch, environment);
 
     if (!task) {
-      const providerTasks = await recoverProviderTasks(
-        root,
-        config,
-        taskSource,
-        environment,
-      );
+      const providerTasks = await recoverProviderTasks(root, config, taskSource, environment);
       task = providerTasks.task;
       nextTask = providerTasks.nextTask;
       taskCandidates = providerTasks.candidates;
@@ -530,9 +490,13 @@ export function workspaceRecoveryContext(recovery: WorkspaceRecovery): string {
       recovery.recommendation.detail,
   ].filter((line): line is string => Boolean(line));
 
-  return lines.join("\n") + "\n\n" + repositoryConstitutionContext(recovery.constitution, {
-    includeInferred: true,
-    includeProposed: false,
-    maxRules: 60,
-  });
+  return (
+    lines.join("\n") +
+    "\n\n" +
+    repositoryConstitutionContext(recovery.constitution, {
+      includeInferred: true,
+      includeProposed: false,
+      maxRules: 60,
+    })
+  );
 }

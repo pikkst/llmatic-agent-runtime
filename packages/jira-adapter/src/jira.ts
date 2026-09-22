@@ -212,9 +212,7 @@ function linkedDependencies(fields: Record<string, unknown>): string[] {
     if (!value || typeof value !== "object") continue;
     const link = value as Record<string, unknown>;
     const type =
-      link.type && typeof link.type === "object"
-        ? (link.type as Record<string, unknown>)
-        : {};
+      link.type && typeof link.type === "object" ? (link.type as Record<string, unknown>) : {};
     const inwardDescription = String(type.inward ?? "").toLowerCase();
     const inwardIssue =
       link.inwardIssue && typeof link.inwardIssue === "object"
@@ -316,9 +314,7 @@ export class JiraTaskProvider implements TaskProvider {
     return taskFromIssue(this.connection, issue);
   }
 
-  public async listTasks(
-    options: TaskProviderOperationOptions = {},
-  ): Promise<TaskRecord[]> {
+  public async listTasks(options: TaskProviderOperationOptions = {}): Promise<TaskRecord[]> {
     permission(this.runtimeConfig.permissions.taskRead, "Task read", options.approved ?? false);
 
     const projectKey = this.environment.LLMATIC_JIRA_PROJECT_KEY?.trim();
@@ -327,9 +323,7 @@ export class JiraTaskProvider implements TaskProvider {
     }
 
     const configuredJql = this.environment.LLMATIC_JIRA_RECOVERY_JQL?.trim();
-    const scope = projectKey
-      ? 'project = "' + projectKey.toUpperCase() + '" AND '
-      : "";
+    const scope = projectKey ? 'project = "' + projectKey.toUpperCase() + '" AND ' : "";
     const jql =
       configuredJql ||
       scope +

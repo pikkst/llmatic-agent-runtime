@@ -67,9 +67,7 @@ describe("VS Code extension activation surface", () => {
         type: "webview",
       }),
     );
-    expect(packageJson.contributes.configuration.properties).toHaveProperty(
-      "llmatic.taskSource",
-    );
+    expect(packageJson.contributes.configuration.properties).toHaveProperty("llmatic.taskSource");
     expect(packageJson.contributes.configuration.properties).toHaveProperty(
       "llmatic.jiraProjectKey",
     );
@@ -83,5 +81,4 @@ describe("VS Code extension activation surface", () => {
     expect(source).toContain("Latest review");
     expect(source).toContain('type: "continue"');
   });
-
 });

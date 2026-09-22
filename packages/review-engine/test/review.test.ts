@@ -143,11 +143,7 @@ describe("review engine", () => {
         },
       ],
     });
-    const gateway = new ScriptedGateway([
-      response(finding),
-      response(finding),
-      response(finding),
-    ]);
+    const gateway = new ScriptedGateway([response(finding), response(finding), response(finding)]);
 
     await runCodeReview({ root, config, store, gateway });
     await runCodeReview({ root, config, store, gateway });
@@ -162,7 +158,9 @@ describe("review engine", () => {
 
     expect(proposal).toBeDefined();
     expect(proposal?.status).toBe("proposed");
-    expect(activeRepositoryRules(constitution).some((rule) => rule.id === proposal?.id)).toBe(false);
+    expect(activeRepositoryRules(constitution).some((rule) => rule.id === proposal?.id)).toBe(
+      false,
+    );
   });
 
   it("moves CODE_REVIEW to FIXING for blocking findings", async () => {

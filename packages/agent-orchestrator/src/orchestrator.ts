@@ -13,10 +13,7 @@ import type {
   GatewayToolCall,
 } from "@llmatic/gateway-client";
 import { createWorkflowBranch, getGitStatus } from "@llmatic/git-adapter";
-import {
-  getFailedPullRequestDiagnostics,
-  getPullRequestStatus,
-} from "@llmatic/github-adapter";
+import { getFailedPullRequestDiagnostics, getPullRequestStatus } from "@llmatic/github-adapter";
 import {
   detectTaskSources,
   resolveTaskProvider,
@@ -195,8 +192,7 @@ const TOOLS: GatewayTool[] = [
     type: "function",
     function: {
       name: "workflow_begin_implementation",
-      description:
-        "Advance BRANCH_CREATED to IMPLEMENTING after the branch is ready.",
+      description: "Advance BRANCH_CREATED to IMPLEMENTING after the branch is ready.",
       parameters: {
         type: "object",
         properties: {},
@@ -459,10 +455,7 @@ function taskProviderInput(args: Record<string, unknown>): TaskProviderId {
   throw new Error("Unsupported task provider: " + value + ".");
 }
 
-async function taskProviderFor(
-  context: ToolExecutionContext,
-  args: Record<string, unknown>,
-) {
+async function taskProviderFor(context: ToolExecutionContext, args: Record<string, unknown>) {
   return resolveTaskProvider(
     context.root,
     context.config,
@@ -494,11 +487,11 @@ async function executeTool(context: ToolExecutionContext, call: GatewayToolCall)
 
     case "propose_repository_rule": {
       const strength =
-        args.strength === "blocking" || args.strength === "advisory"
-          ? args.strength
-          : undefined;
+        args.strength === "blocking" || args.strength === "advisory" ? args.strength : undefined;
       const scopes = Array.isArray(args.scopes)
-        ? args.scopes.filter((value): value is string => typeof value === "string" && Boolean(value.trim()))
+        ? args.scopes.filter(
+            (value): value is string => typeof value === "string" && Boolean(value.trim()),
+          )
         : undefined;
       const sourceLine =
         typeof args.source_line === "number" && Number.isInteger(args.source_line)
@@ -529,11 +522,7 @@ async function executeTool(context: ToolExecutionContext, call: GatewayToolCall)
       });
 
     case "workflow_analyze_repository":
-      return analyzeWorkflowRepository(
-        context.root,
-        context.config,
-        context.store,
-      );
+      return analyzeWorkflowRepository(context.root, context.config, context.store);
 
     case "workflow_create_branch":
       return createWorkflowBranch(
@@ -546,9 +535,7 @@ async function executeTool(context: ToolExecutionContext, call: GatewayToolCall)
     case "workflow_begin_implementation": {
       const current = await context.store.loadCurrent();
       if (!current || current.state !== "BRANCH_CREATED") {
-        throw new Error(
-          "Workflow implementation start requires state BRANCH_CREATED.",
-        );
+        throw new Error("Workflow implementation start requires state BRANCH_CREATED.");
       }
       return transitionWorkflow(context.store, "IMPLEMENTING");
     }

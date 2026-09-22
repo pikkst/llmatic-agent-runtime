@@ -66,10 +66,7 @@ export class LlmaticStatusProvider implements vscode.TreeDataProvider<vscode.Tre
       map.tooltip = "Generated " + this.recovery.repository.generatedAt;
       recoveryItems.push(map);
 
-      const rules = new vscode.TreeItem(
-        "Repository Rules",
-        vscode.TreeItemCollapsibleState.None,
-      );
+      const rules = new vscode.TreeItem("Repository Rules", vscode.TreeItemCollapsibleState.None);
       rules.iconPath = new vscode.ThemeIcon("law");
       rules.description =
         this.recovery.constitution.counts.explicitRule +

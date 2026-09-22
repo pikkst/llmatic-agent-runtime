@@ -240,7 +240,6 @@ The repository connector cannot create Git tags. Once main is green, the only ma
     git tag -a v0.1.0 -m "LLMatic Agent Runtime v0.1.0"
     git push origin v0.1.0
 
-
 ## M27 — Intelligent Workspace Recovery & Agent Chat
 
 Status: in progress.

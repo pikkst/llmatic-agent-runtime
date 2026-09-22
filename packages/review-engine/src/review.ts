@@ -76,14 +76,14 @@ function reviewFindingSignature(finding: ReviewFinding): string {
     "|" +
     finding.lens +
     "|" +
-    finding.title.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim()
+    finding.title
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, " ")
+      .trim()
   );
 }
 
-async function readReviewHistory(
-  root: string,
-  config: AgentConfig,
-): Promise<ReviewHistoryFile> {
+async function readReviewHistory(root: string, config: AgentConfig): Promise<ReviewHistoryFile> {
   try {
     const parsed = JSON.parse(
       await readFile(reviewHistoryPath(root, config), "utf8"),
@@ -138,10 +138,7 @@ async function learnFromRepeatedReviewFindings(
     await proposeRepositoryRule(root, config, {
       text: finding.recommendation,
       rationale:
-        "Repeated review finding observed in " +
-        count +
-        " separate reviews: " +
-        finding.title,
+        "Repeated review finding observed in " + count + " separate reviews: " + finding.title,
       strength: finding.severity === "blocking" ? "blocking" : "advisory",
       scopes: [finding.category, finding.lens],
       sourcePath: finding.path,
@@ -207,8 +204,7 @@ const rawReviewSchema = z.object({
 
 type RawReviewFinding = z.infer<typeof findingSchema>;
 
-export interface ReviewFinding
-  extends Omit<RawReviewFinding, "rule_id"> {
+export interface ReviewFinding extends Omit<RawReviewFinding, "rule_id"> {
   lens: ReviewLens;
   ruleId?: string;
   ruleSource?: string;
@@ -458,10 +454,7 @@ function reviewLensInstructions(lens: ReviewLens): string[] {
   ];
 }
 
-function reviewSystemPrompt(
-  constitution: RepositoryConstitution,
-  lens: ReviewLens,
-): string {
+function reviewSystemPrompt(constitution: RepositoryConstitution, lens: ReviewLens): string {
   return [
     "You are the LLMatic code reviewer.",
     ...reviewLensInstructions(lens),
@@ -498,9 +491,7 @@ function normalizeReviewFinding(
   lens: ReviewLens,
   constitution: RepositoryConstitution,
 ): ReviewFinding {
-  const activeRules = new Map(
-    activeRepositoryRules(constitution).map((rule) => [rule.id, rule]),
-  );
+  const activeRules = new Map(activeRepositoryRules(constitution).map((rule) => [rule.id, rule]));
   const matchedRule = raw.rule_id ? activeRules.get(raw.rule_id) : undefined;
 
   return {
@@ -514,8 +505,7 @@ function normalizeReviewFinding(
     lens,
     ruleId: matchedRule?.id,
     ruleSource: matchedRule
-      ? matchedRule.source.path +
-        (matchedRule.source.line ? ":" + matchedRule.source.line : "")
+      ? matchedRule.source.path + (matchedRule.source.line ? ":" + matchedRule.source.line : "")
       : undefined,
   };
 }
@@ -588,9 +578,7 @@ async function runReviewLens(
     const assistant = response.choices[0]?.message;
     if (!assistant) {
       throw new Error(
-        "Review Gateway response did not contain an assistant message for lens " +
-          lens +
-          ".",
+        "Review Gateway response did not contain an assistant message for lens " + lens + ".",
       );
     }
 
@@ -625,9 +613,7 @@ async function runReviewLens(
 
     if (!assistant.content?.trim()) {
       throw new Error(
-        "Review model returned neither tool calls nor a JSON report for lens " +
-          lens +
-          ".",
+        "Review model returned neither tool calls nor a JSON report for lens " + lens + ".",
       );
     }
 
@@ -701,12 +687,8 @@ export async function runCodeReview(options: CodeReviewOptions): Promise<CodeRev
     lensResults.push(await runReviewLens(options, constitution, changedFiles, lens));
   }
 
-  const findings = deduplicateFindings(
-    lensResults.flatMap((result) => result.findings),
-  );
-  const codeBlockingCount = findings.filter(
-    (finding) => finding.severity === "blocking",
-  ).length;
+  const findings = deduplicateFindings(lensResults.flatMap((result) => result.findings));
+  const codeBlockingCount = findings.filter((finding) => finding.severity === "blocking").length;
   const architectureImpact = await analyzeArchitectureImpact(options.root, changedFiles);
   const blockingCount = codeBlockingCount + architectureImpact.unresolvedCount;
   const impactSummary = architectureImpactSummary(architectureImpact);
@@ -822,16 +804,9 @@ function blockingFixInstruction(report: CodeReviewReport): string {
   ].join("\n\n");
 }
 
-async function runAdHocValidation(
-  options: ReviewFixLoopOptions,
-  round: number,
-): Promise<boolean> {
+async function runAdHocValidation(options: ReviewFixLoopOptions, round: number): Promise<boolean> {
   for (const gate of options.config.workflow.requiredGates) {
-    const result = await executeCapability(
-      options.root,
-      options.config,
-      gate as CapabilityName,
-    );
+    const result = await executeCapability(options.root, options.config, gate as CapabilityName);
 
     if (!result.success) {
       options.onEvent?.({ type: "validation", round, success: false });

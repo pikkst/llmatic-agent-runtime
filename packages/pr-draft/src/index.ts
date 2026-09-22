@@ -209,33 +209,21 @@ function ruleLines(review: CodeReviewReport | undefined): string[] {
   return lines;
 }
 
-export function buildPullRequestDraft(
-  input: PullRequestDraftInput,
-): PullRequestDraft {
+export function buildPullRequestDraft(input: PullRequestDraftInput): PullRequestDraft {
   const task = input.task;
-  const changedFiles = unique(
-    input.changedFiles ?? input.review?.changedFiles ?? [],
-  );
-  const validation = validationEvidence(
-    input.workflow,
-    input.extraValidation ?? [],
-  );
+  const changedFiles = unique(input.changedFiles ?? input.review?.changedFiles ?? []);
+  const validation = validationEvidence(input.workflow, input.extraValidation ?? []);
   const validationLines =
     validation.length === 0
       ? ["- Validation evidence not captured yet."]
       : validation.map(
           (item) =>
-            "- " +
-            (item.success ? "PASS" : "FAIL") +
-            " " +
-            item.label +
-            " — " +
-            item.detail,
+            "- " + (item.success ? "PASS" : "FAIL") + " " + item.label + " — " + item.detail,
         );
 
   const taskReference = task?.webUrl
     ? task.key + " — " + task.webUrl
-    : task?.key ?? input.workflow?.taskRef ?? "Not linked";
+    : (task?.key ?? input.workflow?.taskRef ?? "Not linked");
 
   const body = [
     "## Why",
