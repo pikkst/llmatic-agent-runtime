@@ -2517,6 +2517,377 @@ async function reviewExternalPullRequestInUi(
   }
 }
 
+async function runAutomaticExternalPullRequestReview(
+  context: vscode.ExtensionContext,
+  state: ExtensionState,
+  statusProvider: LlmaticStatusProvider,
+  output: vscode.OutputChannel,
+  pullRequest: OpenPullRequestSummary,
+): Promise<Awaited<ReturnType<typeof runExternalPullRequestReview>>> {
+  const folder = firstWorkspaceFolder();
+  if (!folder) {
+    throw new Error("Open a repository workspace before running Auto Review Agent.");
+  }
+
+  if (!state.activeWorkspace) {
+    state.activeWorkspace = await attachWorkspace(context, folder);
+  }
+
+  const model =
+    configuration().get<string>("agentModel", "kilo-auto/free").trim() || "kilo-auto/free";
+  const gatewayAccess = await automaticGatewayAccess(context, model);
+  if (!gatewayAccess) {
+    throw new Error(
+      "Auto Review Agent needs an available Kilo Gateway model. Connect Kilo Gateway or accept Auto Free data handling first.",
+    );
+  }
+
+  const root = folder.uri.fsPath;
+  const config = await loadAgentConfig(root, {
+    LLMATIC_HOME: context.globalStorageUri.fsPath,
+  });
+  const gateway = new KiloGatewayClient({
+    apiKey: gatewayAccess.apiKey,
+    onRetry: (event) => {
+      output.appendLine(
+        "[AUTO REVIEW][RETRY] Kilo Gateway " +
+          event.nextAttempt +
+          "/" +
+          event.maxAttempts +
+          ": " +
+          event.reason,
+      );
+    },
+  });
+
+  const reviewContext = await getPullRequestReviewContext(root, pullRequest.number);
+  const fileCache = new Map<string, unknown>();
+  return runExternalPullRequestReview({
+    root,
+    config,
+    gateway,
+    readFile: (path, options) => {
+      const key =
+        path + ":" + String(options.startLine ?? "") + ":" + String(options.endLine ?? "");
+      const cached = fileCache.get(key);
+      if (cached) return cached;
+
+      const value = readPullRequestFileAtHead(
+        root,
+        reviewContext.status.pullRequest,
+        path,
+        options,
+      );
+      fileCache.set(key, value);
+      return value;
+    },
+    model,
+    maxSteps: configuration().get<number>("agentMaxSteps", 20),
+    lenses: ["general", "bug_hunter", "security"],
+    material: {
+      reference: String(reviewContext.status.pullRequest.number),
+      headRefOid: reviewContext.status.pullRequest.headRefOid,
+      title: reviewContext.title,
+      body: reviewContext.body,
+      authorLogin: reviewContext.authorLogin,
+      ciState: reviewContext.status.ciState,
+      changedFiles: reviewContext.changedFiles.map((file) => file.path),
+      diff: reviewContext.diff,
+      diffTruncated: reviewContext.diffTruncated,
+      reviews: reviewContext.reviews,
+      comments: reviewContext.comments,
+      reviewThreads: reviewContext.reviewThreads,
+    },
+  });
+}
+
+async function runAutoReviewScan(
+  context: vscode.ExtensionContext,
+  state: ExtensionState,
+  statusProvider: LlmaticStatusProvider,
+  output: vscode.OutputChannel,
+  notifyWhenIdle = false,
+): Promise<void> {
+  let profile = autoReviewWorkspaceState(context);
+  if (!profile.enabled || state.autoReviewRunning) return;
+
+  const folder = firstWorkspaceFolder();
+  if (!folder) return;
+
+  state.autoReviewRunning = true;
+  const operation = statusProvider.beginOperation(
+    "Auto Review Agent",
+    "Checking for new or updated pull requests…",
+  );
+
+  try {
+    const root = folder.uri.fsPath;
+    const repository = getGitHubRepositoryName(root);
+
+    if (
+      profile.repository &&
+      profile.repository.toLowerCase() !== repository.toLowerCase()
+    ) {
+      profile = {
+        ...profile,
+        enabled: false,
+        lastError:
+          "Auto Review Agent was bound to " +
+          profile.repository +
+          " but this workspace now points to " +
+          repository +
+          ". Re-enable it for the new repository.",
+      };
+      await storeAutoReviewWorkspaceState(context, statusProvider, profile);
+      await vscode.window.showWarningMessage(profile.lastError);
+      return;
+    }
+
+    const pullRequests = listOpenPullRequests(root);
+    const seenFingerprints = { ...profile.seenFingerprints };
+    const candidates: OpenPullRequestSummary[] = [];
+
+    for (const pullRequest of pullRequests) {
+      const key = String(pullRequest.number);
+      const fingerprint = pullRequestWatchFingerprint(pullRequest);
+
+      if (pullRequest.isDraft) {
+        seenFingerprints[key] = fingerprint;
+        continue;
+      }
+
+      if (seenFingerprints[key] !== fingerprint) {
+        candidates.push(pullRequest);
+      }
+    }
+
+    profile = {
+      ...profile,
+      repository,
+      seenFingerprints,
+      lastError: undefined,
+    };
+    await storeAutoReviewWorkspaceState(context, statusProvider, profile);
+
+    if (candidates.length === 0) {
+      operation.update("Auto Review Agent", "No new or updated review-ready PRs.");
+      if (notifyWhenIdle) {
+        await vscode.window.showInformationMessage(
+          "LLMatic Auto Review Agent found no new or updated review-ready pull requests.",
+        );
+      }
+      return;
+    }
+
+    for (const pullRequest of candidates) {
+      operation.update(
+        "Auto Review Agent · PR #" + pullRequest.number,
+        "Running General, Bug Hunter and Security review…",
+      );
+
+      try {
+        const report = await runAutomaticExternalPullRequestReview(
+          context,
+          state,
+          statusProvider,
+          output,
+          pullRequest,
+        );
+
+        profile = autoReviewWorkspaceState(context);
+        profile = {
+          ...profile,
+          repository,
+          seenFingerprints: {
+            ...profile.seenFingerprints,
+            [String(report.reference)]: report.headRefOid + ":ready",
+          },
+          lastReviewed: {
+            number: Number(report.reference),
+            headRefOid: report.headRefOid,
+            title: report.title,
+            reviewedAt: new Date().toISOString(),
+            blockingCount: report.blockingCount,
+            nonBlockingCount: report.nonBlockingCount,
+            coverage: report.coverage,
+          },
+          lastError: undefined,
+        };
+        await storeAutoReviewWorkspaceState(context, statusProvider, profile);
+
+        output.appendLine("");
+        output.appendLine(
+          "[AUTO REVIEW] PR #" +
+            report.reference +
+            " — " +
+            report.title +
+            " · " +
+            report.coverage +
+            " coverage · " +
+            report.blockingCount +
+            " blocking / " +
+            report.nonBlockingCount +
+            " non-blocking",
+        );
+        output.appendLine(externalPullRequestReviewDraft(report));
+
+        const action = await vscode.window.showInformationMessage(
+          "LLMatic Auto Review Agent reviewed PR #" +
+            report.reference +
+            ": " +
+            report.blockingCount +
+            " blocking / " +
+            report.nonBlockingCount +
+            " non-blocking finding(s).",
+          "Open Review Output",
+        );
+        if (action === "Open Review Output") output.show(true);
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        profile = autoReviewWorkspaceState(context);
+        profile = {
+          ...profile,
+          repository,
+          seenFingerprints: {
+            ...profile.seenFingerprints,
+            [String(pullRequest.number)]: pullRequestWatchFingerprint(pullRequest),
+          },
+          lastError: "PR #" + pullRequest.number + ": " + message,
+        };
+        await storeAutoReviewWorkspaceState(context, statusProvider, profile);
+        output.appendLine("[AUTO REVIEW][WARN] " + profile.lastError);
+        await vscode.window.showWarningMessage("LLMatic Auto Review Agent: " + profile.lastError);
+      }
+    }
+  } finally {
+    operation.dispose();
+    state.autoReviewRunning = false;
+  }
+}
+
+async function configureAutoReviewInUi(
+  context: vscode.ExtensionContext,
+  state: ExtensionState,
+  statusProvider: LlmaticStatusProvider,
+  output: vscode.OutputChannel,
+): Promise<void> {
+  const folder = firstWorkspaceFolder();
+  if (!folder) {
+    throw new Error("Open a GitHub repository workspace before configuring Auto Review Agent.");
+  }
+
+  const root = folder.uri.fsPath;
+  const repository = getGitHubRepositoryName(root);
+  const current = autoReviewWorkspaceState(context);
+
+  if (current.enabled) {
+    const choice = await vscode.window.showQuickPick(
+      [
+        {
+          label: "$(play) Review open pull requests now",
+          description: "run once now and keep watching future updates",
+          action: "review_now" as const,
+        },
+        {
+          label: "$(debug-stop) Disable Auto Review Agent",
+          description: "stop watching this repository",
+          action: "disable" as const,
+        },
+      ],
+      {
+        title: "LLMatic Auto Review Agent — " + repository,
+        placeHolder: "Currently enabled for this repository",
+        ignoreFocusOut: true,
+      },
+    );
+    if (!choice) return;
+
+    if (choice.action === "disable") {
+      await storeAutoReviewWorkspaceState(context, statusProvider, {
+        ...current,
+        enabled: false,
+        lastError: undefined,
+      });
+      await vscode.window.showInformationMessage(
+        "LLMatic Auto Review Agent disabled for " + repository + ".",
+      );
+      return;
+    }
+
+    const pullRequests = listOpenPullRequests(root);
+    const seenFingerprints = { ...current.seenFingerprints };
+    for (const pullRequest of pullRequests) {
+      if (!pullRequest.isDraft) {
+        delete seenFingerprints[String(pullRequest.number)];
+      } else {
+        seenFingerprints[String(pullRequest.number)] =
+          pullRequestWatchFingerprint(pullRequest);
+      }
+    }
+    await storeAutoReviewWorkspaceState(context, statusProvider, {
+      ...current,
+      repository,
+      seenFingerprints,
+      lastError: undefined,
+    });
+    await runAutoReviewScan(context, state, statusProvider, output, true);
+    return;
+  }
+
+  const model =
+    configuration().get<string>("agentModel", "kilo-auto/free").trim() || "kilo-auto/free";
+  const gatewayAccess = await gatewayAccessOrPrompt(context, model, state, statusProvider);
+  if (!gatewayAccess) return;
+  if (!(await confirmAutoFreeDataHandling(context, model))) return;
+
+  const choice = await vscode.window.showQuickPick(
+    [
+      {
+        label: "$(star-full) Enable for future new/updated PRs",
+        description: "recommended · existing open PRs become the baseline",
+        action: "future" as const,
+      },
+      {
+        label: "$(play) Enable and review current open PRs now",
+        description: "review all current non-draft PRs, then keep watching",
+        action: "current" as const,
+      },
+    ],
+    {
+      title: "Enable LLMatic Auto Review Agent — " + repository,
+      placeHolder: "Reviews run locally while this VS Code workspace is open",
+      ignoreFocusOut: true,
+    },
+  );
+  if (!choice) return;
+
+  const pullRequests = listOpenPullRequests(root);
+  const seenFingerprints: Record<string, string> = {};
+  for (const pullRequest of pullRequests) {
+    if (choice.action === "future" || pullRequest.isDraft) {
+      seenFingerprints[String(pullRequest.number)] =
+        pullRequestWatchFingerprint(pullRequest);
+    }
+  }
+
+  await storeAutoReviewWorkspaceState(context, statusProvider, {
+    enabled: true,
+    repository,
+    seenFingerprints,
+    lastError: undefined,
+  });
+
+  await vscode.window.showInformationMessage(
+    "LLMatic Auto Review Agent enabled for " +
+      repository +
+      ". It reviews new or updated review-ready PRs while this VS Code workspace is open. Publishing remains manual.",
+  );
+
+  if (choice.action === "current") {
+    await runAutoReviewScan(context, state, statusProvider, output, true);
+  }
+}
+
 async function runAgentChatTurn(
   context: vscode.ExtensionContext,
   state: ExtensionState,
