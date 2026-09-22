@@ -110,6 +110,13 @@ describe("gateway coding agent", () => {
     });
 
     expect(gateway.requests[0]?.model).toBe("kilo-auto/free");
+    expect(gateway.requests[0]?.messages[0]).toMatchObject({
+      role: "system",
+      content: expect.stringContaining("Talk to the user as a normal, concise engineering assistant"),
+    });
+    expect(JSON.stringify(gateway.requests[0]?.messages[0])).toContain(
+      "Do not expose internal model-step counters",
+    );
     expect(result.finalText).toBe("Updated src/value.ts.");
     expect(result.steps).toBe(3);
     expect(result.usage.totalTokens).toBe(45);
