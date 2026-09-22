@@ -206,9 +206,7 @@ describe("gateway coding agent", () => {
     const config = configFor(root);
     const store = new WorkflowStateStore(root, config);
     const gateway = new ScriptedGateway([
-      response(null, [
-        { id: "call-task-connection", name: "task_connection", arguments: {} },
-      ]),
+      response(null, [{ id: "call-task-connection", name: "task_connection", arguments: {} }]),
       response("The markdown task provider has no remote account identity."),
     ]);
 
