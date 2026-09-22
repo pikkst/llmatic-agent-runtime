@@ -874,6 +874,7 @@ async function disconnectJiraWorkspace(
   if (state.activeWorkspace) {
     await context.secrets.delete(jiraSecretKey(state.activeWorkspace.id, "basic"));
     await context.secrets.delete(jiraSecretKey(state.activeWorkspace.id, "bearer"));
+    await context.secrets.delete(jiraSecretKey(state.activeWorkspace.id, "oauth_broker"));
   }
   await context.workspaceState.update(JIRA_PROFILE_STATE_KEY, undefined);
 
