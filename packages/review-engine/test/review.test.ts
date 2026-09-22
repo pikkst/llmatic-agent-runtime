@@ -407,7 +407,7 @@ describe("review engine", () => {
     expect(report.lensFailures).toEqual([
       {
         lens: "bug_hunter",
-        reason: "simulated bug-hunter timeout",
+        reason: "batch 1/1: simulated bug-hunter timeout",
       },
     ]);
     expect(report.summary).toContain(
