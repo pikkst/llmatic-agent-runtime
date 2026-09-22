@@ -22,6 +22,7 @@ export interface AutoReviewStatus {
   repository?: string;
   lastReviewedPr?: number;
   lastReviewedAt?: string;
+  lastReviewStatus?: "complete" | "partial";
   error?: string;
 }
 
@@ -414,13 +415,17 @@ export class LlmaticStatusProvider implements vscode.TreeDataProvider<vscode.Tre
         ? "ON · " +
           (this.autoReviewStatus.repository ?? "current repository") +
           (this.autoReviewStatus.lastReviewedPr
-            ? " · last PR #" + this.autoReviewStatus.lastReviewedPr
+            ? " · last PR #" +
+              this.autoReviewStatus.lastReviewedPr +
+              (this.autoReviewStatus.lastReviewStatus
+                ? " " + this.autoReviewStatus.lastReviewStatus
+                : "")
             : "")
         : "OFF · watch new/updated PRs while VS Code is open";
     autoReview.tooltip =
       this.autoReviewStatus?.error ??
       (this.autoReviewStatus?.enabled
-        ? "LLMatic watches this repository for new or updated pull requests and runs structured review automatically. Review publication remains manual."
+        ? "LLMatic watches this repository for new or updated pull requests and runs structured review automatically. Partial/transient reviews are retried after cooldown; review publication remains manual."
         : "Enable repository-bound automatic review for new or updated pull requests.");
     autoReview.command = {
       command: "llmatic.configureAutoReview",
