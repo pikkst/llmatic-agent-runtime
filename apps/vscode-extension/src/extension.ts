@@ -2267,6 +2267,7 @@ function externalPullRequestReviewDraft(
     "",
     "Remote CI: **" + report.ciState + "**",
     "Review coverage: **" + report.coverage + "**",
+    "Diff truncated: **" + String(report.diffTruncated) + "**",
     ...(report.unreviewedFiles.length > 0
       ? [
           "Unreviewed changed files: " +
