@@ -37,7 +37,8 @@
     "@llmatic/workspace-recovery": "workspace:*",
     "@llmatic/repository-constitution": "workspace:*",
     "@llmatic/pr-draft": "workspace:*",
-    "@llmatic/jira-adapter": "workspace:*"
+    "@llmatic/jira-adapter": "workspace:*",
+    "@llmatic/external-connections": "workspace:*"
   },
   "devDependencies": {
     "@types/vscode": "1.105.0",
@@ -195,6 +196,16 @@
         "command": "llmatic.disconnectJiraWorkspace",
         "title": "Disconnect Jira Workspace",
         "category": "LLMatic"
+      },
+      {
+        "command": "llmatic.openConnectionCenter",
+        "title": "External Connections",
+        "category": "LLMatic"
+      },
+      {
+        "command": "llmatic.connectKiloGateway",
+        "title": "Connect Kilo Gateway",
+        "category": "LLMatic"
       }
     ],
     "configuration": {
@@ -266,6 +277,16 @@
           ],
           "default": "assigned_only",
           "description": "Fallback Jira work-ownership mode when no workspace Jira profile is connected. assigned_only is team-safe; project_queue is for solo/full-project queues."
+        },
+        "llmatic.connectionBrokerUrl": {
+          "type": "string",
+          "default": "",
+          "description": "HTTPS origin of the LLMatic browser OAuth broker. Required for one-click Atlassian OAuth; manual Jira credentials remain available when empty."
+        },
+        "llmatic.allowAnonymousKiloFree": {
+          "type": "boolean",
+          "default": true,
+          "description": "Allow direct LLMatic agent/review requests to use Kilo anonymous access when the selected model is kilo-auto/free or another explicit free model."
         }
       }
     },
