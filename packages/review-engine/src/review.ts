@@ -274,6 +274,8 @@ export interface ExternalPullRequestReviewReport extends CodeReviewReport {
   authorLogin?: string;
   ciState: string;
   diffTruncated: boolean;
+  coverage: "complete" | "partial";
+  unreviewedFiles: string[];
 }
 
 export interface ReviewFixLoopOptions extends CodeReviewOptions {
@@ -483,6 +485,15 @@ function pullRequestDiffForPath(diff: string, path: string): string {
   }
 
   return match;
+}
+
+function pullRequestDiffContainsPath(diff: string, path: string): boolean {
+  try {
+    pullRequestDiffForPath(diff, path);
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 function reviewLensInstructions(lens: ReviewLens): string[] {
@@ -746,11 +757,17 @@ export async function runExternalPullRequestReview(
     .map((path) => path.replaceAll("\\", "/"))
     .filter((path) => path && !isWorkspacePathSensitive(path))
     .sort();
+  const reviewableFiles = changedFiles.filter((path) =>
+    pullRequestDiffContainsPath(options.material.diff, path),
+  );
+  const unreviewedFiles = changedFiles.filter((path) => !reviewableFiles.includes(path));
+  const coverage =
+    options.material.diffTruncated || unreviewedFiles.length > 0 ? "partial" : "complete";
 
   const lensResults = [];
   for (const lens of lenses) {
     lensResults.push(
-      await runReviewLens(options, constitution, changedFiles, lens, options.material),
+      await runReviewLens(options, constitution, reviewableFiles, lens, options.material),
     );
   }
 
@@ -762,6 +779,10 @@ export async function runExternalPullRequestReview(
   const reviewSummary = lensResults
     .map((result, index) => lenses[index] + ": " + result.summary)
     .join(" ");
+  const coverageSummary =
+    coverage === "complete"
+      ? " Review coverage: complete."
+      : " Review coverage: partial; the bounded PR diff did not contain every changed file.";
 
   return {
     source: "external_pull_request",
@@ -770,8 +791,11 @@ export async function runExternalPullRequestReview(
     authorLogin: options.material.authorLogin,
     ciState: options.material.ciState,
     diffTruncated: options.material.diffTruncated,
+    coverage,
+    unreviewedFiles,
     summary:
       reviewSummary +
+      coverageSummary +
       (architectureImpact.baselineDetected ? " Living architecture: " + impactSummary : ""),
     findings,
     codeBlockingCount,
