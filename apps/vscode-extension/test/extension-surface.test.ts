@@ -42,6 +42,10 @@ describe("VS Code extension activation surface", () => {
     expect(source).toContain("refreshBrokerCredential");
     expect(source).toContain("Continue with Atlassian");
     expect(source).toContain("Atlassian is not ready");
+    expect(source).toContain("not the Jira site URL");
+    expect(source).toContain("Configure Broker URL");
+    expect(source).toContain("Use Manual Connection");
+    expect(source).toContain("setJiraConnectionError");
     expect(source).toContain("checking OAuth broker…");
     expect(source).toContain("starting Atlassian sign-in…");
     expect(source).toContain("waiting for browser authorization…");
@@ -130,6 +134,11 @@ describe("VS Code extension activation surface", () => {
     expect(source).toContain('type: "continue"');
     expect(source).toContain('type: "ready"');
     expect(source).toContain('input.type === "ready"');
+    expect(source.indexOf("onDidReceiveMessage")).toBeLessThan(
+      source.indexOf("view.webview.html = this.html"),
+    );
+    expect(source).toContain("onDidChangeVisibility");
+    expect(source).toContain("onDidDispose");
     expect(source).toContain("status-ok");
     expect(source).toContain("status-attention");
     expect(source).toContain("status-error");
