@@ -99,6 +99,56 @@ describe("jira adapter", () => {
     });
   });
 
+  it("reports safe live Jira identity and workspace target without exposing credentials", async () => {
+    const transport: JiraHttpTransport = async (request) => {
+      expect(request.url).toBe("https://api.atlassian.com/ex/jira/cloud-id/rest/api/3/myself");
+      return {
+        status: 200,
+        statusText: "OK",
+        body: JSON.stringify({
+          accountId: "acct-current",
+          displayName: "Engineer",
+          emailAddress: "engineer@example.test",
+        }),
+      };
+    };
+    const provider = new JiraTaskProvider(
+      configFor("/repo"),
+      {
+        baseUrl: "https://api.atlassian.com/ex/jira/cloud-id",
+        siteUrl: "https://example.atlassian.net",
+        auth: { type: "bearer", token: "sensitive-access-token" },
+      },
+      transport,
+      {
+        LLMATIC_JIRA_PROJECT_KEY: "kt",
+        LLMATIC_JIRA_WORK_MODE: "project_queue",
+      },
+    );
+
+    const info = await provider.getConnectionInfo();
+
+    expect(info).toEqual({
+      provider: "jira",
+      connected: true,
+      identity: {
+        id: "acct-current",
+        label: "Engineer",
+        email: "engineer@example.test",
+      },
+      target: {
+        label: "Jira project KT",
+        url: "https://example.atlassian.net",
+      },
+      metadata: {
+        projectKey: "KT",
+        workMode: "project_queue",
+        siteUrl: "https://example.atlassian.net",
+      },
+    });
+    expect(JSON.stringify(info)).not.toContain("sensitive-access-token");
+  });
+
   it("maps Jira v3 issue fields and ADF description into a task record", async () => {
     const requests: JiraHttpRequest[] = [];
     const transport: JiraHttpTransport = async (request) => {
