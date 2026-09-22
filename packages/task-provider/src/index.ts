@@ -53,6 +53,11 @@ export interface TaskProvider {
 
   getNextTask?(options?: TaskProviderOperationOptions): Promise<TaskRecord | undefined>;
 
+  assertSelectableTask?(
+    reference: string,
+    options?: TaskProviderOperationOptions,
+  ): Promise<void>;
+
   listTransitions(
     reference: string,
     options?: TaskProviderOperationOptions,
@@ -144,6 +149,7 @@ export async function selectWorkflowTask(
   reference: string,
   options: TaskProviderOperationOptions = {},
 ): Promise<{ task: TaskRecord; workflow: WorkflowRun }> {
+  await provider.assertSelectableTask?.(reference, options);
   const task = await provider.getTask(reference, options);
   let workflow = await startWorkflow(store, task.key);
 
@@ -171,6 +177,7 @@ export async function validateWorkflowTask(
   }
 
   try {
+    await provider.assertSelectableTask?.(current.taskRef, options);
     const task = await provider.getTask(current.taskRef, options);
 
     await recordActionCheckpoint(store, {
