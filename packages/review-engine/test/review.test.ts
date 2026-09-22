@@ -511,7 +511,7 @@ describe("review engine", () => {
         {
           severity: "blocking",
           category: "tests",
-              basis: "defect",
+          basis: "defect",
           title: "Missing regression coverage",
           path: "src/value.ts",
           line: 1,

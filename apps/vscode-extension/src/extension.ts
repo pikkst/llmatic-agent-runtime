@@ -2817,9 +2817,7 @@ async function reviewExternalPullRequestInUi(
       output.appendLine("Inline comments that can be published:");
       for (const comment of inlinePreview) {
         output.appendLine("");
-        output.appendLine(
-          comment.path + ":" + comment.line + " [" + comment.side + "]",
-        );
+        output.appendLine(comment.path + ":" + comment.line + " [" + comment.side + "]");
         output.appendLine(comment.body);
       }
     }

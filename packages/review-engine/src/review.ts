@@ -215,10 +215,7 @@ const findingSchema = z
         message: "Repository-rule findings require rule_id.",
       });
     }
-    if (
-      (finding.basis === "defect" || finding.basis === "repository_rule") &&
-      !finding.line
-    ) {
+    if ((finding.basis === "defect" || finding.basis === "repository_rule") && !finding.line) {
       context.addIssue({
         code: z.ZodIssueCode.custom,
         path: ["line"],
@@ -234,8 +231,7 @@ const rawReviewSchema = z.object({
 
 type RawReviewFinding = z.infer<typeof findingSchema>;
 
-export interface ReviewFinding
-  extends Omit<RawReviewFinding, "rule_id" | "dod_ref"> {
+export interface ReviewFinding extends Omit<RawReviewFinding, "rule_id" | "dod_ref"> {
   lens: ReviewLens;
   dodRef?: string;
   ruleId?: string;
@@ -662,19 +658,26 @@ function pullRequestAcceptanceEvidence(body: string): string[] {
 
   for (const rawLine of lines) {
     const line = rawLine.trim();
-    const heading = line.match(/^#{1,6}\s+(.+)$/)?.[1]?.trim().toLowerCase();
+    const heading = line
+      .match(/^#{1,6}\s+(.+)$/)?.[1]
+      ?.trim()
+      .toLowerCase();
 
     if (heading) {
-      active =
-        /\b(acceptance criteria|acceptance|definition of done|dod|done criteria|ac)\b/i.test(
-          heading,
-        );
+      active = /\b(acceptance criteria|acceptance|definition of done|dod|done criteria|ac)\b/i.test(
+        heading,
+      );
       continue;
     }
 
     if (!active || !line) continue;
     if (/^[-*+]\s+/.test(line) || /^\d+[.)]\s+/.test(line)) {
-      evidence.push(line.replace(/^[-*+]\s+/, "").replace(/^\d+[.)]\s+/, "").trim());
+      evidence.push(
+        line
+          .replace(/^[-*+]\s+/, "")
+          .replace(/^\d+[.)]\s+/, "")
+          .trim(),
+      );
     }
   }
 
@@ -839,10 +842,7 @@ function normalizeReviewFinding(
   };
 }
 
-function changedDiffLines(
-  diff: string,
-  path: string,
-): { RIGHT: Set<number>; LEFT: Set<number> } {
+function changedDiffLines(diff: string, path: string): { RIGHT: Set<number>; LEFT: Set<number> } {
   const block = pullRequestDiffForPath(diff, path);
   const right = new Set<number>();
   const left = new Set<number>();
