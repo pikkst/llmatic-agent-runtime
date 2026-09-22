@@ -19,7 +19,12 @@ import type {
   GatewayChatRequest,
   GatewayChatResponse,
 } from "@llmatic/gateway-client";
-import { listChangedFiles, runCodeReview, runReviewFixLoop } from "../src/review.js";
+import {
+  listChangedFiles,
+  runCodeReview,
+  runExternalPullRequestReview,
+  runReviewFixLoop,
+} from "../src/review.js";
 
 const temporaryDirectories: string[] = [];
 
@@ -75,11 +80,30 @@ class ScriptedGateway implements GatewayChatClient {
   }
 }
 
-function response(content: string): GatewayChatResponse {
+function response(
+  content: string | null,
+  toolCalls?: Array<{ id: string; name: string; arguments: Record<string, unknown> }>,
+): GatewayChatResponse {
   return {
     id: "review",
     model: "kilo-auto/free",
-    choices: [{ index: 0, message: { role: "assistant", content } }],
+    choices: [
+      {
+        index: 0,
+        message: {
+          role: "assistant",
+          content,
+          tool_calls: toolCalls?.map((call) => ({
+            id: call.id,
+            type: "function",
+            function: {
+              name: call.name,
+              arguments: JSON.stringify(call.arguments),
+            },
+          })),
+        },
+      },
+    ],
   };
 }
 
@@ -96,6 +120,70 @@ describe("review engine", () => {
   it("filters sensitive changed paths from review context", async () => {
     const root = await repository();
     expect(listChangedFiles(root)).toEqual(["src/value.ts"]);
+  });
+
+  it("reviews an external pull request without changing workflow state", async () => {
+    const root = await repository();
+    const config = configFor(root);
+    const gateway = new ScriptedGateway([
+      response(null, [
+        {
+          id: "read-pr-diff",
+          name: "read_diff",
+          arguments: { path: "src/value.ts" },
+        },
+      ]),
+      response(
+        JSON.stringify({
+          summary: "One concrete external PR defect.",
+          findings: [
+            {
+              severity: "blocking",
+              category: "correctness",
+              title: "Unexpected exported value",
+              path: "src/value.ts",
+              line: 1,
+              evidence: "The PR patch changes the exported value from 1 to 2.",
+              recommendation: "Confirm the contract or restore the expected value.",
+            },
+          ],
+        }),
+      ),
+    ]);
+
+    const report = await runExternalPullRequestReview({
+      root,
+      config,
+      gateway,
+      lenses: ["general"],
+      material: {
+        reference: "42",
+        title: "Change value",
+        body: "Please review this change.",
+        authorLogin: "contributor",
+        ciState: "passing",
+        changedFiles: ["src/value.ts"],
+        diff:
+          "diff --git a/src/value.ts b/src/value.ts\n--- a/src/value.ts\n+++ b/src/value.ts\n@@ -1 +1 @@\n-export const value = 1;\n+export const value = 2;\n",
+        diffTruncated: false,
+        reviews: [],
+        comments: [],
+      },
+    });
+
+    expect(report.source).toBe("external_pull_request");
+    expect(report.reference).toBe("42");
+    expect(report.blockingCount).toBe(1);
+    expect(gateway.requests[1]?.messages.at(-1)).toMatchObject({
+      role: "tool",
+      tool_call_id: "read-pr-diff",
+    });
+    expect(gateway.requests[1]?.messages.at(-1)?.content).toContain(
+      "+export const value = 2;",
+    );
+    const system = JSON.stringify(gateway.requests[0]?.messages[0]);
+    expect(system).toContain("external pull request");
+    expect(system).toContain("untrusted project data");
   });
 
   it("runs an ad-hoc review loop when no workflow is active", async () => {
