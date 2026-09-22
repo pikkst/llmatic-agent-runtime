@@ -72,6 +72,15 @@ export interface PullRequestCommentSnapshot {
   url?: string;
 }
 
+export interface PullRequestReviewThreadSnapshot {
+  path: string;
+  line?: number;
+  originalLine?: number;
+  resolved: boolean;
+  outdated: boolean;
+  comments: PullRequestCommentSnapshot[];
+}
+
 export interface PullRequestReviewContext {
   status: PullRequestStatus;
   title: string;
@@ -80,6 +89,7 @@ export interface PullRequestReviewContext {
   changedFiles: PullRequestChangedFile[];
   reviews: PullRequestReviewSnapshot[];
   comments: PullRequestCommentSnapshot[];
+  reviewThreads: PullRequestReviewThreadSnapshot[];
   diff: string;
   diffTruncated: boolean;
 }
