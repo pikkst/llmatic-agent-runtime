@@ -476,7 +476,9 @@ function pullRequestDiffForPath(diff: string, path: string): string {
   });
 
   if (!match) {
-    throw new Error("The external pull-request diff does not contain changed path " + normalized + ".");
+    throw new Error(
+      "The external pull-request diff does not contain changed path " + normalized + ".",
+    );
   }
 
   return match;
@@ -735,7 +737,9 @@ export async function runExternalPullRequestReview(
   const constitution = await buildRepositoryConstitution(options.root, options.config, {
     rebuildIndex: false,
   });
-  const lenses = [...new Set(options.lenses ?? ["general", "bug_hunter", "security"])] as ReviewLens[];
+  const lenses = [
+    ...new Set(options.lenses ?? ["general", "bug_hunter", "security"]),
+  ] as ReviewLens[];
   const changedFiles = [...new Set(options.material.changedFiles)]
     .map((path) => path.replaceAll("\\", "/"))
     .filter((path) => path && !isWorkspacePathSensitive(path))
