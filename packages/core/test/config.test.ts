@@ -47,7 +47,6 @@ describe("agent config resolution", () => {
     expect(config.permissions.pullRequestReview).toBe("ask");
   });
 
-
   it("prefers explicit config, then repository policy, then managed workspace config", async () => {
     const root = await mkdtemp(join(tmpdir(), "llmatic-config-"));
     const home = await mkdtemp(join(tmpdir(), "llmatic-home-"));
