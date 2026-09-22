@@ -13,10 +13,12 @@ import {
   createPullRequest,
   createWorkflowPullRequest,
   getFailedPullRequestDiagnostics,
+  getGitHubRepositoryName,
   getPullRequestReviewContext,
   getPullRequestReviewMetadata,
   getPullRequestStatus,
   mergePullRequest,
+  listOpenPullRequests,
   mergeWorkflowPullRequest,
   publishPullRequestReview,
   readPullRequestFileAtHead,
@@ -84,6 +86,64 @@ describe("github adapter", () => {
     await expect(
       createPullRequest("/repo", config, { title: "Test PR", body: "" }, { runner }),
     ).rejects.toThrow("requires approval");
+  });
+
+  it("lists open pull requests for repository auto review", () => {
+    const calls: string[][] = [];
+    const runner: GitHubProcessRunner = (_executable, args) => {
+      calls.push(args);
+      return {
+        exitCode: 0,
+        stdout: JSON.stringify([
+          {
+            number: 7,
+            url: "https://github.com/example/repo/pull/7",
+            state: "OPEN",
+            isDraft: false,
+            mergeable: "MERGEABLE",
+            mergeStateStatus: "CLEAN",
+            reviewDecision: null,
+            headRefName: "feature/one",
+            headRefOid: "head-one",
+            baseRefName: "main",
+            title: "First pull request",
+            author: { login: "alice" },
+          },
+        ]),
+        stderr: "",
+      };
+    };
+
+    const pullRequests = listOpenPullRequests("/repo", runner);
+
+    expect(pullRequests).toEqual([
+      expect.objectContaining({
+        number: 7,
+        title: "First pull request",
+        authorLogin: "alice",
+        headRefOid: "head-one",
+      }),
+    ]);
+    expect(calls[0]).toEqual([
+      "pr",
+      "list",
+      "--state",
+      "open",
+      "--limit",
+      "100",
+      "--json",
+      expect.any(String),
+    ]);
+  });
+
+  it("reads the canonical GitHub repository identity", () => {
+    const runner: GitHubProcessRunner = () => ({
+      exitCode: 0,
+      stdout: JSON.stringify({ nameWithOwner: "example/repo" }),
+      stderr: "",
+    });
+
+    expect(getGitHubRepositoryName("/repo", runner)).toBe("example/repo");
   });
 
   it("requires explicit approval before publishing a pull-request review comment", async () => {
