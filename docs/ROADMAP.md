@@ -329,3 +329,31 @@ Local v0.3 scope:
 - never mutate the active LLMatic workflow merely because a watched PR changes
 
 Always-on review while VS Code is closed requires a later GitHub App/Actions service mode; the local extension watcher must not pretend to provide cloud availability.
+
+## M31 — Adaptive Free Model Router
+
+Status: first production slice implemented for v0.3.0 external pull-request review.
+
+Goal: route free inference work by task and runtime health instead of repeatedly depending on one transient provider/model.
+
+Implemented external-review slice:
+
+- discover the live Kilo Gateway model catalog instead of hardcoding free-model names
+- consider explicit `:free` models and keep `kilo-auto/free` as the final fallback
+- use task hints for General, Bug Hunter and Security review workloads
+- rank candidates using task-local success/failure/latency evidence plus available model metadata
+- prefer provider diversity across fallback candidates
+- switch model on transient timeout, overload, rate-limit, context-window or capability failures
+- cool down failing explicit free models across subsequent review batches
+- avoid a model that returned malformed structured output when repairing that batch
+- expose model candidate, latency, failure reason and failover in Review Activity telemetry
+- keep external review tool-free so fallback models do not need agent tool-calling capability
+- preserve the free-model data-handling warning for all Auto Free / explicit free routing
+
+Future expansion:
+
+- persist model-quality statistics across sessions with bounded retention
+- capability-aware routing for coding-agent/tool-use workloads
+- separate task profiles for planning, implementation, testing and summarization
+- allow user policy to disable particular providers/models
+- evaluate cloud/always-on routing only after the local review path is stable
