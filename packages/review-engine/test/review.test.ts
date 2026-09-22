@@ -195,6 +195,53 @@ describe("review engine", () => {
     expect(JSON.stringify(gateway.requests[0]?.messages[1])).not.toContain(".env");
   });
 
+  it("uses the external PR-head file reader instead of local working-tree bytes", async () => {
+    const root = await repository();
+    const config = configFor(root);
+    const gateway = new ScriptedGateway([
+      response(null, [
+        {
+          id: "read-pr-head-file",
+          name: "read_file",
+          arguments: { path: "src/value.ts", start_line: 1, end_line: 1 },
+        },
+      ]),
+      response(
+        JSON.stringify({
+          summary: "Target head context verified.",
+          findings: [],
+        }),
+      ),
+    ]);
+
+    await runExternalPullRequestReview({
+      root,
+      config,
+      gateway,
+      lenses: ["general"],
+      readFile: (path, options) => ({
+        path,
+        startLine: options.startLine,
+        endLine: options.endLine,
+        content: "export const value = 99;",
+      }),
+      material: {
+        reference: "42",
+        title: "Read target head",
+        body: "",
+        ciState: "passing",
+        changedFiles: ["src/value.ts"],
+        diff:
+          "diff --git a/src/value.ts b/src/value.ts\n--- a/src/value.ts\n+++ b/src/value.ts\n@@ -1 +1 @@\n-export const value = 1;\n+export const value = 99;\n",
+        diffTruncated: false,
+      },
+    });
+
+    const toolMessage = gateway.requests[1]?.messages.at(-1)?.content ?? "";
+    expect(toolMessage).toContain("export const value = 99;");
+    expect(toolMessage).not.toContain("export const value = 2;");
+  });
+
   it("marks bounded external review coverage partial when a changed file is outside the diff", async () => {
     const root = await repository();
     const config = configFor(root);
