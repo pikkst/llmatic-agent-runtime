@@ -13,6 +13,51 @@ export interface GatewayChatClient {
   createChatCompletion(request: GatewayChatRequest): Promise<GatewayChatResponse>;
 }
 
+function responseErrorMessage(value: unknown): string | undefined {
+  if (!value || typeof value !== "object") return undefined;
+
+  const object = value as Record<string, unknown>;
+  const error = object.error;
+  if (typeof error === "string" && error.trim()) return error.trim();
+
+  if (error && typeof error === "object") {
+    const message = (error as Record<string, unknown>).message;
+    if (typeof message === "string" && message.trim()) return message.trim();
+  }
+
+  if (!("choices" in object) && typeof object.message === "string" && object.message.trim()) {
+    return object.message.trim();
+  }
+
+  return undefined;
+}
+
+function responseShape(value: unknown): string {
+  if (!value || typeof value !== "object") {
+    return "payload=" + (value === null ? "null" : typeof value);
+  }
+
+  const object = value as Record<string, unknown>;
+  const keys = Object.keys(object).slice(0, 12);
+  const model = typeof object.model === "string" ? object.model : undefined;
+  const objectType = typeof object.object === "string" ? object.object : undefined;
+  const choices = Array.isArray(object.choices) ? object.choices : undefined;
+  const firstChoice =
+    choices?.[0] && typeof choices[0] === "object"
+      ? (choices[0] as Record<string, unknown>)
+      : undefined;
+
+  return [
+    model ? "model=" + model : undefined,
+    objectType ? "object=" + objectType : undefined,
+    choices ? "choices=" + choices.length : undefined,
+    firstChoice ? "choiceKeys=" + Object.keys(firstChoice).slice(0, 8).join(",") : undefined,
+    "keys=" + keys.join(","),
+  ]
+    .filter((item): item is string => Boolean(item))
+    .join("; ");
+}
+
 export class KiloGatewayClient implements GatewayChatClient {
   private readonly apiKey?: string;
   private readonly baseUrl: string;
@@ -74,10 +119,10 @@ export class KiloGatewayClient implements GatewayChatClient {
       );
     }
 
-    let parsed: GatewayChatResponse;
+    let parsed: unknown;
 
     try {
-      parsed = JSON.parse(raw) as GatewayChatResponse;
+      parsed = JSON.parse(raw) as unknown;
     } catch (error) {
       throw new Error(
         "Kilo Gateway returned invalid JSON: " +
@@ -85,10 +130,20 @@ export class KiloGatewayClient implements GatewayChatClient {
       );
     }
 
-    if (!parsed.choices?.[0]?.message) {
-      throw new Error("Kilo Gateway response did not include an assistant message.");
+    const gatewayError = responseErrorMessage(parsed);
+    if (gatewayError) {
+      throw new Error("Kilo Gateway returned an error payload: " + gatewayError.slice(0, 500));
     }
 
-    return parsed;
+    const responseBody = parsed as Partial<GatewayChatResponse>;
+    if (!responseBody.choices?.[0]?.message) {
+      throw new Error(
+        "Kilo Gateway returned a 2xx response without choices[0].message (" +
+          responseShape(parsed) +
+          ").",
+      );
+    }
+
+    return responseBody as GatewayChatResponse;
   }
 }
