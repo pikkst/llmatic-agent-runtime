@@ -472,7 +472,7 @@ function pullRequestDiffForPath(diff: string, path: string): string {
   const match = blocks.find((block) => {
     const firstLine = block.split(/\r?\n/, 1)[0] ?? "";
     return (
-      firstLine.includes(" b/" + normalized) ||
+      firstLine.includes("b/" + normalized) ||
       block.includes("\n+++ b/" + normalized + "\n") ||
       block.includes("\n--- a/" + normalized + "\n")
     );
@@ -782,7 +782,7 @@ export async function runExternalPullRequestReview(
   const coverageSummary =
     coverage === "complete"
       ? " Review coverage: complete."
-      : " Review coverage: partial; the bounded PR diff did not contain every changed file.";
+      : " Review coverage: partial; the bounded PR diff was truncated or did not contain every changed file.";
 
   return {
     source: "external_pull_request",
