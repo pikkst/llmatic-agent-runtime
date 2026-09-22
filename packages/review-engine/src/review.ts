@@ -496,6 +496,16 @@ function pullRequestDiffContainsPath(diff: string, path: string): boolean {
   }
 }
 
+function safePullRequestReviewThreads(value: unknown[] | undefined): unknown[] {
+  if (!value) return [];
+
+  return value.filter((item) => {
+    if (!item || typeof item !== "object" || Array.isArray(item)) return true;
+    const path = (item as Record<string, unknown>).path;
+    return typeof path !== "string" || !isWorkspacePathSensitive(path);
+  });
+}
+
 function reviewLensInstructions(lens: ReviewLens): string[] {
   if (lens === "bug_hunter") {
     return [
@@ -642,7 +652,7 @@ async function runReviewLens(
               diffTruncated: material.diffTruncated,
               reviews: material.reviews ?? [],
               comments: material.comments ?? [],
-              reviewThreads: material.reviewThreads ?? [],
+              reviewThreads: safePullRequestReviewThreads(material.reviewThreads),
             }).slice(0, MAX_TOOL_RESULT_CHARS),
             "Changed non-secret files:",
             changedFiles.map((path) => "- " + path).join("\n"),
