@@ -22,6 +22,9 @@
 - Added team-safe Jira `assigned_only` mode as the default and explicit `project_queue` mode for solo/full-project queues.
 - Enforced Jira task ownership at workflow start/validation, including when custom recovery JQL is configured.
 - Added green/yellow/red semantic status colors across Runtime Status and Agent Chat for healthy, attention and blocking/error states.
+- Added a reusable External Connections registry and VS Code Connection Center for browser/manual provider onboarding.
+- Added browser-first Atlassian OAuth 2.0 (3LO) support through a server-side LLMatic OAuth broker, including Jira site/project discovery and rotating-token refresh.
+- Added browser-assisted Kilo Gateway key discovery plus anonymous `kilo-auto/free` / `:free` access without a key.
 
 ## 0.1.2
 
