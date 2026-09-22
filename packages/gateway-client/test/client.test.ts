@@ -35,12 +35,39 @@ describe("KiloGatewayClient", () => {
       model: "kilo-auto/free",
       mode: "code",
       messages: [{ role: "user", content: "hello" }],
+      tool_choice: "none",
+      response_format: {
+        type: "json_schema",
+        json_schema: {
+          name: "review_report",
+          strict: true,
+          schema: {
+            type: "object",
+            required: ["summary", "findings"],
+            properties: {
+              summary: { type: "string" },
+              findings: { type: "array" },
+            },
+            additionalProperties: false,
+          },
+        },
+      },
     });
 
     expect(requestedUrl).toBe("https://api.kilo.ai/api/gateway/chat/completions");
     expect(new Headers(requestedHeaders).get("Authorization")).toBe("Bearer secret-key");
     expect(new Headers(requestedHeaders).get("x-kilocode-mode")).toBe("code");
     expect(requestedBody).not.toContain("secret-key");
+    expect(JSON.parse(requestedBody)).toMatchObject({
+      tool_choice: "none",
+      response_format: {
+        type: "json_schema",
+        json_schema: {
+          name: "review_report",
+          strict: true,
+        },
+      },
+    });
   });
   it("supports anonymous free-model requests without an Authorization header", async () => {
     let requestedHeaders: HeadersInit | undefined;
