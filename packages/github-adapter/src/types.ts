@@ -104,6 +104,21 @@ export interface PullRequestReviewContext extends PullRequestReviewMetadata {
   diffTruncated: boolean;
 }
 
+export interface PullRequestFileReadOptions {
+  startLine?: number;
+  endLine?: number;
+}
+
+export interface PullRequestFileReadResult {
+  path: string;
+  ref: string;
+  startLine: number;
+  endLine: number;
+  totalLines: number;
+  content: string;
+  truncated: boolean;
+}
+
 export type MergeMethod = "squash" | "merge" | "rebase";
 
 export interface MergePullRequestOptions extends GitHubMutationOptions {
