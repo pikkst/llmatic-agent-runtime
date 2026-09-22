@@ -223,6 +223,154 @@ describe("review engine", () => {
     ).toBeGreaterThanOrEqual(0);
   });
 
+  it("filters nice-to-have maintainability suggestions from external review findings", async () => {
+    const root = await repository();
+    const config = configFor(root);
+    const gateway = new ScriptedGateway([
+      response(
+        JSON.stringify({
+          summary: "Optional cleanup idea.",
+          findings: [
+            {
+              severity: "non_blocking",
+              category: "maintainability",
+              basis: "defect",
+              title: "Extract helper for readability",
+              path: "src/value.ts",
+              line: 1,
+              side: "RIGHT",
+              evidence: "The changed line could be wrapped in a helper.",
+              recommendation: "Extract a helper function.",
+            },
+          ],
+        }),
+      ),
+    ]);
+
+    const report = await runExternalPullRequestReview({
+      root,
+      config,
+      gateway,
+      lenses: ["general"],
+      material: {
+        reference: "42",
+        headRefOid: "head-42",
+        title: "Avoid review scope expansion",
+        body: "",
+        ciState: "passing",
+        changedFiles: ["src/value.ts"],
+        diff: "diff --git a/src/value.ts b/src/value.ts\n--- a/src/value.ts\n+++ b/src/value.ts\n@@ -1 +1 @@\n-export const value = 1;\n+export const value = 2;\n",
+        diffTruncated: false,
+      },
+    });
+
+    expect(report.findings).toEqual([]);
+    expect(report.summary).toContain("0 concrete defect/rule violation(s)");
+  });
+
+  it("keeps only DoD findings backed by documented PR acceptance evidence", async () => {
+    const root = await repository();
+    const config = configFor(root);
+    const gateway = new ScriptedGateway([
+      response(
+        JSON.stringify({
+          summary: "Acceptance gate review.",
+          findings: [
+            {
+              severity: "blocking",
+              category: "tests",
+              basis: "dod",
+              title: "Required regression test is missing",
+              path: "src/value.ts",
+              evidence: "The PR changes behavior but does not add the required regression test.",
+              recommendation: "Add the regression test required by the acceptance criterion.",
+              dod_ref: "Add regression coverage for the changed behavior",
+            },
+            {
+              severity: "blocking",
+              category: "tests",
+              basis: "dod",
+              title: "Invented acceptance requirement",
+              path: "src/value.ts",
+              evidence: "No benchmark was added.",
+              recommendation: "Add a benchmark.",
+              dod_ref: "Add a performance benchmark",
+            },
+          ],
+        }),
+      ),
+    ]);
+
+    const report = await runExternalPullRequestReview({
+      root,
+      config,
+      gateway,
+      lenses: ["general"],
+      material: {
+        reference: "42",
+        headRefOid: "head-42",
+        title: "DoD-backed review",
+        body: "## Acceptance Criteria\n- Add regression coverage for the changed behavior\n",
+        ciState: "passing",
+        changedFiles: ["src/value.ts"],
+        diff: "diff --git a/src/value.ts b/src/value.ts\n--- a/src/value.ts\n+++ b/src/value.ts\n@@ -1 +1 @@\n-export const value = 1;\n+export const value = 2;\n",
+        diffTruncated: false,
+      },
+    });
+
+    expect(report.findings).toHaveLength(1);
+    expect(report.findings[0]).toMatchObject({
+      basis: "dod",
+      dodRef: "Add regression coverage for the changed behavior",
+      title: "Required regression test is missing",
+    });
+    expect(report.summary).toContain("1 documented DoD/acceptance violation(s)");
+  });
+
+  it("filters concrete findings that cannot map to an actual changed diff line", async () => {
+    const root = await repository();
+    const config = configFor(root);
+    const gateway = new ScriptedGateway([
+      response(
+        JSON.stringify({
+          summary: "Invalid inline target.",
+          findings: [
+            {
+              severity: "blocking",
+              category: "correctness",
+              basis: "defect",
+              title: "Finding points outside the patch",
+              path: "src/value.ts",
+              line: 99,
+              side: "RIGHT",
+              evidence: "The model cited a line that is not part of the changed hunk.",
+              recommendation: "Do not publish unsupported inline findings.",
+            },
+          ],
+        }),
+      ),
+    ]);
+
+    const report = await runExternalPullRequestReview({
+      root,
+      config,
+      gateway,
+      lenses: ["bug_hunter"],
+      material: {
+        reference: "42",
+        headRefOid: "head-42",
+        title: "Invalid line target",
+        body: "",
+        ciState: "passing",
+        changedFiles: ["src/value.ts"],
+        diff: "diff --git a/src/value.ts b/src/value.ts\n--- a/src/value.ts\n+++ b/src/value.ts\n@@ -1 +1 @@\n-export const value = 1;\n+export const value = 2;\n",
+        diffTruncated: false,
+      },
+    });
+
+    expect(report.findings).toEqual([]);
+  });
+
   it("keeps successful lenses when one external review lens fails", async () => {
     const root = await repository();
     const config = configFor(root);
