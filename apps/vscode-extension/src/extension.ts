@@ -3663,19 +3663,11 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
                 const retryMessage =
                   retryError instanceof Error ? retryError.message : String(retryError);
                 setJiraConnectionError(statusProvider, retryMessage, profile);
-                void vscode.window.showErrorMessage(
-                  "LLMatic Jira connection: " + retryMessage,
-                );
+                void vscode.window.showErrorMessage("LLMatic Jira connection: " + retryMessage);
               });
             }
           } else if (action === "Use Manual Connection") {
-            await connectJiraManually(
-              context,
-              state,
-              statusProvider,
-              chatProvider,
-              output,
-            );
+            await connectJiraManually(context, state, statusProvider, chatProvider, output);
           } else if (action === "Open Broker Setup Guide") {
             await vscode.env.openExternal(
               vscode.Uri.parse(
