@@ -393,6 +393,97 @@ describe("review engine", () => {
     expect(report.summary).toContain("0 documented DoD/acceptance violation(s)");
   });
 
+  it("rejects speculative TypeScript nullability findings without positive nullable evidence", async () => {
+    const root = await repository();
+    const config = configFor(root);
+    const gateway = new ScriptedGateway([
+      response(
+        JSON.stringify({
+          summary: "Speculative nullability claim.",
+          findings: [
+            {
+              severity: "blocking",
+              category: "correctness",
+              basis: "defect",
+              title: "Missing null/undefined handling",
+              path: "src/value.ts",
+              line: 1,
+              side: "RIGHT",
+              evidence:
+                "The code uses value.items.filter without checking if value.items is null or undefined, which could cause a runtime error.",
+              recommendation: "Use (value.items || []).filter(...).",
+            },
+          ],
+        }),
+      ),
+    ]);
+
+    const report = await runExternalPullRequestReview({
+      root,
+      config,
+      gateway,
+      lenses: ["bug_hunter"],
+      material: {
+        reference: "42",
+        headRefOid: "head-42",
+        title: "Typed array access",
+        body: "",
+        ciState: "passing",
+        changedFiles: ["src/value.ts"],
+        diff: "diff --git a/src/value.ts b/src/value.ts\n--- a/src/value.ts\n+++ b/src/value.ts\n@@ -1 +1 @@\n-export const count = 0;\n+export const count = value.items.filter(Boolean).length;\n",
+        diffTruncated: false,
+      },
+    });
+
+    expect(report.findings).toEqual([]);
+  });
+
+  it("keeps TypeScript nullability findings when the evidence positively shows an optional type", async () => {
+    const root = await repository();
+    const config = configFor(root);
+    const gateway = new ScriptedGateway([
+      response(
+        JSON.stringify({
+          summary: "Proven nullable access.",
+          findings: [
+            {
+              severity: "blocking",
+              category: "correctness",
+              basis: "defect",
+              title: "Optional items are dereferenced without a guard",
+              path: "src/value.ts",
+              line: 2,
+              side: "RIGHT",
+              evidence:
+                "The supplied packet declares items?: string[] and the changed line calls value.items.filter directly, so undefined is allowed by the type.",
+              recommendation: "Guard value.items or provide a default array before calling filter.",
+            },
+          ],
+        }),
+      ),
+    ]);
+
+    const report = await runExternalPullRequestReview({
+      root,
+      config,
+      gateway,
+      lenses: ["bug_hunter"],
+      material: {
+        reference: "42",
+        headRefOid: "head-42",
+        title: "Optional array access",
+        body: "",
+        ciState: "passing",
+        changedFiles: ["src/value.ts"],
+        diff: "diff --git a/src/value.ts b/src/value.ts\n--- a/src/value.ts\n+++ b/src/value.ts\n@@ -1 +1,2 @@\n-export const count = 0;\n+type Value = { items?: string[] };\n+export const count = (value: Value) => value.items.filter(Boolean).length;\n",
+        diffTruncated: false,
+      },
+    });
+
+    expect(report.findings).toHaveLength(1);
+    expect(report.findings[0]?.title).toBe("Optional items are dereferenced without a guard");
+  });
+
   it("filters concrete findings that cannot map to an actual changed diff line", async () => {
     const root = await repository();
     const config = configFor(root);
