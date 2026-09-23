@@ -14,6 +14,12 @@ export type AdaptiveGatewayRouteEvent =
       durationMs: number;
     }
   | {
+      type: "review-history";
+      task: string;
+      provenModels: string[];
+      explorationModels: string[];
+    }
+  | {
       type: "attempt";
       task: string;
       candidateModel: string;
@@ -39,10 +45,28 @@ export type AdaptiveGatewayRouteEvent =
       reason: string;
     };
 
+export interface ReviewModelHistoryRecord {
+  model: string;
+  task: string;
+  validatedReports: number;
+  semanticFailures: number;
+  lengthFailures: number;
+  transportFailures: number;
+  lastValidatedAt?: number;
+  updatedAt: number;
+}
+
 export interface AdaptiveFreeGatewayClientOptions extends KiloGatewayClientOptions {
   maxModelAttempts?: number;
   catalogTtlMs?: number;
   modelCooldownMs?: number;
+  reviewHistory?: ReviewModelHistoryRecord[];
+  reviewProvenMinValidated?: number;
+  reviewHistoryMaxAgeMs?: number;
+  reviewExplorationSlots?: number;
+  onReviewHistoryChange?: (
+    history: ReviewModelHistoryRecord[],
+  ) => void | Promise<void>;
   onRoute?: (event: AdaptiveGatewayRouteEvent) => void | Promise<void>;
 }
 
@@ -227,6 +251,13 @@ export class AdaptiveFreeGatewayClient implements GatewayChatClient {
   private readonly catalogTtlMs: number;
   private readonly modelCooldownMs: number;
   private readonly onRoute?: (event: AdaptiveGatewayRouteEvent) => void | Promise<void>;
+  private readonly onReviewHistoryChange?: (
+    history: ReviewModelHistoryRecord[],
+  ) => void | Promise<void>;
+  private readonly reviewProvenMinValidated: number;
+  private readonly reviewHistoryMaxAgeMs: number;
+  private readonly reviewExplorationSlots: number;
+  private readonly reviewHistory = new Map<string, ReviewModelHistoryRecord>();
   private catalog?: GatewayModelInfo[];
   private catalogExpiresAt = 0;
   private readonly stats = new Map<string, Map<string, ModelStats>>();
@@ -247,7 +278,29 @@ export class AdaptiveFreeGatewayClient implements GatewayChatClient {
     this.maxModelAttempts = Math.max(1, Math.min(8, Math.trunc(options.maxModelAttempts ?? 4)));
     this.catalogTtlMs = Math.max(30_000, Math.trunc(options.catalogTtlMs ?? 5 * 60_000));
     this.modelCooldownMs = Math.max(30_000, Math.trunc(options.modelCooldownMs ?? 5 * 60_000));
+    this.reviewProvenMinValidated = Math.max(
+      1,
+      Math.trunc(options.reviewProvenMinValidated ?? 2),
+    );
+    this.reviewHistoryMaxAgeMs = Math.max(
+      60_000,
+      Math.trunc(options.reviewHistoryMaxAgeMs ?? 7 * 24 * 60 * 60_000),
+    );
+    this.reviewExplorationSlots = Math.max(
+      0,
+      Math.min(2, Math.trunc(options.reviewExplorationSlots ?? 1)),
+    );
+    this.onReviewHistoryChange = options.onReviewHistoryChange;
     this.onRoute = options.onRoute;
+
+    for (const record of options.reviewHistory ?? []) {
+      if (!record.model?.trim() || !record.task?.trim()) continue;
+      this.reviewHistory.set(this.reviewHistoryKey(record.model, record.task), {
+        ...record,
+        model: record.model.trim(),
+        task: record.task.trim(),
+      });
+    }
   }
 
   public async reportModelFailure(feedback: GatewayModelFailureFeedback): Promise<void> {
@@ -270,6 +323,10 @@ export class AdaptiveFreeGatewayClient implements GatewayChatClient {
       }
     }
 
+    if (task.startsWith("review_")) {
+      await this.persistReviewHistory();
+    }
+
     await this.onRoute?.({
       type: "failure",
       task,
@@ -288,6 +345,10 @@ export class AdaptiveFreeGatewayClient implements GatewayChatClient {
     for (const candidate of this.feedbackModels(model, feedback.responseModel)) {
       this.recordValidatedSuccess(task, candidate);
       this.clearTaskFailure(task, candidate);
+    }
+
+    if (task.startsWith("review_")) {
+      await this.persistReviewHistory();
     }
   }
 
@@ -353,6 +414,9 @@ export class AdaptiveFreeGatewayClient implements GatewayChatClient {
       } catch (error) {
         const latencyMs = Date.now() - startedAt;
         this.recordTransport(task, candidateModel, false, latencyMs);
+        if (task.startsWith("review_")) {
+          await this.persistReviewHistory();
+        }
         const reason = error instanceof Error ? error.message : String(error);
         await this.onRoute?.({
           type: "failure",
