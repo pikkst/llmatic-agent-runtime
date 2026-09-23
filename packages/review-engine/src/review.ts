@@ -1069,10 +1069,13 @@ async function reportSemanticModelFailure(
   lens: ReviewLens,
   reason: string,
 ): Promise<void> {
-  const model = response.model?.trim();
+  const routedModel = response.routed_model?.trim();
+  const responseModel = response.model?.trim();
+  const model = routedModel || responseModel;
   if (!model) return;
   await gateway.reportModelFailure?.({
     model,
+    responseModel,
     task: "review_" + lens,
     reason,
   });
@@ -1240,8 +1243,9 @@ async function runReviewLens(
     if (!assistant.content?.trim()) {
       const semanticReason = "empty structured review content";
       await reportSemanticModelFailure(options.gateway, response, lens, semanticReason);
-      if (response.model?.trim()) {
-        avoidedModels.add(response.model.trim());
+      const failedModel = response.routed_model?.trim() || response.model?.trim();
+      if (failedModel) {
+        avoidedModels.add(failedModel);
       }
 
       if (material && step < maxSteps) {
@@ -1283,9 +1287,9 @@ async function runReviewLens(
     } catch (error) {
       const reason =
         error instanceof SyntaxError ? ("invalid_json" as const) : ("invalid_schema" as const);
-      const model = response.model?.trim();
-      if (model) {
-        avoidedModels.add(model);
+      const failedModel = response.routed_model?.trim() || response.model?.trim();
+      if (failedModel) {
+        avoidedModels.add(failedModel);
       }
       await reportSemanticModelFailure(
         options.gateway,
