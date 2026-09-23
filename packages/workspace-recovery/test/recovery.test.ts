@@ -1,7 +1,14 @@
 import { describe, expect, it } from "vitest";
-import { recommendWorkspaceAction, type RepositoryMapSummary } from "../src/index.js";
+import {
+  recommendWorkspaceAction,
+  selectRecoveryPullRequest,
+  type RepositoryMapSummary,
+} from "../src/index.js";
 import type { GitStatus } from "@llmatic/git-adapter";
-import type { PullRequestStatus } from "@llmatic/github-adapter";
+import type {
+  OpenPullRequestSummary,
+  PullRequestStatus,
+} from "@llmatic/github-adapter";
 import type { TaskRecord } from "@llmatic/task-provider";
 import type { WorkflowRun } from "@llmatic/core";
 
@@ -59,6 +66,26 @@ function pr(ciState: PullRequestStatus["ciState"]): PullRequestStatus {
   };
 }
 
+function openPr(
+  number: number,
+  headRefName: string,
+  isDraft = false,
+): OpenPullRequestSummary {
+  return {
+    number,
+    url: "https://github.com/example/repo/pull/" + String(number),
+    state: "OPEN",
+    isDraft,
+    mergeable: "MERGEABLE",
+    mergeStateStatus: "CLEAN",
+    headRefName,
+    headRefOid: String(number).padStart(40, "0"),
+    baseRefName: "main",
+    title: "PR " + String(number),
+    authorLogin: "contributor",
+  };
+}
+
 const workflow: WorkflowRun = {
   version: 1,
   runId: "00000000-0000-4000-8000-000000000001",
@@ -68,6 +95,36 @@ const workflow: WorkflowRun = {
   updatedAt: "2026-09-22T00:00:00.000Z",
   checkpoints: [],
 };
+
+describe("repository pull-request recovery selection", () => {
+  it("prefers the open pull request whose head matches the current local branch", () => {
+    const selected = selectRecoveryPullRequest(
+      [
+        openPr(41, "feature/KT-41"),
+        openPr(42, "feature/KT-42", true),
+      ],
+      "feature/KT-42",
+    );
+
+    expect(selected?.number).toBe(42);
+    expect(selected?.isDraft).toBe(true);
+  });
+
+  it("recovers the only repository open pull request even while local branch is main", () => {
+    const selected = selectRecoveryPullRequest([openPr(42, "feature/KT-42", true)], "main");
+
+    expect(selected?.number).toBe(42);
+  });
+
+  it("does not guess when several repository pull requests are open and none matches the branch", () => {
+    const selected = selectRecoveryPullRequest(
+      [openPr(41, "feature/KT-41"), openPr(42, "feature/KT-42")],
+      "main",
+    );
+
+    expect(selected).toBeUndefined();
+  });
+});
 
 describe("workspace recovery recommendation", () => {
   it("prioritizes failing PR recovery for an active workflow", () => {
@@ -117,6 +174,19 @@ describe("workspace recovery recommendation", () => {
     });
 
     expect(result.action).toBe("start_task");
+  });
+
+  it("surfaces ambiguous repository PR state instead of claiming there is no open PR", () => {
+    const result = recommendWorkspaceAction({
+      repository,
+      git: cleanGit,
+      openPullRequests: [openPr(41, "feature/KT-41"), openPr(42, "feature/KT-42", true)],
+    });
+
+    expect(result.action).toBe("ask_goal");
+    expect(result.title).toBe("Choose an open pull request");
+    expect(result.detail).toContain("2 open pull request(s)");
+    expect(result.detail).toContain("1 draft");
   });
 
   it("sends an empty repository to discovery", () => {
