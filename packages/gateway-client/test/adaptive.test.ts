@@ -1196,6 +1196,86 @@ describe("AdaptiveFreeGatewayClient", () => {
     });
   });
 
+  it("uses at most one Tier B model before exploration when no lens-specific trusted model exists", async () => {
+    const requestedModels: string[] = [];
+    const now = Date.now();
+
+    const client = new AdaptiveFreeGatewayClient({
+      maxRetries: 0,
+      maxModelAttempts: 3,
+      reviewExplorationSlots: 1,
+      reviewHistory: [
+        {
+          model: "provider/mixed-a:free",
+          task: "review_general",
+          validatedReports: 4,
+          semanticFailures: 0,
+          lengthFailures: 0,
+          transportFailures: 0,
+          lastValidatedAt: now,
+          updatedAt: now,
+        },
+        {
+          model: "provider/mixed-b:free",
+          task: "review_security",
+          validatedReports: 4,
+          semanticFailures: 0,
+          lengthFailures: 0,
+          transportFailures: 0,
+          lastValidatedAt: now,
+          updatedAt: now,
+        },
+      ],
+      fetch: async (input, init) => {
+        if (String(input).endsWith("/models")) {
+          return new Response(
+            JSON.stringify({
+              data: [
+                {
+                  id: "provider/mixed-a:free",
+                  owned_by: "provider-a",
+                  context_length: 131072,
+                },
+                {
+                  id: "provider/mixed-b:free",
+                  owned_by: "provider-b",
+                  context_length: 131072,
+                },
+                {
+                  id: "provider/explore:free",
+                  owned_by: "provider-c",
+                  context_length: 131072,
+                },
+              ],
+            }),
+            { status: 200, headers: { "Content-Type": "application/json" } },
+          );
+        }
+
+        const body = JSON.parse(String(init?.body ?? "{}")) as { model?: string };
+        const model = String(body.model);
+        requestedModels.push(model);
+        if (model !== "kilo-auto/free") {
+          return new Response("temporarily unavailable", {
+            status: 503,
+            statusText: "Service Unavailable",
+          });
+        }
+        return completion(model);
+      },
+    });
+
+    await client.createChatCompletion({
+      model: "kilo-auto/free",
+      messages: [{ role: "user", content: "review" }],
+      routing: { task: "review_bug_hunter" },
+    });
+
+    expect(requestedModels.filter((model) => model.includes("mixed-"))).toHaveLength(1);
+    expect(requestedModels).toContain("provider/explore:free");
+    expect(requestedModels.at(-1)).toBe("kilo-auto/free");
+  });
+
   it("bounds a review cold start to one exploration model plus Auto Free", async () => {
     const requestedModels: string[] = [];
 
