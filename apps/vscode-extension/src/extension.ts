@@ -2357,7 +2357,12 @@ function adaptiveRouteDescription(event: AdaptiveGatewayRouteEvent): string {
         " · candidate " +
         event.attempt +
         "/" +
-        event.maxAttempts
+        event.maxAttempts +
+        (event.structuredOutputMode
+          ? " · JSON " +
+            (event.structuredOutputMode === "native" ? "native" : "prompt-only")
+          : "") +
+        (event.reasoningModel ? " · reasoning-heavy" : "")
       );
     case "success":
       return (
