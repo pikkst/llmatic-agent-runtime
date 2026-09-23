@@ -232,6 +232,7 @@ export class AdaptiveFreeGatewayClient implements GatewayChatClient {
   private readonly stats = new Map<string, Map<string, ModelStats>>();
   private readonly validatedReviewSuccesses = new Map<string, number>();
   private readonly reviewSemanticFailures = new Map<string, number>();
+  private readonly reviewTransportFailures = new Map<string, number>();
   private readonly taskUnhealthyUntil = new Map<string, Map<string, number>>();
   private readonly globallyUnhealthyUntil = new Map<string, number>();
   private readonly taskExcludedModels = new Map<string, Set<string>>();
@@ -404,6 +405,7 @@ export class AdaptiveFreeGatewayClient implements GatewayChatClient {
           (model) =>
             !avoided.has(model.id) &&
             !taskExcluded?.has(model.id) &&
+            !(task.startsWith("review_") && /content.?safety|moderation|guard/.test(model.id.toLowerCase())) &&
             !this.blockedProviders.has(providerKey(model)) &&
             (taskUnhealthy?.get(model.id) ?? 0) <= now &&
             (this.globallyUnhealthyUntil.get(model.id) ?? 0) <= now,
@@ -492,13 +494,17 @@ export class AdaptiveFreeGatewayClient implements GatewayChatClient {
     const crossLensSemanticFailures = task.startsWith("review_")
       ? (this.reviewSemanticFailures.get(model.id) ?? 0)
       : 0;
+    const crossLensTransportFailures = task.startsWith("review_")
+      ? (this.reviewTransportFailures.get(model.id) ?? 0)
+      : 0;
 
     const learnedScore =
       validatedSuccesses * 4_000 +
-      crossLensValidatedSuccesses * 5_000 +
+      Math.min(crossLensValidatedSuccesses, 2) * 5_000 +
       transportSuccesses * 200 -
       failures * 5_000 -
       crossLensSemanticFailures * 2_500 -
+      crossLensTransportFailures * 2_000 -
       averageLatency / 20;
     const contextLength = modelContextLength(model);
     const contextScore = contextLength <= 0 ? 0 : (Math.min(contextLength, 131_072) / 131_072) * 30;
@@ -573,6 +579,9 @@ export class AdaptiveFreeGatewayClient implements GatewayChatClient {
     current.transportSuccesses += success ? 1 : 0;
     current.failures += success ? 0 : 1;
     current.totalLatencyMs += latencyMs;
+    if (!success && task.startsWith("review_")) {
+      this.reviewTransportFailures.set(model, (this.reviewTransportFailures.get(model) ?? 0) + 1);
+    }
   }
 
   private recordSemanticFailure(task: string, model: string): void {
