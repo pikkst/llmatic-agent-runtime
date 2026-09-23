@@ -550,6 +550,7 @@ describe("review engine", () => {
     );
     expect(gateway.modelFailures).toContainEqual({
       model: "dots-studio/dots-3-note-preview:free",
+      responseModel: "dots-studio/dots-3-note-preview:free",
       task: "review_general",
       reason: "empty structured review content",
     });
