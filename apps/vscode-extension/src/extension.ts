@@ -2234,7 +2234,7 @@ async function runGatewayReview(
   const gateway = new KiloGatewayClient({
     apiKey: gatewayAccess.apiKey,
     maxRetries: 0,
-    requestTimeoutMs: configuration().get<number>("reviewRequestTimeoutMs", 45_000),
+    requestTimeoutMs: configuration().get<number>("reviewRequestTimeoutMs", 60_000),
     onRetry: (event) => {
       output.appendLine(
         "[RETRY] Kilo Gateway " + event.nextAttempt + "/" + event.maxAttempts + ": " + event.reason,
@@ -2486,6 +2486,19 @@ function reviewActivityDescription(event: ReviewActivityEvent): {
           event.toolCallCount +
           " tool call(s)",
       };
+    case "model-raw-response":
+      return {
+        phase: event.lens.replaceAll("_", " ") + " · raw model response",
+        detail:
+          (event.routedModel ?? event.responseModel) +
+          " → " +
+          event.responseModel +
+          " · " +
+          event.contentLength +
+          " char(s)" +
+          (event.contentTruncated ? " · truncated in debug log" : "") +
+          (event.finishReason ? " · finish=" + event.finishReason : ""),
+      };
     case "tool-start":
       return {
         phase: event.lens.replaceAll("_", " ") + " · " + event.tool,
@@ -2573,6 +2586,15 @@ function appendReviewActivity(
       " — " +
       description.detail,
   );
+
+  if (event.type === "model-raw-response") {
+    reviewLog.appendLine("[RAW MODEL RESPONSE BEGIN]");
+    reviewLog.appendLine(event.content ?? "[null assistant content]");
+    if (event.toolCalls.length > 0) {
+      reviewLog.appendLine("[RAW TOOL CALLS] " + JSON.stringify(event.toolCalls));
+    }
+    reviewLog.appendLine("[RAW MODEL RESPONSE END]");
+  }
 
   const record = {
     timestamp,
@@ -2722,7 +2744,10 @@ async function reviewExternalPullRequestInUi(
     type: "session",
     phase: "Review started",
     detail:
-      "Manual external PR review · telemetry " + (reviewActivityLoggingEnabled() ? "ON" : "OFF"),
+      "Manual external PR review · telemetry " +
+      (reviewActivityLoggingEnabled() ? "ON" : "OFF") +
+      " · raw responses " +
+      (configuration().get<boolean>("reviewRawResponseLogging", false) ? "ON" : "OFF"),
   });
 
   if (reviewActivityLoggingEnabled()) {
@@ -2753,7 +2778,7 @@ async function reviewExternalPullRequestInUi(
       apiKey: gatewayAccess.apiKey,
       maxRetries: 0,
       maxModelAttempts: configuration().get<number>("reviewFreeModelFallbacks", 3),
-      requestTimeoutMs: configuration().get<number>("reviewRequestTimeoutMs", 45_000),
+      requestTimeoutMs: configuration().get<number>("reviewRequestTimeoutMs", 60_000),
       onRoute: (event) => {
         const detail = adaptiveRouteDescription(event);
         output.appendLine("[MODEL ROUTER] " + detail);
@@ -2830,6 +2855,7 @@ async function reviewExternalPullRequestInUi(
           model,
           maxSteps: configuration().get<number>("externalReviewMaxSteps", 3),
           lenses: ["general", "bug_hunter", "security"],
+          captureRawResponses: configuration().get<boolean>("reviewRawResponseLogging", false),
           onActivity: (event) => {
             const description = reviewActivityDescription(event);
             reviewStatus.update(description.phase, description.detail);
@@ -3038,7 +3064,7 @@ async function runAutomaticExternalPullRequestReview(
       apiKey: gatewayAccess.apiKey,
       maxRetries: 0,
       maxModelAttempts: configuration().get<number>("reviewFreeModelFallbacks", 3),
-      requestTimeoutMs: configuration().get<number>("reviewRequestTimeoutMs", 45_000),
+      requestTimeoutMs: configuration().get<number>("reviewRequestTimeoutMs", 60_000),
       onRoute: (event) => {
         output.appendLine("[AUTO REVIEW][MODEL] " + adaptiveRouteDescription(event));
       },
