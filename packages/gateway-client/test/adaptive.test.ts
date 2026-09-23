@@ -426,7 +426,9 @@ describe("AdaptiveFreeGatewayClient", () => {
     expect(requestedModels).toEqual(["kilo-auto/free"]);
   });
 
-  it("uses prompt-only JSON when advertised model capabilities omit structured output", async () => {
+  it(
+    "uses prompt-only JSON when advertised model capabilities omit structured output",
+    async () => {
     const requestBodies: Array<Record<string, unknown>> = [];
 
     const client = new AdaptiveFreeGatewayClient({
@@ -464,9 +466,12 @@ describe("AdaptiveFreeGatewayClient", () => {
 
     expect(requestBodies).toHaveLength(1);
     expect(requestBodies[0]).not.toHaveProperty("response_format");
-  });
+    },
+  );
 
-  it("preserves native structured output when the live catalog advertises response_format", async () => {
+  it(
+    "preserves native structured output when the live catalog advertises response_format",
+    async () => {
     const requestBodies: Array<Record<string, unknown>> = [];
 
     const client = new AdaptiveFreeGatewayClient({
@@ -503,7 +508,8 @@ describe("AdaptiveFreeGatewayClient", () => {
     });
 
     expect(requestBodies[0]?.response_format).toEqual({ type: "json_object" });
-  });
+    },
+  );
 
   it("opens an Auto Free session circuit breaker after two transient failures", async () => {
     let chatRequests = 0;
@@ -657,7 +663,9 @@ describe("AdaptiveFreeGatewayClient", () => {
     expect(requestedModels[0]).toBe(validatedModel);
   });
 
-  it("penalizes reasoning-heavy models for bounded review when no validated history exists", async () => {
+  it(
+    "penalizes reasoning-heavy models for bounded review when no validated history exists",
+    async () => {
     const requestedModels: string[] = [];
 
     const client = new AdaptiveFreeGatewayClient({
@@ -697,6 +705,6 @@ describe("AdaptiveFreeGatewayClient", () => {
     });
 
     expect(requestedModels[0]).toBe("provider/standard-model:free");
-  });
-
+    },
+  );
 });
