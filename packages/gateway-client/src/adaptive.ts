@@ -64,9 +64,7 @@ export interface AdaptiveFreeGatewayClientOptions extends KiloGatewayClientOptio
   reviewProvenMinValidated?: number;
   reviewHistoryMaxAgeMs?: number;
   reviewExplorationSlots?: number;
-  onReviewHistoryChange?: (
-    history: ReviewModelHistoryRecord[],
-  ) => void | Promise<void>;
+  onReviewHistoryChange?: (history: ReviewModelHistoryRecord[]) => void | Promise<void>;
   onRoute?: (event: AdaptiveGatewayRouteEvent) => void | Promise<void>;
 }
 
@@ -278,10 +276,7 @@ export class AdaptiveFreeGatewayClient implements GatewayChatClient {
     this.maxModelAttempts = Math.max(1, Math.min(8, Math.trunc(options.maxModelAttempts ?? 4)));
     this.catalogTtlMs = Math.max(30_000, Math.trunc(options.catalogTtlMs ?? 5 * 60_000));
     this.modelCooldownMs = Math.max(30_000, Math.trunc(options.modelCooldownMs ?? 5 * 60_000));
-    this.reviewProvenMinValidated = Math.max(
-      1,
-      Math.trunc(options.reviewProvenMinValidated ?? 2),
-    );
+    this.reviewProvenMinValidated = Math.max(1, Math.trunc(options.reviewProvenMinValidated ?? 2));
     this.reviewHistoryMaxAgeMs = Math.max(
       60_000,
       Math.trunc(options.reviewHistoryMaxAgeMs ?? 7 * 24 * 60 * 60_000),
@@ -754,20 +749,14 @@ export class AdaptiveFreeGatewayClient implements GatewayChatClient {
   private freshReviewHistory(model: string): ReviewModelHistoryRecord[] {
     const cutoff = Date.now() - this.reviewHistoryMaxAgeMs;
     return [...this.reviewHistory.values()].filter(
-      (record) =>
-        record.model === model &&
-        (record.lastValidatedAt ?? record.updatedAt) >= cutoff,
+      (record) => record.model === model && (record.lastValidatedAt ?? record.updatedAt) >= cutoff,
     );
   }
 
   private isProvenReviewModel(model: string, task: string): boolean {
     const records = this.freshReviewHistory(model);
-    const exactValidated =
-      records.find((record) => record.task === task)?.validatedReports ?? 0;
-    const totalValidated = records.reduce(
-      (total, record) => total + record.validatedReports,
-      0,
-    );
+    const exactValidated = records.find((record) => record.task === task)?.validatedReports ?? 0;
+    const totalValidated = records.reduce((total, record) => total + record.validatedReports, 0);
     return exactValidated >= 1 || totalValidated >= this.reviewProvenMinValidated;
   }
 
@@ -776,18 +765,12 @@ export class AdaptiveFreeGatewayClient implements GatewayChatClient {
     if (records.length === 0) return 0;
 
     const exact = records.find((record) => record.task === task);
-    const totalValidated = records.reduce(
-      (total, record) => total + record.validatedReports,
-      0,
-    );
+    const totalValidated = records.reduce((total, record) => total + record.validatedReports, 0);
     const totalSemanticFailures = records.reduce(
       (total, record) => total + record.semanticFailures,
       0,
     );
-    const totalLengthFailures = records.reduce(
-      (total, record) => total + record.lengthFailures,
-      0,
-    );
+    const totalLengthFailures = records.reduce((total, record) => total + record.lengthFailures, 0);
     const totalTransportFailures = records.reduce(
       (total, record) => total + record.transportFailures,
       0,
