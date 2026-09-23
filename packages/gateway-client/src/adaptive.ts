@@ -102,7 +102,10 @@ function modelFeatureTokens(model: GatewayModelInfo): Set<string> {
   const visit = (value: unknown, depth: number): void => {
     if (depth > 3 || value === null || value === undefined) return;
     if (typeof value === "string") {
-      for (const token of value.toLowerCase().split(/[^a-z0-9_]+/).filter(Boolean)) {
+      for (const token of value
+        .toLowerCase()
+        .split(/[^a-z0-9_]+/)
+        .filter(Boolean)) {
         tokens.add(token);
       }
       return;
@@ -124,16 +127,17 @@ function modelFeatureTokens(model: GatewayModelInfo): Set<string> {
   return tokens;
 }
 
-function structuredOutputSupport(
-  model: GatewayModelInfo,
-): "supported" | "unsupported" | "unknown" {
+function structuredOutputSupport(model: GatewayModelInfo): "supported" | "unsupported" | "unknown" {
   const source = model as Record<string, unknown>;
   const parameterSource = source.supported_parameters ?? source.supportedParameters;
   const parameterTokens = new Set<string>();
 
   const collectParameters = (value: unknown): void => {
     if (typeof value === "string") {
-      for (const token of value.toLowerCase().split(/[^a-z0-9_]+/).filter(Boolean)) {
+      for (const token of value
+        .toLowerCase()
+        .split(/[^a-z0-9_]+/)
+        .filter(Boolean)) {
         parameterTokens.add(token);
       }
       return;
@@ -565,10 +569,7 @@ export class AdaptiveFreeGatewayClient implements GatewayChatClient {
     const current = this.currentStats(task, model);
     current.validatedSuccesses += 1;
     if (task.startsWith("review_")) {
-      this.validatedReviewSuccesses.set(
-        model,
-        (this.validatedReviewSuccesses.get(model) ?? 0) + 1,
-      );
+      this.validatedReviewSuccesses.set(model, (this.validatedReviewSuccesses.get(model) ?? 0) + 1);
     }
-   }
+  }
 }
