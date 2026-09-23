@@ -1220,7 +1220,7 @@ async function runReviewLens(
         rawContent && rawContent.length > maxRawResponseChars
           ? rawContent.slice(0, maxRawResponseChars)
           : rawContent;
-      const fullRawResponseJson = JSON.stringify(response);
+      const fullRawResponseJson = JSON.stringify(response) ?? "{}";
       const rawResponseTruncated = fullRawResponseJson.length > MAX_RAW_DEBUG_RESPONSE_CHARS;
       options.onActivity?.({
         type: "model-raw-response",
