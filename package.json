@@ -12,7 +12,7 @@
     "typecheck": "tsc -b --pretty false",
     "test": "vitest run",
     "format": "prettier --write .",
-    "format:check": "prettier --write packages/git-adapter/src/git.ts packages/workspace-recovery/test/recovery.test.ts && git diff -- packages/git-adapter/src/git.ts packages/workspace-recovery/test/recovery.test.ts && exit 1",
+    "format:check": "prettier --check .",
     "ci": "node scripts/ci-local.mjs --ci",
     "ci:local": "node scripts/ci-local.mjs",
     "mcp": "node apps/mcp-server/dist/index.js",
