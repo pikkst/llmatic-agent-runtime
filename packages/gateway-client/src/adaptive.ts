@@ -316,6 +316,9 @@ export class AdaptiveFreeGatewayClient implements GatewayChatClient {
       ) {
         const failures = (this.reviewLengthFailures.get(candidate) ?? 0) + 1;
         this.reviewLengthFailures.set(candidate, failures);
+        const history = this.reviewHistoryRecord(candidate, task);
+        history.lengthFailures += 1;
+        history.updatedAt = Date.now();
         this.excludeFromReviewFamilyAfterRepeatedFailure(candidate, failures);
       }
       if (candidate !== "kilo-auto/free" && isFreeModelId(candidate)) {
@@ -505,7 +508,32 @@ export class AdaptiveFreeGatewayClient implements GatewayChatClient {
         }
       }
 
-      for (const model of [...diverse, ...remainder]) {
+      const orderedModels = [...diverse, ...remainder];
+      const provenModels = task.startsWith("review_")
+        ? orderedModels.filter((model) => this.isProvenReviewModel(model.id, task))
+        : [];
+      const explorationModels =
+        task.startsWith("review_") && provenModels.length > 0
+          ? orderedModels
+              .filter((model) => !provenModels.some((proven) => proven.id === model.id))
+              .slice(0, this.reviewExplorationSlots)
+          : [];
+
+      if (task.startsWith("review_")) {
+        await this.onRoute?.({
+          type: "review-history",
+          task,
+          provenModels: provenModels.map((model) => model.id),
+          explorationModels: explorationModels.map((model) => model.id),
+        });
+      }
+
+      const selectedModels =
+        task.startsWith("review_") && provenModels.length > 0
+          ? [...provenModels, ...explorationModels]
+          : orderedModels;
+
+      for (const model of selectedModels) {
         if (!candidates.includes(model.id)) candidates.push(model.id);
       }
     } catch {
@@ -576,6 +604,9 @@ export class AdaptiveFreeGatewayClient implements GatewayChatClient {
     const crossLensTransportFailures = task.startsWith("review_")
       ? (this.reviewTransportFailures.get(model.id) ?? 0)
       : 0;
+    const persistentReviewScore = task.startsWith("review_")
+      ? this.persistentReviewScore(model.id, task)
+      : 0;
 
     const learnedScore =
       validatedSuccesses * 4_000 +
@@ -584,7 +615,8 @@ export class AdaptiveFreeGatewayClient implements GatewayChatClient {
       failures * 5_000 -
       crossLensSemanticFailures * 2_500 -
       crossLensTransportFailures * 2_000 -
-      averageLatency / 20;
+      averageLatency / 20 +
+      persistentReviewScore;
     const contextLength = modelContextLength(model);
     const contextScore = contextLength <= 0 ? 0 : (Math.min(contextLength, 131_072) / 131_072) * 30;
     const speedScore = task.startsWith("review_") ? reviewSpeedScore(model) : 0;
@@ -661,6 +693,9 @@ export class AdaptiveFreeGatewayClient implements GatewayChatClient {
     if (!success && task.startsWith("review_")) {
       const failures = (this.reviewTransportFailures.get(model) ?? 0) + 1;
       this.reviewTransportFailures.set(model, failures);
+      const history = this.reviewHistoryRecord(model, task);
+      history.transportFailures += 1;
+      history.updatedAt = Date.now();
     }
   }
 
@@ -675,6 +710,9 @@ export class AdaptiveFreeGatewayClient implements GatewayChatClient {
     current.failures += 1;
     if (task.startsWith("review_")) {
       this.reviewSemanticFailures.set(model, (this.reviewSemanticFailures.get(model) ?? 0) + 1);
+      const history = this.reviewHistoryRecord(model, task);
+      history.semanticFailures += 1;
+      history.updatedAt = Date.now();
     }
   }
 
@@ -684,6 +722,96 @@ export class AdaptiveFreeGatewayClient implements GatewayChatClient {
     if (task.startsWith("review_")) {
       this.validatedReviewSuccesses.set(model, (this.validatedReviewSuccesses.get(model) ?? 0) + 1);
       this.reviewFamilyExcludedModels.delete(model);
+      const history = this.reviewHistoryRecord(model, task);
+      history.validatedReports += 1;
+      history.lastValidatedAt = Date.now();
+      history.updatedAt = history.lastValidatedAt;
     }
+  }
+
+  private reviewHistoryKey(model: string, task: string): string {
+    return task + "\u0000" + model;
+  }
+
+  private reviewHistoryRecord(model: string, task: string): ReviewModelHistoryRecord {
+    const key = this.reviewHistoryKey(model, task);
+    const existing = this.reviewHistory.get(key);
+    if (existing) return existing;
+
+    const created: ReviewModelHistoryRecord = {
+      model,
+      task,
+      validatedReports: 0,
+      semanticFailures: 0,
+      lengthFailures: 0,
+      transportFailures: 0,
+      updatedAt: Date.now(),
+    };
+    this.reviewHistory.set(key, created);
+    return created;
+  }
+
+  private freshReviewHistory(model: string): ReviewModelHistoryRecord[] {
+    const cutoff = Date.now() - this.reviewHistoryMaxAgeMs;
+    return [...this.reviewHistory.values()].filter(
+      (record) =>
+        record.model === model &&
+        (record.lastValidatedAt ?? record.updatedAt) >= cutoff,
+    );
+  }
+
+  private isProvenReviewModel(model: string, task: string): boolean {
+    const records = this.freshReviewHistory(model);
+    const exactValidated =
+      records.find((record) => record.task === task)?.validatedReports ?? 0;
+    const totalValidated = records.reduce(
+      (total, record) => total + record.validatedReports,
+      0,
+    );
+    return exactValidated >= 1 || totalValidated >= this.reviewProvenMinValidated;
+  }
+
+  private persistentReviewScore(model: string, task: string): number {
+    const records = this.freshReviewHistory(model);
+    if (records.length === 0) return 0;
+
+    const exact = records.find((record) => record.task === task);
+    const totalValidated = records.reduce(
+      (total, record) => total + record.validatedReports,
+      0,
+    );
+    const totalSemanticFailures = records.reduce(
+      (total, record) => total + record.semanticFailures,
+      0,
+    );
+    const totalLengthFailures = records.reduce(
+      (total, record) => total + record.lengthFailures,
+      0,
+    );
+    const totalTransportFailures = records.reduce(
+      (total, record) => total + record.transportFailures,
+      0,
+    );
+
+    return (
+      (exact?.validatedReports ?? 0) * 10_000 +
+      Math.min(totalValidated, 6) * 4_000 -
+      totalLengthFailures * 2_500 -
+      totalSemanticFailures * 1_000 -
+      totalTransportFailures * 300
+    );
+  }
+
+  private async persistReviewHistory(): Promise<void> {
+    if (!this.onReviewHistoryChange) return;
+    await this.onReviewHistoryChange(
+      [...this.reviewHistory.values()]
+        .map((record) => ({ ...record }))
+        .sort((left, right) =>
+          left.model === right.model
+            ? left.task.localeCompare(right.task)
+            : left.model.localeCompare(right.model),
+        ),
+    );
   }
 }
