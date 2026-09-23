@@ -429,85 +429,85 @@ describe("AdaptiveFreeGatewayClient", () => {
   it(
     "uses prompt-only JSON when advertised model capabilities omit structured output",
     async () => {
-    const requestBodies: Array<Record<string, unknown>> = [];
+      const requestBodies: Array<Record<string, unknown>> = [];
 
-    const client = new AdaptiveFreeGatewayClient({
-      maxRetries: 0,
-      maxModelAttempts: 1,
-      fetch: async (input, init) => {
-        if (String(input).endsWith("/models")) {
-          return new Response(
-            JSON.stringify({
-              data: [
-                {
-                  id: "provider/plain-fast:free",
-                  owned_by: "provider",
-                  context_length: 131072,
-                  supported_parameters: ["max_tokens", "temperature"],
-                },
-              ],
-            }),
-            { status: 200, headers: { "Content-Type": "application/json" } },
-          );
-        }
+      const client = new AdaptiveFreeGatewayClient({
+        maxRetries: 0,
+        maxModelAttempts: 1,
+        fetch: async (input, init) => {
+          if (String(input).endsWith("/models")) {
+            return new Response(
+              JSON.stringify({
+                data: [
+                  {
+                    id: "provider/plain-fast:free",
+                    owned_by: "provider",
+                    context_length: 131072,
+                    supported_parameters: ["max_tokens", "temperature"],
+                  },
+                ],
+              }),
+              { status: 200, headers: { "Content-Type": "application/json" } },
+            );
+          }
 
-        const body = JSON.parse(String(init?.body ?? "{}")) as Record<string, unknown>;
-        requestBodies.push(body);
-        return completion(String(body.model));
-      },
-    });
+          const body = JSON.parse(String(init?.body ?? "{}")) as Record<string, unknown>;
+          requestBodies.push(body);
+          return completion(String(body.model));
+        },
+      });
 
-    await client.createChatCompletion({
-      model: "kilo-auto/free",
-      messages: [{ role: "user", content: "Return JSON." }],
-      routing: { task: "review_general" },
-      response_format: { type: "json_object" },
-    });
+      await client.createChatCompletion({
+        model: "kilo-auto/free",
+        messages: [{ role: "user", content: "Return JSON." }],
+        routing: { task: "review_general" },
+        response_format: { type: "json_object" },
+      });
 
-    expect(requestBodies).toHaveLength(1);
-    expect(requestBodies[0]).not.toHaveProperty("response_format");
+      expect(requestBodies).toHaveLength(1);
+      expect(requestBodies[0]).not.toHaveProperty("response_format");
     },
   );
 
   it(
     "preserves native structured output when the live catalog advertises response_format",
     async () => {
-    const requestBodies: Array<Record<string, unknown>> = [];
+      const requestBodies: Array<Record<string, unknown>> = [];
 
-    const client = new AdaptiveFreeGatewayClient({
-      maxRetries: 0,
-      maxModelAttempts: 1,
-      fetch: async (input, init) => {
-        if (String(input).endsWith("/models")) {
-          return new Response(
-            JSON.stringify({
-              data: [
-                {
-                  id: "provider/json-fast:free",
-                  owned_by: "provider",
-                  context_length: 131072,
-                  supported_parameters: ["max_tokens", "temperature", "response_format"],
-                },
-              ],
-            }),
-            { status: 200, headers: { "Content-Type": "application/json" } },
-          );
-        }
+      const client = new AdaptiveFreeGatewayClient({
+        maxRetries: 0,
+        maxModelAttempts: 1,
+        fetch: async (input, init) => {
+          if (String(input).endsWith("/models")) {
+            return new Response(
+              JSON.stringify({
+                data: [
+                  {
+                    id: "provider/json-fast:free",
+                    owned_by: "provider",
+                    context_length: 131072,
+                    supported_parameters: ["max_tokens", "temperature", "response_format"],
+                  },
+                ],
+              }),
+              { status: 200, headers: { "Content-Type": "application/json" } },
+            );
+          }
 
-        const body = JSON.parse(String(init?.body ?? "{}")) as Record<string, unknown>;
-        requestBodies.push(body);
-        return completion(String(body.model));
-      },
-    });
+          const body = JSON.parse(String(init?.body ?? "{}")) as Record<string, unknown>;
+          requestBodies.push(body);
+          return completion(String(body.model));
+        },
+      });
 
-    await client.createChatCompletion({
-      model: "kilo-auto/free",
-      messages: [{ role: "user", content: "Return JSON." }],
-      routing: { task: "review_general" },
-      response_format: { type: "json_object" },
-    });
+      await client.createChatCompletion({
+        model: "kilo-auto/free",
+        messages: [{ role: "user", content: "Return JSON." }],
+        routing: { task: "review_general" },
+        response_format: { type: "json_object" },
+      });
 
-    expect(requestBodies[0]?.response_format).toEqual({ type: "json_object" });
+      expect(requestBodies[0]?.response_format).toEqual({ type: "json_object" });
     },
   );
 
@@ -666,45 +666,45 @@ describe("AdaptiveFreeGatewayClient", () => {
   it(
     "penalizes reasoning-heavy models for bounded review when no validated history exists",
     async () => {
-    const requestedModels: string[] = [];
+      const requestedModels: string[] = [];
 
-    const client = new AdaptiveFreeGatewayClient({
-      maxRetries: 0,
-      maxModelAttempts: 1,
-      fetch: async (input, init) => {
-        if (String(input).endsWith("/models")) {
-          return new Response(
-            JSON.stringify({
-              data: [
-                {
-                  id: "provider/reasoning-model:free",
-                  owned_by: "provider-a",
-                  context_length: 131072,
-                },
-                {
-                  id: "provider/standard-model:free",
-                  owned_by: "provider-b",
-                  context_length: 131072,
-                },
-              ],
-            }),
-            { status: 200, headers: { "Content-Type": "application/json" } },
-          );
-        }
+      const client = new AdaptiveFreeGatewayClient({
+        maxRetries: 0,
+        maxModelAttempts: 1,
+        fetch: async (input, init) => {
+          if (String(input).endsWith("/models")) {
+            return new Response(
+              JSON.stringify({
+                data: [
+                  {
+                    id: "provider/reasoning-model:free",
+                    owned_by: "provider-a",
+                    context_length: 131072,
+                  },
+                  {
+                    id: "provider/standard-model:free",
+                    owned_by: "provider-b",
+                    context_length: 131072,
+                  },
+                ],
+              }),
+              { status: 200, headers: { "Content-Type": "application/json" } },
+            );
+          }
 
-        const body = JSON.parse(String(init?.body ?? "{}")) as { model?: string };
-        requestedModels.push(String(body.model));
-        return completion(String(body.model));
-      },
-    });
+          const body = JSON.parse(String(init?.body ?? "{}")) as { model?: string };
+          requestedModels.push(String(body.model));
+          return completion(String(body.model));
+        },
+      });
 
-    await client.createChatCompletion({
-      model: "kilo-auto/free",
-      messages: [{ role: "user", content: "review" }],
-      routing: { task: "review_general" },
-    });
+      await client.createChatCompletion({
+        model: "kilo-auto/free",
+        messages: [{ role: "user", content: "review" }],
+        routing: { task: "review_general" },
+      });
 
-    expect(requestedModels[0]).toBe("provider/standard-model:free");
+      expect(requestedModels[0]).toBe("provider/standard-model:free");
     },
   );
 });
