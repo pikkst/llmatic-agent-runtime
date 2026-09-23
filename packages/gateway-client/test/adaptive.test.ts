@@ -27,10 +27,33 @@ describe("AdaptiveFreeGatewayClient", () => {
     const requestedModels: string[] = [];
     const events: Array<{ type: string; candidateModel?: string }> = [];
 
+    const now = Date.now();
     const client = new AdaptiveFreeGatewayClient({
       maxRetries: 0,
       maxModelAttempts: 4,
       requestTimeoutMs: 5_000,
+      reviewHistory: [
+        {
+          model: "nvidia/mini-flash:free",
+          task: "review_bug_hunter",
+          validatedReports: 2,
+          semanticFailures: 0,
+          lengthFailures: 0,
+          transportFailures: 0,
+          lastValidatedAt: now,
+          updatedAt: now,
+        },
+        {
+          model: "z-ai/medium:free",
+          task: "review_bug_hunter",
+          validatedReports: 2,
+          semanticFailures: 0,
+          lengthFailures: 0,
+          transportFailures: 0,
+          lastValidatedAt: now,
+          updatedAt: now,
+        },
+      ],
       onRoute: (event) => events.push(event),
       fetch: async (input, init) => {
         const url = String(input);
@@ -311,10 +334,33 @@ describe("AdaptiveFreeGatewayClient", () => {
 
   it("falls through provider-level 400 errors and blocks that provider for the session", async () => {
     const requestedModels: string[] = [];
+    const now = Date.now();
 
     const client = new AdaptiveFreeGatewayClient({
       maxRetries: 0,
       maxModelAttempts: 3,
+      reviewHistory: [
+        {
+          model: "inclusionai/flash-fast:free",
+          task: "review_general",
+          validatedReports: 2,
+          semanticFailures: 0,
+          lengthFailures: 0,
+          transportFailures: 0,
+          lastValidatedAt: now,
+          updatedAt: now,
+        },
+        {
+          model: "other/mini:free",
+          task: "review_general",
+          validatedReports: 2,
+          semanticFailures: 0,
+          lengthFailures: 0,
+          transportFailures: 0,
+          lastValidatedAt: now,
+          updatedAt: now,
+        },
+      ],
       fetch: async (input, init) => {
         if (String(input).endsWith("/models")) {
           return new Response(
