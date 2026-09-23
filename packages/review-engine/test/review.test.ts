@@ -72,7 +72,17 @@ async function repository(): Promise<string> {
 
 class ScriptedGateway implements GatewayChatClient {
   public readonly requests: GatewayChatRequest[] = [];
-  public readonly modelFailures: Array<{ model: string; task?: string; reason: string }> = [];
+  public readonly modelFailures: Array<{
+    model: string;
+    responseModel?: string;
+    task?: string;
+    reason: string;
+  }> = [];
+  public readonly modelSuccesses: Array<{
+    model: string;
+    responseModel?: string;
+    task?: string;
+  }> = [];
   public constructor(private readonly responses: GatewayChatResponse[]) {}
   public async createChatCompletion(request: GatewayChatRequest): Promise<GatewayChatResponse> {
     this.requests.push(request);
@@ -80,8 +90,20 @@ class ScriptedGateway implements GatewayChatClient {
     if (!response) throw new Error("No scripted review response remains.");
     return response;
   }
-  public reportModelFailure(feedback: { model: string; task?: string; reason: string }): void {
+  public reportModelFailure(feedback: {
+    model: string;
+    responseModel?: string;
+    task?: string;
+    reason: string;
+  }): void {
     this.modelFailures.push(feedback);
+  }
+  public reportModelSuccess(feedback: {
+    model: string;
+    responseModel?: string;
+    task?: string;
+  }): void {
+    this.modelSuccesses.push(feedback);
   }
 }
 
@@ -554,6 +576,13 @@ describe("review engine", () => {
       task: "review_general",
       reason: "empty structured review content",
     });
+    expect(gateway.modelSuccesses).toEqual([
+      {
+        model: "nvidia/nemotron-3.5-lightning:free",
+        responseModel: "nvidia/nemotron-3.5-lightning:free",
+        task: "review_general",
+      },
+    ]);
   });
 
   it("accepts a prose-prefixed structured review object", async () => {
