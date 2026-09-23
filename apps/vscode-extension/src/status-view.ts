@@ -94,6 +94,7 @@ function recoverySemanticStatus(recovery: WorkspaceRecovery): SemanticStatus {
     !recovery.git.clean ||
     recovery.pullRequest ||
     (recovery.openPullRequests?.length ?? 0) > 0 ||
+    (recovery.pendingPullRequestBranches?.length ?? 0) > 0 ||
     recovery.recommendation.action === "start_discovery"
   ) {
     return "attention";
@@ -491,7 +492,9 @@ export class LlmaticStatusProvider implements vscode.TreeDataProvider<vscode.Tre
         recovered,
         recoverySemanticStatus(this.recovery),
         "workspace-recovery",
-        this.recovery.pullRequest || (this.recovery.openPullRequests?.length ?? 0) > 0
+        this.recovery.pullRequest ||
+          (this.recovery.openPullRequests?.length ?? 0) > 0 ||
+          (this.recovery.pendingPullRequestBranches?.length ?? 0) > 0
           ? "git-pull-request"
           : "tasklist",
       );
@@ -504,7 +507,12 @@ export class LlmaticStatusProvider implements vscode.TreeDataProvider<vscode.Tre
           this.recovery.pullRequest.ciState
         : (this.recovery.openPullRequests?.length ?? 0) > 0
           ? String(this.recovery.openPullRequests?.length ?? 0) + " open PR(s) · choose target"
-          : this.recovery.workflow
+          : (this.recovery.pendingPullRequestBranches?.length ?? 0) === 1
+            ? this.recovery.pendingPullRequestBranches?.[0]?.branch + " · pushed · no PR"
+            : (this.recovery.pendingPullRequestBranches?.length ?? 0) > 1
+              ? String(this.recovery.pendingPullRequestBranches?.length ?? 0) +
+                " pushed branches · no PR"
+              : this.recovery.workflow
             ? this.recovery.workflow.state
             : this.recovery.task
               ? this.recovery.task.status.name
