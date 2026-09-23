@@ -2496,7 +2496,8 @@ function reviewActivityDescription(event: ReviewActivityEvent): {
           " · " +
           event.contentLength +
           " char(s)" +
-          (event.contentTruncated ? " · truncated in debug log" : "") +
+          (event.contentTruncated ? " · assistant content truncated" : "") +
+          (event.rawResponseTruncated ? " · gateway response truncated" : "") +
           (event.finishReason ? " · finish=" + event.finishReason : ""),
       };
     case "tool-start":
@@ -2594,6 +2595,12 @@ function appendReviewActivity(
       reviewLog.appendLine("[RAW TOOL CALLS] " + JSON.stringify(event.toolCalls));
     }
     reviewLog.appendLine("[RAW MODEL RESPONSE END]");
+    reviewLog.appendLine("[RAW GATEWAY RESPONSE BEGIN]");
+    reviewLog.appendLine(event.rawResponseJson);
+    if (event.rawResponseTruncated) {
+      reviewLog.appendLine("[RAW GATEWAY RESPONSE TRUNCATED]");
+    }
+    reviewLog.appendLine("[RAW GATEWAY RESPONSE END]");
   }
 
   const record = {
