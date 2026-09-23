@@ -151,6 +151,16 @@ describe("VS Code extension activation surface", () => {
       "llmatic.reviewActivityLogging",
     );
     expect(packageJson.contributes.configuration.properties).toHaveProperty(
+      "llmatic.reviewRawResponseLogging",
+    );
+    expect(
+      (
+        packageJson.contributes.configuration.properties["llmatic.reviewRequestTimeoutMs"] as {
+          default?: number;
+        }
+      ).default,
+    ).toBe(60000);
+    expect(packageJson.contributes.configuration.properties).toHaveProperty(
       "llmatic.reviewMaxSteps",
     );
     expect(packageJson.contributes.configuration.properties).toHaveProperty(
