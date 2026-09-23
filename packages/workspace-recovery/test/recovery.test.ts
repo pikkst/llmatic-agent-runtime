@@ -63,7 +63,11 @@ function pr(ciState: PullRequestStatus["ciState"]): PullRequestStatus {
   };
 }
 
-function openPr(number: number, headRefName: string, isDraft = false): OpenPullRequestSummary {
+function openPr(
+  number: number,
+  headRefName: string,
+  isDraft = false,
+): OpenPullRequestSummary {
   return {
     number,
     url: "https://github.com/example/repo/pull/" + String(number),
@@ -181,7 +185,10 @@ describe("workspace recovery recommendation", () => {
     const result = recommendWorkspaceAction({
       repository,
       git: cleanGit,
-      pendingPullRequestBranches: [pushedBranch("feature/KT-114"), pushedBranch("feature/KT-115")],
+      pendingPullRequestBranches: [
+        pushedBranch("feature/KT-114"),
+        pushedBranch("feature/KT-115"),
+      ],
     });
 
     expect(result.action).toBe("ask_goal");
