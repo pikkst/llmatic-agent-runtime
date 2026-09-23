@@ -2710,7 +2710,9 @@ async function migrateReviewModelHistoryFromTelemetry(
           (item) => {
             if (previous?.task === task && previous.model === model) {
               item.semanticFailures += 1;
-              if (/generation length limit reached without structured review content/i.test(reason)) {
+              if (
+                /generation length limit reached without structured review content/i.test(reason)
+              ) {
                 item.lengthFailures += 1;
               }
             } else {
