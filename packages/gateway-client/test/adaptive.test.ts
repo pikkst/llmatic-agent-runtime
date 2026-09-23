@@ -97,6 +97,12 @@ describe("AdaptiveFreeGatewayClient", () => {
       ]),
     );
 
+    await client.reportModelSuccess({
+      model: response.routed_model ?? response.model,
+      responseModel: response.model,
+      task: "review_bug_hunter",
+    });
+
     requestedModels.length = 0;
     await client.createChatCompletion({
       model: "kilo-auto/free",
