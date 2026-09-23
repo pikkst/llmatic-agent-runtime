@@ -1082,10 +1082,129 @@ describe("AdaptiveFreeGatewayClient", () => {
     expect(routeEvents).toContainEqual({
       type: "review-history",
       task: "review_general",
-      provenModels: ["provider/proven:free"],
+      trustedModels: ["provider/proven:free"],
+      mixedModels: [],
       explorationModels: ["provider/explore-fast:free"],
     });
     expect(requestedModels).not.toContain("provider/unproven-extra:free");
+  });
+
+  it("keeps flaky historically validated models in Tier B instead of Tier A", async () => {
+    const routeEvents: AdaptiveGatewayRouteEvent[] = [];
+    const now = Date.now();
+
+    const client = new AdaptiveFreeGatewayClient({
+      maxRetries: 0,
+      maxModelAttempts: 1,
+      reviewHistory: [
+        {
+          model: "provider/flaky:free",
+          task: "review_general",
+          validatedReports: 4,
+          semanticFailures: 4,
+          lengthFailures: 2,
+          transportFailures: 1,
+          lastValidatedAt: now,
+          updatedAt: now,
+        },
+      ],
+      onRoute: (event) => routeEvents.push(event),
+      fetch: async (input, init) => {
+        if (String(input).endsWith("/models")) {
+          return new Response(
+            JSON.stringify({
+              data: [
+                {
+                  id: "provider/flaky:free",
+                  owned_by: "provider",
+                  context_length: 131072,
+                },
+                {
+                  id: "provider/explore:free",
+                  owned_by: "other",
+                  context_length: 131072,
+                },
+              ],
+            }),
+            { status: 200, headers: { "Content-Type": "application/json" } },
+          );
+        }
+
+        const body = JSON.parse(String(init?.body ?? "{}")) as { model?: string };
+        return completion(String(body.model));
+      },
+    });
+
+    await client.createChatCompletion({
+      model: "kilo-auto/free",
+      messages: [{ role: "user", content: "review" }],
+      routing: { task: "review_general" },
+    });
+
+    expect(routeEvents).toContainEqual({
+      type: "review-history",
+      task: "review_general",
+      trustedModels: [],
+      mixedModels: ["provider/flaky:free"],
+      explorationModels: ["provider/explore:free"],
+    });
+  });
+
+  it("bounds a review cold start to one exploration model plus Auto Free", async () => {
+    const requestedModels: string[] = [];
+
+    const client = new AdaptiveFreeGatewayClient({
+      maxRetries: 0,
+      maxModelAttempts: 3,
+      reviewExplorationSlots: 1,
+      fetch: async (input, init) => {
+        if (String(input).endsWith("/models")) {
+          return new Response(
+            JSON.stringify({
+              data: [
+                {
+                  id: "provider/first:free",
+                  owned_by: "provider-a",
+                  context_length: 131072,
+                },
+                {
+                  id: "provider/second:free",
+                  owned_by: "provider-b",
+                  context_length: 131072,
+                },
+                {
+                  id: "provider/third:free",
+                  owned_by: "provider-c",
+                  context_length: 131072,
+                },
+              ],
+            }),
+            { status: 200, headers: { "Content-Type": "application/json" } },
+          );
+        }
+
+        const body = JSON.parse(String(init?.body ?? "{}")) as { model?: string };
+        const model = String(body.model);
+        requestedModels.push(model);
+        if (model !== "kilo-auto/free") {
+          return new Response("temporarily unavailable", {
+            status: 503,
+            statusText: "Service Unavailable",
+          });
+        }
+        return completion(model);
+      },
+    });
+
+    await client.createChatCompletion({
+      model: "kilo-auto/free",
+      messages: [{ role: "user", content: "review" }],
+      routing: { task: "review_general" },
+    });
+
+    expect(requestedModels).toHaveLength(2);
+    expect(requestedModels[1]).toBe("kilo-auto/free");
+    expect(requestedModels).not.toContain("provider/third:free");
   });
 
   it("persists validated review history through the history callback", async () => {
