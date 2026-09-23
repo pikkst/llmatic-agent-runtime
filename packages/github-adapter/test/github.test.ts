@@ -506,9 +506,7 @@ describe("github adapter", () => {
       if (args[0] === "api" && args.includes("--paginate")) {
         return {
           exitCode: 0,
-          stdout: JSON.stringify([
-            [{ filename: "src/value.ts", additions: 1, deletions: 0 }],
-          ]),
+          stdout: JSON.stringify([[{ filename: "src/value.ts", additions: 1, deletions: 0 }]]),
           stderr: "",
         };
       }
