@@ -13,9 +13,9 @@ const versionedOutput = resolve(artifactsRoot, "llmatic-agent-runtime-" + versio
 
 await mkdir(dirname(output), { recursive: true });
 
-function runPnpm(args, label) {
+function runPnpm(args, label, cwd = extensionRoot) {
   const result = spawnSync("pnpm", args, {
-    cwd: extensionRoot,
+    cwd,
     env: process.env,
     stdio: "inherit",
     shell: process.platform === "win32",
@@ -29,10 +29,11 @@ function runPnpm(args, label) {
   }
 }
 
-// Packaging must be self-contained. Rebuild the extension and bundled MCP runtime
-// immediately before creating the VSIX so source changes can never be packaged
-// with a stale dist/extension.cjs from an earlier build.
-runPnpm(["run", "bundle"], "VSIX bundle rebuild");
+// Packaging must be self-contained. Build the full TypeScript project graph first
+// because the VS Code bundle resolves workspace packages through their compiled
+// dist/ exports (for example @llmatic/gateway-client/dist/index.js). Bundling only
+// the extension could otherwise package stale workspace dependency output.
+runPnpm(["run", "build"], "VSIX workspace build", repositoryRoot);
 
 // Never leave an older candidate under either canonical install name.
 await Promise.all([rm(output, { force: true }), rm(versionedOutput, { force: true })]);
