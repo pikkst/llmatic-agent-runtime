@@ -63,11 +63,7 @@ function pr(ciState: PullRequestStatus["ciState"]): PullRequestStatus {
   };
 }
 
-function openPr(
-  number: number,
-  headRefName: string,
-  isDraft = false,
-): OpenPullRequestSummary {
+function openPr(number: number, headRefName: string, isDraft = false): OpenPullRequestSummary {
   return {
     number,
     url: "https://github.com/example/repo/pull/" + String(number),
@@ -112,10 +108,7 @@ const workflow: WorkflowRun = {
 describe("repository pull-request recovery selection", () => {
   it("prefers the open pull request whose head matches the current local branch", () => {
     const selected = selectRecoveryPullRequest(
-      [
-        openPr(41, "feature/KT-41"),
-        openPr(42, "feature/KT-42", true),
-      ],
+      [openPr(41, "feature/KT-41"), openPr(42, "feature/KT-42", true)],
       "feature/KT-42",
     );
 
@@ -185,10 +178,7 @@ describe("workspace recovery recommendation", () => {
     const result = recommendWorkspaceAction({
       repository,
       git: cleanGit,
-      pendingPullRequestBranches: [
-        pushedBranch("feature/KT-114"),
-        pushedBranch("feature/KT-115"),
-      ],
+      pendingPullRequestBranches: [pushedBranch("feature/KT-114"), pushedBranch("feature/KT-115")],
     });
 
     expect(result.action).toBe("ask_goal");
