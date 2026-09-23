@@ -329,14 +329,11 @@ describe("AdaptiveFreeGatewayClient", () => {
         const body = JSON.parse(String(init?.body ?? "{}")) as { model?: string };
         requestedModels.push(String(body.model));
         if (String(body.model).startsWith("inclusionai/")) {
-          return new Response(
-            JSON.stringify({ error: { message: "Provider returned error" } }),
-            {
-              status: 400,
-              statusText: "Bad Request",
-              headers: { "Content-Type": "application/json" },
-            },
-          );
+          return new Response(JSON.stringify({ error: { message: "Provider returned error" } }), {
+            status: 400,
+            statusText: "Bad Request",
+            headers: { "Content-Type": "application/json" },
+          });
         }
         return completion(String(body.model));
       },

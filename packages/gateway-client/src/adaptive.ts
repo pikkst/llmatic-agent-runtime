@@ -339,8 +339,7 @@ export class AdaptiveFreeGatewayClient implements GatewayChatClient {
 
     const learnedScore = successes * 4_000 - failures * 5_000 - averageLatency / 20;
     const contextLength = modelContextLength(model);
-    const contextScore =
-      contextLength <= 0 ? 0 : Math.min(contextLength, 131_072) / 131_072 * 30;
+    const contextScore = contextLength <= 0 ? 0 : (Math.min(contextLength, 131_072) / 131_072) * 30;
     const speedScore = task.startsWith("review_") ? reviewSpeedScore(model.id) : 0;
     const taskAffinity = (stableHash(task + "|" + model.id) % 10_000) / 10_000;
     return learnedScore + contextScore + speedScore + taskAffinity;
