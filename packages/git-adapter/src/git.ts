@@ -168,8 +168,8 @@ export async function listPublishedBranches(
     "--format=%(refname:short)|%(upstream:short)|%(objectname)|%(committerdate:iso-strict)",
     "refs/heads/",
   ];
-  const refs = requireSuccess(run(root, refsArgs, runner), refsArgs).stdout
-    .split(/\r?\n/)
+  const refs = requireSuccess(run(root, refsArgs, runner), refsArgs)
+    .stdout.split(/\r?\n/)
     .map((line) => line.trim())
     .filter(Boolean);
 
@@ -183,11 +183,7 @@ export async function listPublishedBranches(
     let aheadOfDefault = 0;
     let behindDefault = 0;
     if (defaultBranch) {
-      const merged = run(
-        root,
-        ["merge-base", "--is-ancestor", branch, defaultBranch],
-        runner,
-      );
+      const merged = run(root, ["merge-base", "--is-ancestor", branch, defaultBranch], runner);
       if (merged.exitCode === 0) continue;
       if (merged.exitCode !== 1) continue;
 
@@ -229,11 +225,7 @@ export async function listPublishedBranches(
   branches.sort((left, right) => {
     const leftTime = Date.parse(left.committedAt ?? "");
     const rightTime = Date.parse(right.committedAt ?? "");
-    if (
-      Number.isFinite(leftTime) &&
-      Number.isFinite(rightTime) &&
-      leftTime !== rightTime
-    ) {
+    if (Number.isFinite(leftTime) && Number.isFinite(rightTime) && leftTime !== rightTime) {
       return rightTime - leftTime;
     }
     return left.branch.localeCompare(right.branch);
