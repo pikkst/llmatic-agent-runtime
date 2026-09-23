@@ -529,7 +529,7 @@ export class AdaptiveFreeGatewayClient implements GatewayChatClient {
       }
 
       const selectedModels = task.startsWith("review_")
-        ? [...trustedModels, ...mixedModels, ...explorationModels]
+        ? [...trustedModels, ...mixedModels.slice(0, 1), ...explorationModels]
         : orderedModels;
 
       for (const model of selectedModels) {
@@ -761,29 +761,24 @@ export class AdaptiveFreeGatewayClient implements GatewayChatClient {
     const records = this.freshReviewHistory(model);
     if (records.length === 0) return "unproven";
 
-    const exactValidated = records.find((record) => record.task === task)?.validatedReports ?? 0;
-    const totalValidated = records.reduce((total, record) => total + record.validatedReports, 0);
-    const totalSemanticFailures = records.reduce(
-      (total, record) => total + record.semanticFailures,
-      0,
-    );
-    const totalLengthFailures = records.reduce((total, record) => total + record.lengthFailures, 0);
-    const totalTransportFailures = records.reduce(
-      (total, record) => total + record.transportFailures,
-      0,
-    );
-    const totalAttempts = totalValidated + totalSemanticFailures + totalTransportFailures;
-    const validatedRate = totalAttempts > 0 ? totalValidated / totalAttempts : 0;
-    const lengthFailureRate = totalAttempts > 0 ? totalLengthFailures / totalAttempts : 0;
+    const exact = records.find((record) => record.task === task);
+    const exactValidated = exact?.validatedReports ?? 0;
+    const exactSemanticFailures = exact?.semanticFailures ?? 0;
+    const exactLengthFailures = exact?.lengthFailures ?? 0;
+    const exactTransportFailures = exact?.transportFailures ?? 0;
+    const exactAttempts = exactValidated + exactSemanticFailures + exactTransportFailures;
+    const exactValidatedRate = exactAttempts > 0 ? exactValidated / exactAttempts : 0;
+    const exactLengthFailureRate = exactAttempts > 0 ? exactLengthFailures / exactAttempts : 0;
 
     if (
-      (exactValidated >= 2 || totalValidated >= 4) &&
-      validatedRate >= 0.5 &&
-      lengthFailureRate < 0.35
+      exactValidated >= 2 &&
+      exactValidatedRate >= 0.5 &&
+      exactLengthFailureRate < 0.35
     ) {
       return "trusted";
     }
 
+    const totalValidated = records.reduce((total, record) => total + record.validatedReports, 0);
     return totalValidated >= 1 ? "mixed" : "unproven";
   }
 
