@@ -1366,7 +1366,6 @@ async function runReviewLens(
             "Do not include reasoning-only output, Markdown fences, commentary, preambles or trailing text.",
             "Start immediately with { and keep the report concise enough to finish within the output-token budget.",
             "Do not infer that code/tests/handlers/usages are missing merely because they are absent from this bounded batch.",
-          "Do not invent null/undefined risk for typed TypeScript properties unless the supplied packet positively proves nullable/optional/unsafe input.",
             "Do not invent null/undefined risk for typed TypeScript properties unless the supplied packet positively proves nullable/optional/unsafe input.",
           ].join("\n"),
         });
@@ -1438,6 +1437,7 @@ async function runReviewLens(
           "Do not include Markdown fences, commentary, preambles or trailing text.",
           "Start immediately with { and keep the report concise enough to finish within the output-token budget.",
           "Do not infer that code/tests/handlers/usages are missing merely because they are absent from this bounded batch.",
+          "Do not invent null/undefined risk for typed TypeScript properties unless the supplied packet positively proves nullable/optional/unsafe input.",
         ].join("\n"),
       });
       continue;
