@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { AdaptiveFreeGatewayClient } from "../src/adaptive.js";
+import {
+  AdaptiveFreeGatewayClient,
+  type AdaptiveGatewayRouteEvent,
+  type ReviewModelHistoryRecord,
+} from "../src/adaptive.js";
 
 function completion(model: string, content = '{"summary":"ok","findings":[]}') {
   return new Response(
@@ -1003,6 +1007,139 @@ describe("AdaptiveFreeGatewayClient", () => {
     });
 
     expect(requestedModels[0]).toBe("provider/mixed:free");
+  });
+
+  it("prioritizes persisted proven review models and bounds exploration", async () => {
+    const requestedModels: string[] = [];
+    const routeEvents: AdaptiveGatewayRouteEvent[] = [];
+    const now = Date.now();
+
+    const client = new AdaptiveFreeGatewayClient({
+      maxRetries: 0,
+      maxModelAttempts: 3,
+      reviewHistory: [
+        {
+          model: "provider/proven:free",
+          task: "review_general",
+          validatedReports: 2,
+          semanticFailures: 0,
+          lengthFailures: 0,
+          transportFailures: 0,
+          lastValidatedAt: now,
+          updatedAt: now,
+        },
+      ],
+      reviewExplorationSlots: 1,
+      onRoute: (event) => routeEvents.push(event),
+      fetch: async (input, init) => {
+        if (String(input).endsWith("/models")) {
+          return new Response(
+            JSON.stringify({
+              data: [
+                {
+                  id: "provider/proven:free",
+                  owned_by: "provider-a",
+                  context_length: 131072,
+                },
+                {
+                  id: "provider/explore-fast:free",
+                  owned_by: "provider-b",
+                  context_length: 131072,
+                },
+                {
+                  id: "provider/unproven-extra:free",
+                  owned_by: "provider-c",
+                  context_length: 131072,
+                },
+              ],
+            }),
+            { status: 200, headers: { "Content-Type": "application/json" } },
+          );
+        }
+
+        const body = JSON.parse(String(init?.body ?? "{}")) as { model?: string };
+        const model = String(body.model);
+        requestedModels.push(model);
+        if (model === "provider/proven:free") {
+          return new Response("temporarily unavailable", {
+            status: 503,
+            statusText: "Service Unavailable",
+          });
+        }
+        return completion(model);
+      },
+    });
+
+    await expect(
+      client.createChatCompletion({
+        model: "kilo-auto/free",
+        messages: [{ role: "user", content: "review" }],
+        routing: { task: "review_general" },
+      }),
+    ).resolves.toMatchObject({ routed_model: "provider/explore-fast:free" });
+
+    expect(requestedModels).toEqual(["provider/proven:free", "provider/explore-fast:free"]);
+    expect(routeEvents).toContainEqual({
+      type: "review-history",
+      task: "review_general",
+      provenModels: ["provider/proven:free"],
+      explorationModels: ["provider/explore-fast:free"],
+    });
+    expect(requestedModels).not.toContain("provider/unproven-extra:free");
+  });
+
+  it("persists validated review history through the history callback", async () => {
+    let persisted: ReviewModelHistoryRecord[] = [];
+
+    const client = new AdaptiveFreeGatewayClient({
+      maxRetries: 0,
+      maxModelAttempts: 1,
+      onReviewHistoryChange: (history) => {
+        persisted = history;
+      },
+      fetch: async (input, init) => {
+        if (String(input).endsWith("/models")) {
+          return new Response(
+            JSON.stringify({
+              data: [
+                {
+                  id: "provider/validated:free",
+                  owned_by: "provider",
+                  context_length: 131072,
+                },
+              ],
+            }),
+            { status: 200, headers: { "Content-Type": "application/json" } },
+          );
+        }
+        const body = JSON.parse(String(init?.body ?? "{}")) as { model?: string };
+        return completion(String(body.model));
+      },
+    });
+
+    const response = await client.createChatCompletion({
+      model: "kilo-auto/free",
+      messages: [{ role: "user", content: "review" }],
+      routing: { task: "review_security" },
+    });
+
+    await client.reportModelSuccess({
+      model: response.routed_model!,
+      responseModel: response.model,
+      task: "review_security",
+    });
+
+    expect(persisted).toEqual([
+      expect.objectContaining({
+        model: "provider/validated:free",
+        task: "review_security",
+        validatedReports: 1,
+        semanticFailures: 0,
+        lengthFailures: 0,
+        transportFailures: 0,
+      }),
+    ]);
+    expect(persisted[0]?.lastValidatedAt).toEqual(expect.any(Number));
   });
 
   it("does not treat generic reasoning capability metadata as reasoning-heavy", async () => {
