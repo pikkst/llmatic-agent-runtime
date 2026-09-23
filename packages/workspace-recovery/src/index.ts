@@ -1,5 +1,10 @@
 import type { AgentConfig, WorkflowRun, WorkflowStateStore } from "@llmatic/core";
-import { getGitStatus, type GitStatus } from "@llmatic/git-adapter";
+import {
+  getGitStatus,
+  listPublishedBranches,
+  type GitStatus,
+  type PublishedBranchStatus,
+} from "@llmatic/git-adapter";
 import {
   getPullRequestStatus,
   listOpenPullRequests,
@@ -29,6 +34,7 @@ export type WorkspaceRecoveryAction =
   | "fix_pr"
   | "wait_for_ci"
   | "review_pr"
+  | "create_pr"
   | "continue_task"
   | "start_task"
   | "continue_changes"
@@ -61,6 +67,7 @@ export interface WorkspaceRecovery {
   constitution: RepositoryConstitution;
   pullRequest?: PullRequestStatus;
   openPullRequests?: OpenPullRequestSummary[];
+  pendingPullRequestBranches?: PublishedBranchStatus[];
   warnings: string[];
   recommendation: WorkspaceRecoveryRecommendation;
 }
@@ -275,9 +282,11 @@ export function recommendWorkspaceAction(input: {
   nextTask?: TaskRecord;
   pullRequest?: PullRequestStatus;
   openPullRequests?: OpenPullRequestSummary[];
+  pendingPullRequestBranches?: PublishedBranchStatus[];
 }): WorkspaceRecoveryRecommendation {
   const { repository, git, workflow, task, nextTask, pullRequest } = input;
   const openPullRequests = input.openPullRequests ?? [];
+  const pendingPullRequestBranches = input.pendingPullRequestBranches ?? [];
 
   if (workflow) {
     if (pullRequest?.ciState === "failing" || pullRequest?.ciState === "cancelled") {
@@ -351,6 +360,37 @@ export function recommendWorkspaceAction(input: {
         pullRequest.pullRequest.number +
         " is open with CI state " +
         pullRequest.ciState +
+        ".",
+    };
+  }
+
+  if (pendingPullRequestBranches.length === 1) {
+    const branch = pendingPullRequestBranches[0]!;
+    return {
+      action: "create_pr",
+      title: "Create a pull request for the pushed branch",
+      detail:
+        branch.branch +
+        " is pushed to " +
+        branch.upstream +
+        " and is " +
+        String(branch.aheadOfDefault) +
+        " commit(s) ahead of " +
+        (branch.behindDefault > 0
+          ? "the default branch while " + String(branch.behindDefault) + " commit(s) behind"
+          : "the default branch") +
+        ", but no open pull request exists.",
+    };
+  }
+
+  if (pendingPullRequestBranches.length > 1) {
+    return {
+      action: "ask_goal",
+      title: "Choose a pushed branch to open as a pull request",
+      detail:
+        String(pendingPullRequestBranches.length) +
+        " pushed unmerged branches have no open pull request: " +
+        pendingPullRequestBranches.map((branch) => branch.branch).join(", ") +
         ".",
     };
   }
@@ -434,6 +474,14 @@ export async function recoverWorkspace(
   const recoveredPullRequests = await recoverPullRequest(root, git.branch);
   const pullRequest = recoveredPullRequests.pullRequest;
   const openPullRequests = recoveredPullRequests.openPullRequests;
+  const publishedBranches = await listPublishedBranches(root).catch(() => ({
+    defaultBranch: undefined,
+    branches: [],
+  }));
+  const openPullRequestHeads = new Set(openPullRequests.map((item) => item.headRefName));
+  const pendingPullRequestBranches = publishedBranches.branches.filter(
+    (branch) => branch.fullyPushed && !openPullRequestHeads.has(branch.branch),
+  );
 
   if (openPullRequests.length > 1 && !pullRequest) {
     warnings.push(
@@ -470,6 +518,7 @@ export async function recoverWorkspace(
     nextTask,
     pullRequest,
     openPullRequests,
+    pendingPullRequestBranches,
   });
 
   return {
@@ -484,6 +533,7 @@ export async function recoverWorkspace(
     constitution,
     pullRequest,
     openPullRequests,
+    pendingPullRequestBranches,
     warnings,
     recommendation,
   };
@@ -575,7 +625,23 @@ export function workspaceRecoveryContext(recovery: WorkspaceRecovery): string {
                 pullRequest.title,
             )
             .join(" | ")
-        : "none"),
+        : "none"),,
+    "- Pushed branches without open PR: " +
+      (recovery.pendingPullRequestBranches?.length
+        ? recovery.pendingPullRequestBranches
+            .map(
+              (branch) =>
+                branch.branch +
+                " [" +
+                String(branch.aheadOfDefault) +
+                " ahead / " +
+                String(branch.behindDefault) +
+                " behind default, upstream " +
+                branch.upstream +
+                "]",
+            )
+            .join(" | ")
+        : "none")
     "- Recommended next action: " +
       recovery.recommendation.title +
       " — " +
