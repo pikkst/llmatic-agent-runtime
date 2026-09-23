@@ -1,5 +1,5 @@
 import { spawnSync } from "node:child_process";
-import { access, appendFile } from "node:fs/promises";
+import { access, appendFile, readFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { resolve } from "node:path";
 import * as vscode from "vscode";
@@ -36,6 +36,7 @@ import {
   AdaptiveFreeGatewayClient,
   KiloGatewayClient,
   type AdaptiveGatewayRouteEvent,
+  type ReviewModelHistoryRecord,
 } from "@llmatic/gateway-client";
 import {
   getGitHubRepositoryName,
@@ -117,6 +118,7 @@ const JIRA_PROFILE_STATE_KEY = "llmatic.jiraProfile.v1";
 const JIRA_SECRET_PREFIX = "llmatic.jira.workspace";
 const AUTO_FREE_WARNING_ACCEPTED = "llmatic.autoFreeDataWarningAccepted";
 const AUTO_REVIEW_STATE_KEY = "llmatic.externalPrAutoReview.v1";
+const REVIEW_MODEL_HISTORY_STATE_KEY = "llmatic.reviewModelHistory.v1";
 const AUTO_REVIEW_POLL_INTERVAL_MS = 120_000;
 const AUTO_REVIEW_RETRY_COOLDOWN_MS = 10 * 60_000;
 const WORKSPACE_RECOVERY_FOCUS_REFRESH_COOLDOWN_MS = 30_000;
@@ -2385,6 +2387,15 @@ function adaptiveRouteDescription(event: AdaptiveGatewayRouteEvent): string {
         " candidate(s) · " +
         formatElapsedDuration(event.durationMs)
       );
+    case "review-history":
+      return (
+        event.task +
+        " proven pool: " +
+        (event.provenModels.length > 0 ? event.provenModels.join(", ") : "cold-start") +
+        (event.explorationModels.length > 0
+          ? " · exploration: " + event.explorationModels.join(", ")
+          : "")
+      );
     case "attempt":
       return (
         event.task +
@@ -2594,6 +2605,168 @@ function reviewTelemetryPath(context: vscode.ExtensionContext): string {
 
 function reviewActivityLoggingEnabled(): boolean {
   return configuration().get<boolean>("reviewActivityLogging", true);
+}
+
+function reviewHistoryKey(model: string, task: string): string {
+  return task + "\u0000" + model;
+}
+
+function updateReviewHistoryRecord(
+  history: Map<string, ReviewModelHistoryRecord>,
+  model: string,
+  task: string,
+  update: (record: ReviewModelHistoryRecord) => void,
+  timestamp: number,
+): void {
+  const key = reviewHistoryKey(model, task);
+  const record = history.get(key) ?? {
+    model,
+    task,
+    validatedReports: 0,
+    semanticFailures: 0,
+    lengthFailures: 0,
+    transportFailures: 0,
+    updatedAt: timestamp,
+  };
+  update(record);
+  record.updatedAt = Math.max(record.updatedAt, timestamp);
+  history.set(key, record);
+}
+
+async function migrateReviewModelHistoryFromTelemetry(
+  context: vscode.ExtensionContext,
+): Promise<ReviewModelHistoryRecord[]> {
+  let content: string;
+  try {
+    content = await readFile(reviewTelemetryPath(context), "utf8");
+  } catch {
+    return [];
+  }
+
+  const history = new Map<string, ReviewModelHistoryRecord>();
+  const pending = new Map<string, { task: string; model: string; timestamp: number }>();
+
+  const finalizePending = (sessionId: string) => {
+    const item = pending.get(sessionId);
+    if (!item) return;
+    updateReviewHistoryRecord(
+      history,
+      item.model,
+      item.task,
+      (record) => {
+        record.validatedReports += 1;
+        record.lastValidatedAt = Math.max(record.lastValidatedAt ?? 0, item.timestamp);
+      },
+      item.timestamp,
+    );
+    pending.delete(sessionId);
+  };
+
+  for (const line of content.split(/\r?\n/)) {
+    if (!line.trim()) continue;
+
+    let record: {
+      timestamp?: string;
+      sessionId?: string;
+      event?: {
+        type?: string;
+        phase?: string;
+        detail?: string;
+      };
+    };
+    try {
+      record = JSON.parse(line);
+    } catch {
+      continue;
+    }
+
+    const sessionId = record.sessionId?.trim();
+    const event = record.event;
+    if (!sessionId || !event) continue;
+    const timestamp = Date.parse(record.timestamp ?? "") || Date.now();
+
+    if (event.type === "session" && event.phase === "Model router" && event.detail) {
+      const success = event.detail.match(/^(review_[^ ]+) → (.+?) · success in /);
+      if (success) {
+        pending.set(sessionId, {
+          task: success[1]!,
+          model: success[2]!,
+          timestamp,
+        });
+        continue;
+      }
+
+      const failure = event.detail.match(/^(review_[^ ]+) → (.+?) · failed in .*? · (.+)$/);
+      if (failure) {
+        const task = failure[1]!;
+        const model = failure[2]!;
+        const reason = failure[3]!;
+        const previous = pending.get(sessionId);
+
+        updateReviewHistoryRecord(
+          history,
+          model,
+          task,
+          (item) => {
+            if (previous?.task === task && previous.model === model) {
+              item.semanticFailures += 1;
+              if (/generation length limit reached without structured review content/i.test(reason)) {
+                item.lengthFailures += 1;
+              }
+            } else {
+              item.transportFailures += 1;
+            }
+          },
+          timestamp,
+        );
+
+        if (previous?.task === task && previous.model === model) {
+          pending.delete(sessionId);
+        }
+        continue;
+      }
+    }
+
+    if (
+      event.type === "lens-batch-start" ||
+      event.type === "lens-batch-failed" ||
+      event.type === "lens-complete" ||
+      event.type === "lens-failed" ||
+      event.type === "architecture-start" ||
+      event.type === "complete"
+    ) {
+      finalizePending(sessionId);
+    }
+  }
+
+  for (const sessionId of pending.keys()) {
+    finalizePending(sessionId);
+  }
+
+  return [...history.values()];
+}
+
+async function loadReviewModelHistory(
+  context: vscode.ExtensionContext,
+): Promise<ReviewModelHistoryRecord[]> {
+  const persisted = context.globalState.get<ReviewModelHistoryRecord[]>(
+    REVIEW_MODEL_HISTORY_STATE_KEY,
+    [],
+  );
+  if (persisted.length > 0) return persisted;
+
+  const migrated = await migrateReviewModelHistoryFromTelemetry(context);
+  if (migrated.length > 0) {
+    await context.globalState.update(REVIEW_MODEL_HISTORY_STATE_KEY, migrated);
+  }
+  return migrated;
+}
+
+async function storeReviewModelHistory(
+  context: vscode.ExtensionContext,
+  history: ReviewModelHistoryRecord[],
+): Promise<void> {
+  await context.globalState.update(REVIEW_MODEL_HISTORY_STATE_KEY, history);
 }
 
 function appendReviewActivity(
@@ -2817,11 +2990,16 @@ async function reviewExternalPullRequestInUi(
     const config = await loadAgentConfig(root, {
       LLMATIC_HOME: context.globalStorageUri.fsPath,
     });
+    const reviewHistory = await loadReviewModelHistory(context);
     const gateway = new AdaptiveFreeGatewayClient({
       apiKey: gatewayAccess.apiKey,
       maxRetries: 0,
       maxModelAttempts: configuration().get<number>("reviewFreeModelFallbacks", 3),
       requestTimeoutMs: configuration().get<number>("reviewRequestTimeoutMs", 60_000),
+      reviewHistory,
+      reviewProvenMinValidated: 2,
+      reviewExplorationSlots: 1,
+      onReviewHistoryChange: (history) => storeReviewModelHistory(context, history),
       onRoute: (event) => {
         const detail = adaptiveRouteDescription(event);
         output.appendLine("[MODEL ROUTER] " + detail);
@@ -3103,11 +3281,16 @@ async function runAutomaticExternalPullRequestReview(
     const config = await loadAgentConfig(root, {
       LLMATIC_HOME: context.globalStorageUri.fsPath,
     });
+    const reviewHistory = await loadReviewModelHistory(context);
     const gateway = new AdaptiveFreeGatewayClient({
       apiKey: gatewayAccess.apiKey,
       maxRetries: 0,
       maxModelAttempts: configuration().get<number>("reviewFreeModelFallbacks", 3),
       requestTimeoutMs: configuration().get<number>("reviewRequestTimeoutMs", 60_000),
+      reviewHistory,
+      reviewProvenMinValidated: 2,
+      reviewExplorationSlots: 1,
+      onReviewHistoryChange: (history) => storeReviewModelHistory(context, history),
       onRoute: (event) => {
         output.appendLine("[AUTO REVIEW][MODEL] " + adaptiveRouteDescription(event));
       },
