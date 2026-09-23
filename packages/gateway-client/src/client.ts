@@ -29,6 +29,7 @@ export interface KiloGatewayClientOptions {
 
 export interface GatewayModelFailureFeedback {
   model: string;
+  responseModel?: string;
   task?: string;
   reason: string;
 }
