@@ -218,16 +218,18 @@ describe("VS Code extension activation surface", () => {
   it("packages one fresh VSIX candidate under generic and versioned names", async () => {
     const source = await readFile(new URL("../scripts/package-vsix.mjs", import.meta.url), "utf8");
 
-    expect(source).toContain('runPnpm(["run", "bundle"], "VSIX bundle rebuild")');
+    expect(source).toContain(
+      'runPnpm(["run", "build"], "VSIX workspace build", repositoryRoot)',
+    );
     expect(source).toContain("rm(output, { force: true })");
     expect(source).toContain("rm(versionedOutput, { force: true })");
     expect(source).toContain("copyFile(output, versionedOutput)");
     expect(source).toContain("VSIX CANDIDATE PACKAGED");
     expect(source).toContain("VSIX SHA-256");
     expect(source).toContain('spawnSync("git", ["rev-parse", "HEAD"]');
-    expect(source.indexOf('runPnpm(["run", "bundle"]')).toBeLessThan(
-      source.indexOf('["exec", "vsce", "package"'),
-    );
+    expect(
+      source.indexOf('runPnpm(["run", "build"], "VSIX workspace build", repositoryRoot)'),
+    ).toBeLessThan(source.indexOf('["exec", "vsce", "package"'));
   });
   it("keeps VS Code clean-install identity verification inside the Extension Host", async () => {
     const source = await readFile(
