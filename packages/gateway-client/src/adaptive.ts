@@ -171,11 +171,21 @@ function structuredOutputSupport(model: GatewayModelInfo): "supported" | "unsupp
 }
 
 function reasoningHeavyModel(model: GatewayModelInfo): boolean {
-  const id = (model.id + " " + (model.name ?? "")).toLowerCase();
-  if (/reasoning|thinking|(?:^|[\/_-])r1(?:[\/_:-]|$)|\bqwq\b/.test(id)) return true;
+  const identity = (model.id + " " + (model.name ?? "")).toLowerCase();
+  if (/reasoning|thinking|(?:^|[\/_-])r1(?:[\/_:-]|$)|\bqwq\b/.test(identity)) return true;
 
-  const tokens = modelFeatureTokens(model);
-  return [...tokens].some((token) => /reasoning|thinking/.test(token));
+  // Generic catalog capabilities such as "reasoning" mean the model can support
+  // reasoning controls; they do not mean every request uses a slow reasoning-heavy
+  // path. Only explicit dedicated-model metadata should trigger this penalty.
+  const source = model as Record<string, unknown>;
+  return [
+    source.reasoning_model,
+    source.reasoningModel,
+    source.thinking_model,
+    source.thinkingModel,
+    source.reasoning_only,
+    source.reasoningOnly,
+  ].some((value) => value === true);
 }
 
 function reviewSpeedScore(model: GatewayModelInfo): number {
@@ -221,6 +231,7 @@ export class AdaptiveFreeGatewayClient implements GatewayChatClient {
   private catalogExpiresAt = 0;
   private readonly stats = new Map<string, Map<string, ModelStats>>();
   private readonly validatedReviewSuccesses = new Map<string, number>();
+  private readonly reviewSemanticFailures = new Map<string, number>();
   private readonly taskUnhealthyUntil = new Map<string, Map<string, number>>();
   private readonly globallyUnhealthyUntil = new Map<string, number>();
   private readonly taskExcludedModels = new Map<string, Set<string>>();
@@ -478,12 +489,16 @@ export class AdaptiveFreeGatewayClient implements GatewayChatClient {
     const crossLensValidatedSuccesses = task.startsWith("review_")
       ? (this.validatedReviewSuccesses.get(model.id) ?? 0)
       : 0;
+    const crossLensSemanticFailures = task.startsWith("review_")
+      ? (this.reviewSemanticFailures.get(model.id) ?? 0)
+      : 0;
 
     const learnedScore =
       validatedSuccesses * 4_000 +
       crossLensValidatedSuccesses * 5_000 +
       transportSuccesses * 200 -
       failures * 5_000 -
+      crossLensSemanticFailures * 2_500 -
       averageLatency / 20;
     const contextLength = modelContextLength(model);
     const contextScore = contextLength <= 0 ? 0 : (Math.min(contextLength, 131_072) / 131_072) * 30;
@@ -563,6 +578,9 @@ export class AdaptiveFreeGatewayClient implements GatewayChatClient {
   private recordSemanticFailure(task: string, model: string): void {
     const current = this.currentStats(task, model);
     current.failures += 1;
+    if (task.startsWith("review_")) {
+      this.reviewSemanticFailures.set(model, (this.reviewSemanticFailures.get(model) ?? 0) + 1);
+    }
   }
 
   private recordValidatedSuccess(task: string, model: string): void {
