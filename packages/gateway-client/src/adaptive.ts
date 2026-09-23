@@ -124,7 +124,9 @@ function modelFeatureTokens(model: GatewayModelInfo): Set<string> {
   return tokens;
 }
 
-function structuredOutputSupport(model: GatewayModelInfo): "supported" | "unsupported" | "unknown" {
+function structuredOutputSupport(
+  model: GatewayModelInfo,
+): "supported" | "unsupported" | "unknown" {
   const source = model as Record<string, unknown>;
   const parameterSource = source.supported_parameters ?? source.supportedParameters;
   const parameterTokens = new Set<string>();
