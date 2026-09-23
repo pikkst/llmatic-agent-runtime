@@ -1081,6 +1081,22 @@ async function reportSemanticModelFailure(
   });
 }
 
+async function reportValidatedModelSuccess(
+  gateway: GatewayChatClient,
+  response: GatewayChatResponse,
+  lens: ReviewLens,
+): Promise<void> {
+  const routedModel = response.routed_model?.trim();
+  const responseModel = response.model?.trim();
+  const model = routedModel || responseModel;
+  if (!model) return;
+  await gateway.reportModelSuccess?.({
+    model,
+    responseModel,
+    task: "review_" + lens,
+  });
+}
+
 async function runReviewLens(
   options: ReviewExecutionOptions,
   constitution: RepositoryConstitution,
@@ -1278,6 +1294,7 @@ async function runReviewLens(
     try {
       const extracted = extractJson(assistant.content);
       const parsed = rawReviewSchema.parse(extracted);
+      await reportValidatedModelSuccess(options.gateway, response, lens);
       return {
         summary: parsed.summary,
         findings: parsed.findings.map((finding) =>
