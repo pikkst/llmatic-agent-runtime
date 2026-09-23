@@ -280,7 +280,7 @@
         },
         "llmatic.reviewRequestTimeoutMs": {
           "type": "number",
-          "default": 45000,
+          "default": 60000,
           "minimum": 30000,
           "maximum": 300000,
           "description": "Hard timeout for one external PR review model candidate. Adaptive free-model routing may switch to another live free model after a transient timeout/provider failure."
@@ -340,7 +340,12 @@
         "llmatic.reviewActivityLogging": {
           "type": "boolean",
           "default": true,
-          "description": "Record sanitized live and persistent review activity telemetry (phases, model/tool steps and timings). Prompt text and source-code contents are never written to this activity log."
+          "description": "Record sanitized live and persistent review activity telemetry (phases, model/tool steps and timings). Prompt text and source-code contents are never written unless raw-response debug logging is explicitly enabled."
+        },
+        "llmatic.reviewRawResponseLogging": {
+          "type": "boolean",
+          "default": false,
+          "description": "DEBUG ONLY: capture bounded raw assistant responses before JSON/schema filtering during manual external PR review. Raw output may contain changed source-code content and is written to the local review activity log."
         }
       }
     },
