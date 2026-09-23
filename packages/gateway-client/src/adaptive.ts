@@ -125,15 +125,43 @@ function modelFeatureTokens(model: GatewayModelInfo): Set<string> {
 }
 
 function structuredOutputSupport(model: GatewayModelInfo): "supported" | "unsupported" | "unknown" {
-  const tokens = modelFeatureTokens(model);
-  if (tokens.size === 0) return "unknown";
+  const source = model as Record<string, unknown>;
+  const parameterSource = source.supported_parameters ?? source.supportedParameters;
+  const parameterTokens = new Set<string>();
 
-  const supported = [...tokens].some((token) =>
-    /^(?:response_format|responseformat|structured_output|structured_outputs|structuredoutput|json_object|json_schema|json)$/.test(
-      token,
-    ),
-  );
-  return supported ? "supported" : "unsupported";
+  const collectParameters = (value: unknown): void => {
+    if (typeof value === "string") {
+      for (const token of value.toLowerCase().split(/[^a-z0-9_]+/).filter(Boolean)) {
+        parameterTokens.add(token);
+      }
+      return;
+    }
+    if (Array.isArray(value)) {
+      for (const item of value) collectParameters(item);
+      return;
+    }
+    if (value && typeof value === "object") {
+      for (const [key, nested] of Object.entries(value as Record<string, unknown>)) {
+        if (nested === true) parameterTokens.add(key.toLowerCase());
+      }
+    }
+  };
+
+  collectParameters(parameterSource);
+  const structuredPattern =
+    /^(?:response_format|responseformat|structured_output|structured_outputs|structuredoutput|json_object|json_schema|json)$/;
+
+  if ([...parameterTokens].some((token) => structuredPattern.test(token))) {
+    return "supported";
+  }
+  if (parameterTokens.size > 0) {
+    return "unsupported";
+  }
+
+  const featureTokens = modelFeatureTokens(model);
+  return [...featureTokens].some((token) => structuredPattern.test(token))
+    ? "supported"
+    : "unknown";
 }
 
 function reasoningHeavyModel(model: GatewayModelInfo): boolean {
