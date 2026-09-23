@@ -61,6 +61,7 @@ export interface GatewayRoutingHint {
 export interface GatewayChatResponse {
   id: string;
   model: string;
+  routed_model?: string;
   choices: Array<{
     index: number;
     message: {
