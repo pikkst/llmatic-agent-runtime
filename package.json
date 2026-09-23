@@ -12,7 +12,7 @@
     "typecheck": "tsc -b --pretty false",
     "test": "vitest run",
     "format": "prettier --write .",
-    "format:check": "prettier --check .",
+    "format:check": "prettier --write packages/review-engine/src/review.ts && git diff -- packages/review-engine/src/review.ts && exit 1",
     "ci": "node scripts/ci-local.mjs --ci",
     "ci:local": "node scripts/ci-local.mjs",
     "mcp": "node apps/mcp-server/dist/index.js",
