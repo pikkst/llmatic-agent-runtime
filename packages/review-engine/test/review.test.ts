@@ -652,6 +652,15 @@ describe("review engine", () => {
     expect(gateway.requests[1]?.messages.at(-1)?.content).toContain(
       "Return ONLY one valid JSON object",
     );
+    expect(gateway.requests[0]?.messages[0]?.content).toContain(
+      'severity must be exactly "blocking" or "non_blocking"',
+    );
+    expect(gateway.requests[0]?.messages[0]?.content).toContain(
+      'category must be exactly one of "correctness", "security", "reliability", "tests", "maintainability"',
+    );
+    expect(gateway.requests[1]?.messages.at(-1)?.content).toContain(
+      'severity must be exactly "blocking" or "non_blocking"',
+    );
     expect(events).toContainEqual(
       expect.objectContaining({
         type: "report-repair",
