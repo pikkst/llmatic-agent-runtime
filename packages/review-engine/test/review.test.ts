@@ -213,10 +213,12 @@ describe("review engine", () => {
     expect(gateway.requests[0]?.tools).toBeUndefined();
     expect(gateway.requests[0]?.tool_choice).toBeUndefined();
     expect(gateway.requests[0]?.response_format).toEqual({ type: "json_object" });
+    expect(gateway.requests[0]?.max_tokens).toBe(6000);
     expect(JSON.stringify(gateway.requests[0]?.messages[1])).toContain("+export const value = 2;");
     const system = JSON.stringify(gateway.requests[0]?.messages[0]);
     expect(system).toContain("external pull request");
     expect(system).toContain("untrusted project data");
+    expect(system).toContain("Absence from the current packet is NOT evidence");
     expect(JSON.stringify(gateway.requests[0]?.messages[1])).not.toContain("SECRET=do-not-send");
     expect(JSON.stringify(gateway.requests[0]?.messages[1])).not.toContain(".env");
     expect(events.map((event) => event.type)).toEqual(
@@ -344,6 +346,51 @@ describe("review engine", () => {
       title: "Required regression test is missing",
     });
     expect(report.summary).toContain("1 documented DoD/acceptance violation(s)");
+  });
+
+  it("rejects line-less missing-work DoD findings when external diff coverage is partial", async () => {
+    const root = await repository();
+    const config = configFor(root);
+    const gateway = new ScriptedGateway([
+      response(
+        JSON.stringify({
+          summary: "Missing-work claim from partial evidence.",
+          findings: [
+            {
+              severity: "blocking",
+              category: "tests",
+              basis: "dod",
+              title: "Required regression test is missing",
+              path: "src/value.ts",
+              evidence: "The bounded packet does not show the required regression test.",
+              recommendation: "Add the regression test.",
+              dod_ref: "Add regression coverage for the changed behavior",
+            },
+          ],
+        }),
+      ),
+    ]);
+
+    const report = await runExternalPullRequestReview({
+      root,
+      config,
+      gateway,
+      lenses: ["general"],
+      material: {
+        reference: "42",
+        headRefOid: "head-42",
+        title: "Partial DoD evidence",
+        body: "## Acceptance Criteria\n- Add regression coverage for the changed behavior\n",
+        ciState: "passing",
+        changedFiles: ["src/value.ts", "test/value.test.ts"],
+        diff: "diff --git a/src/value.ts b/src/value.ts\n--- a/src/value.ts\n+++ b/src/value.ts\n@@ -1 +1 @@\n-export const value = 1;\n+export const value = 2;\n",
+        diffTruncated: true,
+      },
+    });
+
+    expect(report.coverage).toBe("partial");
+    expect(report.findings).toEqual([]);
+    expect(report.summary).toContain("0 documented DoD/acceptance violation(s)");
   });
 
   it("filters concrete findings that cannot map to an actual changed diff line", async () => {
@@ -620,8 +667,17 @@ describe("review engine", () => {
     const config = configFor(root);
     const events: ReviewActivityEvent[] = [];
     const raw = "Model preamble before parser validation.";
+    const firstResponse = response(raw);
+    Object.assign(firstResponse.choices[0]!.message, {
+      reasoning_content: "provider-specific reasoning payload",
+    });
+    firstResponse.usage = {
+      prompt_tokens: 1200,
+      completion_tokens: 3000,
+      total_tokens: 4200,
+    };
     const gateway = new ScriptedGateway([
-      response(raw),
+      firstResponse,
       response(JSON.stringify({ summary: "Recovered.", findings: [] })),
     ]);
 
@@ -655,7 +711,10 @@ describe("review engine", () => {
       content: raw,
       contentLength: raw.length,
       contentTruncated: false,
+      rawResponseTruncated: false,
     });
+    expect(rawEvents[0]?.rawResponseJson).toContain("provider-specific reasoning payload");
+    expect(rawEvents[0]?.rawResponseJson).toContain('"completion_tokens":3000');
   });
 
   it("repairs a non-JSON review response instead of failing the lens immediately", async () => {
