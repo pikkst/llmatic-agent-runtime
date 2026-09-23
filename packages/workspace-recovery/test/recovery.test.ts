@@ -5,10 +5,7 @@ import {
   type RepositoryMapSummary,
 } from "../src/index.js";
 import type { GitStatus } from "@llmatic/git-adapter";
-import type {
-  OpenPullRequestSummary,
-  PullRequestStatus,
-} from "@llmatic/github-adapter";
+import type { OpenPullRequestSummary, PullRequestStatus } from "@llmatic/github-adapter";
 import type { TaskRecord } from "@llmatic/task-provider";
 import type { WorkflowRun } from "@llmatic/core";
 
@@ -66,11 +63,7 @@ function pr(ciState: PullRequestStatus["ciState"]): PullRequestStatus {
   };
 }
 
-function openPr(
-  number: number,
-  headRefName: string,
-  isDraft = false,
-): OpenPullRequestSummary {
+function openPr(number: number, headRefName: string, isDraft = false): OpenPullRequestSummary {
   return {
     number,
     url: "https://github.com/example/repo/pull/" + String(number),
