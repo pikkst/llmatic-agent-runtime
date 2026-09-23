@@ -35,7 +35,7 @@ describe("AdaptiveFreeGatewayClient", () => {
             JSON.stringify({
               data: [
                 {
-                  id: "nvidia/large:free",
+                  id: "nvidia/mini-flash:free",
                   owned_by: "nvidia",
                   context_length: 262144,
                   pricing: { prompt: "0", completion: "0" },
@@ -60,7 +60,7 @@ describe("AdaptiveFreeGatewayClient", () => {
 
         const body = JSON.parse(String(init?.body ?? "{}")) as { model?: string };
         requestedModels.push(String(body.model));
-        if (body.model === "nvidia/large:free") {
+        if (body.model === "nvidia/mini-flash:free") {
           return new Response(
             JSON.stringify({
               error: { message: "Upstream error from Nvidia: Service temporarily overloaded" },
@@ -82,13 +82,13 @@ describe("AdaptiveFreeGatewayClient", () => {
     });
 
     expect(response.model).toBe("z-ai/medium:free");
-    expect(requestedModels).toEqual(["nvidia/large:free", "z-ai/medium:free"]);
+    expect(requestedModels).toEqual(["nvidia/mini-flash:free", "z-ai/medium:free"]);
     expect(events).toEqual(
       expect.arrayContaining([
         expect.objectContaining({ type: "catalog" }),
         expect.objectContaining({
           type: "failure",
-          candidateModel: "nvidia/large:free",
+          candidateModel: "nvidia/mini-flash:free",
         }),
         expect.objectContaining({
           type: "success",
