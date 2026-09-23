@@ -405,7 +405,10 @@ export class AdaptiveFreeGatewayClient implements GatewayChatClient {
           (model) =>
             !avoided.has(model.id) &&
             !taskExcluded?.has(model.id) &&
-            !(task.startsWith("review_") && /content.?safety|moderation|guard/.test(model.id.toLowerCase())) &&
+            !(
+              task.startsWith("review_") &&
+              /content.?safety|moderation|guard/.test(model.id.toLowerCase())
+            ) &&
             !this.blockedProviders.has(providerKey(model)) &&
             (taskUnhealthy?.get(model.id) ?? 0) <= now &&
             (this.globallyUnhealthyUntil.get(model.id) ?? 0) <= now,
