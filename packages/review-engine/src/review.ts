@@ -838,6 +838,7 @@ function reviewSystemPrompt(
           "The caller supplies a bounded authoritative changed-code packet directly in each external review batch. External review batches are tool-free: do not request more repository context; report only what the packet, documented acceptance evidence and Constitution prove.",
           "A bounded batch is not necessarily the entire pull request. Absence from the current packet is NOT evidence that a definition, import, handler, test, usage, file, validation step or implementation is absent from the pull request or repository.",
           "Never report an item as missing, unused, undefined or untested merely because its definition/reference/test is not visible in this batch. Omit absence-based findings unless the supplied evidence positively proves the absence.",
+          "For typed TypeScript code, do not report that a value/property may be null or undefined unless the supplied packet positively shows a nullable/optional type, unsafe any/unknown boundary, unchecked external value, or producer path that can return null/undefined. A required typed property plus passing typecheck is evidence against speculative nullability findings.",
           "Do not infer or change Jira ownership, active task selection or workflow state from the pull request author or content.",
         ]
       : []),
@@ -1033,6 +1034,20 @@ function findingHasValidInlineTarget(
   }
 }
 
+function speculativeTypeScriptNullabilityFinding(finding: ReviewFinding): boolean {
+  if (finding.basis !== "defect") return false;
+
+  const text = [finding.title, finding.evidence, finding.recommendation]
+    .join(" ")
+    .toLowerCase();
+  if (!/(null|undefined)/.test(text)) return false;
+  if (!/(could|might|may|if\s+.+(?:null|undefined))/.test(text)) return false;
+
+  return !/(nullable|optional|\?:|:\s*[^;\n]*(?:null|undefined)|\bany\b|\bunknown\b|external\s+(?:value|input|payload)|can return (?:null|undefined)|returns? (?:null|undefined))/.test(
+    text,
+  );
+}
+
 function strictExternalFindings(
   findings: ReviewFinding[],
   material: PullRequestReviewMaterial,
@@ -1053,6 +1068,9 @@ function strictExternalFindings(
       return false;
     }
     if (finding.basis === "defect" && finding.category === "maintainability") {
+      return false;
+    }
+    if (speculativeTypeScriptNullabilityFinding(finding)) {
       return false;
     }
     return (
@@ -1348,6 +1366,8 @@ async function runReviewLens(
             "Do not include reasoning-only output, Markdown fences, commentary, preambles or trailing text.",
             "Start immediately with { and keep the report concise enough to finish within the output-token budget.",
             "Do not infer that code/tests/handlers/usages are missing merely because they are absent from this bounded batch.",
+          "Do not invent null/undefined risk for typed TypeScript properties unless the supplied packet positively proves nullable/optional/unsafe input.",
+            "Do not invent null/undefined risk for typed TypeScript properties unless the supplied packet positively proves nullable/optional/unsafe input.",
           ].join("\n"),
         });
         continue;
