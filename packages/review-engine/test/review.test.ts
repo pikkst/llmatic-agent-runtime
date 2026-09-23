@@ -615,6 +615,49 @@ describe("review engine", () => {
     expect(gateway.requests).toHaveLength(1);
   });
 
+  it("captures the raw assistant response before structured filtering when debug capture is enabled", async () => {
+    const root = await repository();
+    const config = configFor(root);
+    const events: ReviewActivityEvent[] = [];
+    const raw = "Model preamble before parser validation.";
+    const gateway = new ScriptedGateway([
+      response(raw),
+      response(JSON.stringify({ summary: "Recovered.", findings: [] })),
+    ]);
+
+    await runExternalPullRequestReview({
+      root,
+      config,
+      gateway,
+      lenses: ["general"],
+      captureRawResponses: true,
+      onActivity: (event) => events.push(event),
+      material: {
+        reference: "42",
+        headRefOid: "head-42",
+        title: "Raw response debug",
+        body: "",
+        ciState: "passing",
+        changedFiles: ["src/value.ts"],
+        diff: "diff --git a/src/value.ts b/src/value.ts\n--- a/src/value.ts\n+++ b/src/value.ts\n@@ -1 +1 @@\n-export const value = 1;\n+export const value = 2;\n",
+        diffTruncated: false,
+      },
+    });
+
+    const rawEvents = events.filter(
+      (event): event is Extract<ReviewActivityEvent, { type: "model-raw-response" }> =>
+        event.type === "model-raw-response",
+    );
+    expect(rawEvents).toHaveLength(2);
+    expect(rawEvents[0]).toMatchObject({
+      lens: "general",
+      step: 1,
+      content: raw,
+      contentLength: raw.length,
+      contentTruncated: false,
+    });
+  });
+
   it("repairs a non-JSON review response instead of failing the lens immediately", async () => {
     const root = await repository();
     const config = configFor(root);
