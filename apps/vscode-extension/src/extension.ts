@@ -119,6 +119,7 @@ const AUTO_FREE_WARNING_ACCEPTED = "llmatic.autoFreeDataWarningAccepted";
 const AUTO_REVIEW_STATE_KEY = "llmatic.externalPrAutoReview.v1";
 const AUTO_REVIEW_POLL_INTERVAL_MS = 120_000;
 const AUTO_REVIEW_RETRY_COOLDOWN_MS = 10 * 60_000;
+const WORKSPACE_RECOVERY_FOCUS_REFRESH_COOLDOWN_MS = 30_000;
 const ONBOARDING_VERSION = 1;
 
 interface WorkspaceJiraProfile {
@@ -1422,10 +1423,29 @@ async function refreshWorkspaceRecovery(
       }
       if (recovery.pullRequest) {
         output.appendLine(
-          "[RECOVERY] PR #" +
+          "[RECOVERY] " +
+            (recovery.pullRequest.pullRequest.isDraft ? "Draft PR #" : "PR #") +
             recovery.pullRequest.pullRequest.number +
+            " / " +
+            recovery.pullRequest.pullRequest.headRefName +
             " / CI " +
             recovery.pullRequest.ciState,
+        );
+      }
+      if ((recovery.openPullRequests?.length ?? 0) > 0) {
+        output.appendLine(
+          "[RECOVERY] Repository open PRs: " +
+            recovery.openPullRequests
+              ?.map(
+                (pullRequest) =>
+                  "#" +
+                  String(pullRequest.number) +
+                  " [" +
+                  (pullRequest.isDraft ? "draft" : "open") +
+                  "] " +
+                  pullRequest.headRefName,
+              )
+              .join(", "),
         );
       }
       output.appendLine(
@@ -5213,6 +5233,30 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         );
       });
     }),
+    (() => {
+      let lastFocusRefreshAt = 0;
+      return vscode.window.onDidChangeWindowState(async (windowState) => {
+        if (!windowState.focused) return;
+
+        const now = Date.now();
+        if (now - lastFocusRefreshAt < WORKSPACE_RECOVERY_FOCUS_REFRESH_COOLDOWN_MS) return;
+        lastFocusRefreshAt = now;
+
+        await refreshWorkspaceRecovery(
+          context,
+          state,
+          statusProvider,
+          chatProvider,
+          output,
+          false,
+        ).catch((error) => {
+          output.appendLine(
+            "[WARN] Workspace recovery failed after VS Code regained focus: " +
+              (error instanceof Error ? error.message : String(error)),
+          );
+        });
+      });
+    })(),
     vscode.workspace.onDidChangeConfiguration(async (event) => {
       if (event.affectsConfiguration("llmatic")) {
         await refresh(context, statusBar, state);
