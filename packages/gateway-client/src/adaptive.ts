@@ -64,9 +64,31 @@ function stableHash(value: string): number {
 
 function fallbackEligible(error: unknown): boolean {
   const message = error instanceof Error ? error.message : String(error);
-  return /timed? out|timeout|temporar|overload|rate.?limit|too many requests|\b429\b|\b500\b|\b502\b|\b503\b|upstream|service.*unavailable|without choices|invalid json|unsupported|not support|response.?format|tool.?choice|context.*window|context.*length|exceeds.*context|no compatible free model/i.test(
+  return /timed? out|timeout|temporar|overload|rate.?limit|too many requests|\b429\b|\b500\b|\b502\b|\b503\b|upstream|service.*unavailable|without choices|invalid json|unsupported|not support|response.?format|tool.?choice|context.*window|context.*length|exceeds.*context|no compatible free model|400 Bad Request: Provider returned error/i.test(
     message,
   );
+}
+
+function providerCompatibilityFailure(reason: string): boolean {
+  return /400 Bad Request: Provider returned error|unsupported|not support|response.?format|tool.?choice/i.test(
+    reason,
+  );
+}
+
+function providerKey(model: GatewayModelInfo | string): string {
+  if (typeof model === "string") return model.split("/")[0] || model;
+  return model.owned_by?.trim() || model.id.split("/")[0] || model.id;
+}
+
+function reviewSpeedScore(modelId: string): number {
+  const id = modelId.toLowerCase();
+  let score = 0;
+  if (/flash|lightning|fast/.test(id)) score += 120;
+  if (/mini|small|lite|\bxs\b/.test(id)) score += 80;
+  if (/ultra|max|550b/.test(id)) score -= 160;
+  if (/large|120b/.test(id)) score -= 80;
+  if (/vl|vision/.test(id)) score -= 40;
+  return score;
 }
 
 function cooldownForFailure(reason: string, fallbackMs: number): number {
@@ -93,6 +115,8 @@ export class AdaptiveFreeGatewayClient implements GatewayChatClient {
   private catalogExpiresAt = 0;
   private readonly stats = new Map<string, Map<string, ModelStats>>();
   private readonly unhealthyUntil = new Map<string, number>();
+  private readonly sessionExcludedModels = new Set<string>();
+  private readonly blockedProviders = new Set<string>();
 
   public constructor(options: AdaptiveFreeGatewayClientOptions) {
     this.client = new KiloGatewayClient(options);
@@ -107,13 +131,26 @@ export class AdaptiveFreeGatewayClient implements GatewayChatClient {
     if (!model) return;
 
     const task = feedback.task?.trim() || "generic";
-    this.record(task, model, false, 0);
+    const responseModel = feedback.responseModel?.trim();
+    const candidates = new Set<string>([model]);
+    if (responseModel && this.catalog) {
+      const alias = this.catalog.find(
+        (entry) =>
+          entry.id === responseModel ||
+          entry.id.replace(/:free$/, "") === responseModel.replace(/:free$/, ""),
+      )?.id;
+      if (alias) candidates.add(alias);
+    }
 
-    if (model !== "kilo-auto/free" && isFreeModelId(model)) {
-      this.unhealthyUntil.set(
-        model,
-        Date.now() + cooldownForFailure(feedback.reason, this.modelCooldownMs),
-      );
+    for (const candidate of candidates) {
+      this.record(task, candidate, false, 0);
+      if (candidate !== "kilo-auto/free" && isFreeModelId(candidate)) {
+        this.sessionExcludedModels.add(candidate);
+        this.unhealthyUntil.set(
+          candidate,
+          Date.now() + cooldownForFailure(feedback.reason, this.modelCooldownMs),
+        );
+      }
     }
 
     await this.onRoute?.({
@@ -163,7 +200,10 @@ export class AdaptiveFreeGatewayClient implements GatewayChatClient {
           attempt,
           latencyMs,
         });
-        return response;
+        return {
+          ...response,
+          routed_model: candidateModel,
+        };
       } catch (error) {
         const latencyMs = Date.now() - startedAt;
         this.record(task, candidateModel, false, latencyMs);
@@ -180,10 +220,14 @@ export class AdaptiveFreeGatewayClient implements GatewayChatClient {
 
         if (!fallbackEligible(error)) throw error;
         if (candidateModel !== "kilo-auto/free") {
+          this.sessionExcludedModels.add(candidateModel);
           this.unhealthyUntil.set(
             candidateModel,
             Date.now() + cooldownForFailure(reason, this.modelCooldownMs),
           );
+          if (providerCompatibilityFailure(reason)) {
+            this.blockedProviders.add(providerKey(candidateModel));
+          }
         }
       }
     }
@@ -200,7 +244,12 @@ export class AdaptiveFreeGatewayClient implements GatewayChatClient {
     const requested = request.model.trim() || "kilo-auto/free";
     const candidates: string[] = [];
 
-    if (requested !== "kilo-auto/free" && !avoided.has(requested)) {
+    if (
+      requested !== "kilo-auto/free" &&
+      !avoided.has(requested) &&
+      !this.sessionExcludedModels.has(requested) &&
+      !this.blockedProviders.has(providerKey(requested))
+    ) {
       candidates.push(requested);
     }
 
@@ -209,7 +258,11 @@ export class AdaptiveFreeGatewayClient implements GatewayChatClient {
       const now = Date.now();
       const ranked = [...models]
         .filter(
-          (model) => !avoided.has(model.id) && (this.unhealthyUntil.get(model.id) ?? 0) <= now,
+          (model) =>
+            !avoided.has(model.id) &&
+            !this.sessionExcludedModels.has(model.id) &&
+            !this.blockedProviders.has(providerKey(model)) &&
+            (this.unhealthyUntil.get(model.id) ?? 0) <= now,
         )
         .sort((left, right) => this.score(task, right) - this.score(task, left));
 
@@ -218,7 +271,7 @@ export class AdaptiveFreeGatewayClient implements GatewayChatClient {
       const remainder: GatewayModelInfo[] = [];
 
       for (const model of ranked) {
-        const provider = model.owned_by?.trim() || model.id.split("/")[0] || model.id;
+        const provider = providerKey(model);
         if (!usedProviders.has(provider)) {
           usedProviders.add(provider);
           diverse.push(model);
@@ -284,10 +337,13 @@ export class AdaptiveFreeGatewayClient implements GatewayChatClient {
         ? taskStats.totalLatencyMs / (taskStats.successes + taskStats.failures)
         : 0;
 
-    const learnedScore = successes * 1_000 - failures * 1_500 - averageLatency / 100;
-    const contextScore = Math.min(modelContextLength(model), 1_000_000) / 10_000;
+    const learnedScore = successes * 4_000 - failures * 5_000 - averageLatency / 20;
+    const contextLength = modelContextLength(model);
+    const contextScore =
+      contextLength <= 0 ? 0 : Math.min(contextLength, 131_072) / 131_072 * 30;
+    const speedScore = task.startsWith("review_") ? reviewSpeedScore(model.id) : 0;
     const taskAffinity = (stableHash(task + "|" + model.id) % 10_000) / 10_000;
-    return learnedScore + contextScore + taskAffinity;
+    return learnedScore + contextScore + speedScore + taskAffinity;
   }
 
   private record(task: string, model: string, success: boolean, latencyMs: number): void {
