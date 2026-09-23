@@ -570,6 +570,5 @@ export class AdaptiveFreeGatewayClient implements GatewayChatClient {
         (this.validatedReviewSuccesses.get(model) ?? 0) + 1,
       );
     }
-  }
-
+   }
 }
