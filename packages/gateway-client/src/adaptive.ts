@@ -770,11 +770,7 @@ export class AdaptiveFreeGatewayClient implements GatewayChatClient {
     const exactValidatedRate = exactAttempts > 0 ? exactValidated / exactAttempts : 0;
     const exactLengthFailureRate = exactAttempts > 0 ? exactLengthFailures / exactAttempts : 0;
 
-    if (
-      exactValidated >= 2 &&
-      exactValidatedRate >= 0.5 &&
-      exactLengthFailureRate < 0.35
-    ) {
+    if (exactValidated >= 2 && exactValidatedRate >= 0.5 && exactLengthFailureRate < 0.35) {
       return "trusted";
     }
 
