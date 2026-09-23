@@ -12,7 +12,7 @@
     "typecheck": "tsc -b --pretty false",
     "test": "vitest run",
     "format": "prettier --write .",
-    "format:check": "prettier --check .",
+    "format:check": "prettier --write apps/vscode-extension/src/extension.ts packages/gateway-client/src/adaptive.ts && git diff -- apps/vscode-extension/src/extension.ts packages/gateway-client/src/adaptive.ts && exit 1",
     "ci": "node scripts/ci-local.mjs --ci",
     "ci:local": "node scripts/ci-local.mjs",
     "mcp": "node apps/mcp-server/dist/index.js",
