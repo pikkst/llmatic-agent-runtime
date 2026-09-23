@@ -625,7 +625,7 @@ export function workspaceRecoveryContext(recovery: WorkspaceRecovery): string {
                 pullRequest.title,
             )
             .join(" | ")
-        : "none"),,
+        : "none"),
     "- Pushed branches without open PR: " +
       (recovery.pendingPullRequestBranches?.length
         ? recovery.pendingPullRequestBranches
@@ -641,7 +641,7 @@ export function workspaceRecoveryContext(recovery: WorkspaceRecovery): string {
                 "]",
             )
             .join(" | ")
-        : "none")
+        : "none"),
     "- Recommended next action: " +
       recovery.recommendation.title +
       " — " +
