@@ -141,6 +141,9 @@ export class LlmaticStatusProvider implements vscode.TreeDataProvider<vscode.Tre
   private jiraStatus?: WorkspaceJiraStatus;
   private autoReviewStatus?: AutoReviewStatus;
   private externalReviewStatus?: ExternalReviewStatus;
+  private activeExternalReviewId?: number;
+  private activeExternalReviewTimer?: ReturnType<typeof setInterval>;
+  private nextExternalReviewId = 0;
   private reviewLoggingEnabled = true;
   private nextOperationId = 0;
   private readonly operations = new Map<number, StatusOperation>();
@@ -199,7 +202,14 @@ export class LlmaticStatusProvider implements vscode.TreeDataProvider<vscode.Tre
     fail: (message: string, durationMs: number) => void;
     dispose: () => void;
   } {
+    if (this.activeExternalReviewTimer) {
+      clearInterval(this.activeExternalReviewTimer);
+      this.activeExternalReviewTimer = undefined;
+    }
+
+    const reviewId = ++this.nextExternalReviewId;
     const startedAt = Date.now();
+    this.activeExternalReviewId = reviewId;
     this.externalReviewStatus = {
       running: true,
       reference,
@@ -209,25 +219,50 @@ export class LlmaticStatusProvider implements vscode.TreeDataProvider<vscode.Tre
     };
     this.changed.fire(undefined);
 
+    const isCurrent = () => this.activeExternalReviewId === reviewId;
     const timer = setInterval(() => {
-      if (!this.externalReviewStatus?.running) return;
+      if (!isCurrent() || !this.externalReviewStatus?.running) return;
       this.externalReviewStatus = {
         ...this.externalReviewStatus,
         elapsedMs: Date.now() - startedAt,
       };
       this.changed.fire(undefined);
     }, 1000);
+    this.activeExternalReviewTimer = timer;
 
     let disposed = false;
-    const disposeTimer = () => {
+    const clearTimer = () => {
       if (disposed) return;
       disposed = true;
       clearInterval(timer);
+      if (this.activeExternalReviewTimer === timer) {
+        this.activeExternalReviewTimer = undefined;
+      }
+    };
+
+    const finish = (
+      phase: "Completed" | "Failed" | "Stopped",
+      durationMs: number,
+      error?: string,
+    ) => {
+      clearTimer();
+      if (!isCurrent()) return;
+      this.activeExternalReviewId = undefined;
+      this.externalReviewStatus = {
+        running: false,
+        reference,
+        phase,
+        elapsedMs: durationMs,
+        lastDurationMs: durationMs,
+        lastCompletedAt: new Date().toISOString(),
+        ...(error ? { error } : {}),
+      };
+      this.changed.fire(undefined);
     };
 
     return {
       update: (phase, detail) => {
-        if (!this.externalReviewStatus?.running) return;
+        if (!isCurrent() || !this.externalReviewStatus?.running) return;
         this.externalReviewStatus = {
           ...this.externalReviewStatus,
           phase,
@@ -237,31 +272,22 @@ export class LlmaticStatusProvider implements vscode.TreeDataProvider<vscode.Tre
         this.changed.fire(undefined);
       },
       complete: (durationMs) => {
-        disposeTimer();
-        this.externalReviewStatus = {
-          running: false,
-          reference,
-          phase: "Completed",
-          elapsedMs: durationMs,
-          lastDurationMs: durationMs,
-          lastCompletedAt: new Date().toISOString(),
-        };
-        this.changed.fire(undefined);
+        finish("Completed", durationMs);
       },
       fail: (message, durationMs) => {
-        disposeTimer();
-        this.externalReviewStatus = {
-          running: false,
-          reference,
-          phase: "Failed",
-          elapsedMs: durationMs,
-          lastDurationMs: durationMs,
-          lastCompletedAt: new Date().toISOString(),
-          error: message,
-        };
-        this.changed.fire(undefined);
+        finish("Failed", durationMs, message);
       },
-      dispose: disposeTimer,
+      dispose: () => {
+        if (!isCurrent()) {
+          clearTimer();
+          return;
+        }
+        if (this.externalReviewStatus?.running) {
+          finish("Stopped", Date.now() - startedAt);
+          return;
+        }
+        clearTimer();
+      },
     };
   }
 
