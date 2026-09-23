@@ -597,7 +597,6 @@ export class AdaptiveFreeGatewayClient implements GatewayChatClient {
     if (!success && task.startsWith("review_")) {
       const failures = (this.reviewTransportFailures.get(model) ?? 0) + 1;
       this.reviewTransportFailures.set(model, failures);
-      this.excludeFromReviewFamilyAfterRepeatedFailure(model, failures);
     }
   }
 
