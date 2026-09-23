@@ -485,6 +485,73 @@ describe("github adapter", () => {
     ]);
   });
 
+  it("keeps a 300k pull-request diff intact within the expanded review ingestion bound", async () => {
+    const largeDiff =
+      "diff --git a/src/value.ts b/src/value.ts\n--- a/src/value.ts\n+++ b/src/value.ts\n" +
+      "+".repeat(300_000);
+    const runner: GitHubProcessRunner = (_executable, args) => {
+      if (args[1] === "checks") {
+        return { exitCode: 0, stdout: "[]", stderr: "" };
+      }
+      if (args[1] === "diff") {
+        return { exitCode: 0, stdout: largeDiff, stderr: "" };
+      }
+      if (args[0] === "repo" && args[1] === "view") {
+        return {
+          exitCode: 0,
+          stdout: JSON.stringify({ nameWithOwner: "example/repo" }),
+          stderr: "",
+        };
+      }
+      if (args[0] === "api" && args.includes("--paginate")) {
+        return {
+          exitCode: 0,
+          stdout: JSON.stringify([
+            [{ filename: "src/value.ts", additions: 1, deletions: 0 }],
+          ]),
+          stderr: "",
+        };
+      }
+      if (args[0] === "api" && args[1] === "graphql") {
+        return {
+          exitCode: 0,
+          stdout: JSON.stringify({
+            data: {
+              repository: {
+                pullRequest: {
+                  reviewThreads: { nodes: [] },
+                },
+              },
+            },
+          }),
+          stderr: "",
+        };
+      }
+      if (args[1] === "view" && String(args.at(-1)).includes("title")) {
+        return {
+          exitCode: 0,
+          stdout: pullRequestJson({
+            title: "Large bounded diff",
+            body: "",
+            author: { login: "contributor" },
+            reviews: [],
+            comments: [],
+          }),
+          stderr: "",
+        };
+      }
+      if (args[1] === "view") {
+        return { exitCode: 0, stdout: pullRequestJson(), stderr: "" };
+      }
+      return { exitCode: 1, stdout: "", stderr: "unexpected command" };
+    };
+
+    const context = await getPullRequestReviewContext("/repo", "7", runner);
+
+    expect(context.diffTruncated).toBe(false);
+    expect(context.diff).toBe(largeDiff);
+  });
+
   it("reads bounded file context from the target pull-request head SHA", () => {
     const calls: string[][] = [];
     const runner: GitHubProcessRunner = (_executable, args) => {
