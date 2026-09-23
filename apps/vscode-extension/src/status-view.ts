@@ -498,27 +498,36 @@ export class LlmaticStatusProvider implements vscode.TreeDataProvider<vscode.Tre
           ? "git-pull-request"
           : "tasklist",
       );
-      recovered.description = this.recovery.pullRequest
-        ? (this.recovery.pullRequest.pullRequest.isDraft ? "Draft PR #" : "PR #") +
+      let recoveredDescription: string;
+      if (this.recovery.pullRequest) {
+        recoveredDescription =
+          (this.recovery.pullRequest.pullRequest.isDraft ? "Draft PR #" : "PR #") +
           this.recovery.pullRequest.pullRequest.number +
           " · " +
           this.recovery.pullRequest.pullRequest.headRefName +
           " · CI " +
-          this.recovery.pullRequest.ciState
-        : (this.recovery.openPullRequests?.length ?? 0) > 0
-          ? String(this.recovery.openPullRequests?.length ?? 0) + " open PR(s) · choose target"
-          : (this.recovery.pendingPullRequestBranches?.length ?? 0) === 1
-            ? this.recovery.pendingPullRequestBranches?.[0]?.branch + " · pushed · no PR"
-            : (this.recovery.pendingPullRequestBranches?.length ?? 0) > 1
-              ? String(this.recovery.pendingPullRequestBranches?.length ?? 0) +
-                " pushed branches · no PR"
-              : this.recovery.workflow
-            ? this.recovery.workflow.state
-            : this.recovery.task
-              ? this.recovery.task.status.name
-              : this.recovery.nextTask
-                ? this.recovery.nextTask.summary
-                : "no active task";
+          this.recovery.pullRequest.ciState;
+      } else if ((this.recovery.openPullRequests?.length ?? 0) > 0) {
+        recoveredDescription =
+          String(this.recovery.openPullRequests?.length ?? 0) + " open PR(s) · choose target";
+      } else if ((this.recovery.pendingPullRequestBranches?.length ?? 0) === 1) {
+        recoveredDescription =
+          (this.recovery.pendingPullRequestBranches?.[0]?.branch ?? "pushed branch") +
+          " · pushed · no PR";
+      } else if ((this.recovery.pendingPullRequestBranches?.length ?? 0) > 1) {
+        recoveredDescription =
+          String(this.recovery.pendingPullRequestBranches?.length ?? 0) +
+          " pushed branches · no PR";
+      } else if (this.recovery.workflow) {
+        recoveredDescription = this.recovery.workflow.state;
+      } else if (this.recovery.task) {
+        recoveredDescription = this.recovery.task.status.name;
+      } else if (this.recovery.nextTask) {
+        recoveredDescription = this.recovery.nextTask.summary;
+      } else {
+        recoveredDescription = "no active task";
+      }
+      recovered.description = recoveredDescription;
       recovered.tooltip =
         this.recovery.recommendation.title + "\n" + this.recovery.recommendation.detail;
       recovered.command = {
