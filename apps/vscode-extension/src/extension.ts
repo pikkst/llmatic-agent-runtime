@@ -2359,8 +2359,7 @@ function adaptiveRouteDescription(event: AdaptiveGatewayRouteEvent): string {
         "/" +
         event.maxAttempts +
         (event.structuredOutputMode
-          ? " · JSON " +
-            (event.structuredOutputMode === "native" ? "native" : "prompt-only")
+          ? " · JSON " + (event.structuredOutputMode === "native" ? "native" : "prompt-only")
           : "") +
         (event.reasoningModel ? " · reasoning-heavy" : "")
       );
