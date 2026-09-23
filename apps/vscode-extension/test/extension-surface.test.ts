@@ -228,7 +228,9 @@ describe("VS Code extension activation surface", () => {
     expect(source).toContain("VSIX SHA-256");
     expect(source).toContain('spawnSync("git", ["rev-parse", "HEAD"]');
     expect(
-      source.indexOf('runPnpm(["run", "build"], "VSIX workspace build", repositoryRoot)'),
+      source.indexOf(
+        'runPnpm(["run", "build"], "VSIX workspace build", repositoryRoot)',
+      ),
     ).toBeLessThan(source.indexOf('["exec", "vsce", "package"'));
   });
   it("keeps VS Code clean-install identity verification inside the Extension Host", async () => {
