@@ -265,6 +265,143 @@ describe("AdaptiveFreeGatewayClient", () => {
     expect(requestedModels).not.toContain("daily/model:free");
   });
 
+  it("preserves routed free-model identity when provider response drops the :free suffix", async () => {
+    const client = new AdaptiveFreeGatewayClient({
+      maxRetries: 0,
+      maxModelAttempts: 2,
+      fetch: async (input, init) => {
+        if (String(input).endsWith("/models")) {
+          return new Response(
+            JSON.stringify({
+              data: [
+                {
+                  id: "stepfun/step-3.7-flash:free",
+                  owned_by: "stepfun",
+                  context_length: 131072,
+                },
+              ],
+            }),
+            { status: 200, headers: { "Content-Type": "application/json" } },
+          );
+        }
+        const body = JSON.parse(String(init?.body ?? "{}")) as { model?: string };
+        return completion(String(body.model).replace(/:free$/, ""));
+      },
+    });
+
+    const response = await client.createChatCompletion({
+      model: "kilo-auto/free",
+      messages: [{ role: "user", content: "review" }],
+      routing: { task: "review_bug_hunter" },
+    });
+
+    expect(response.model).toBe("stepfun/step-3.7-flash");
+    expect(response.routed_model).toBe("stepfun/step-3.7-flash:free");
+  });
+
+  it("falls through provider-level 400 errors and blocks that provider for the session", async () => {
+    const requestedModels: string[] = [];
+
+    const client = new AdaptiveFreeGatewayClient({
+      maxRetries: 0,
+      maxModelAttempts: 3,
+      fetch: async (input, init) => {
+        if (String(input).endsWith("/models")) {
+          return new Response(
+            JSON.stringify({
+              data: [
+                {
+                  id: "inclusionai/flash-fast:free",
+                  owned_by: "inclusionai",
+                  context_length: 131072,
+                },
+                {
+                  id: "other/mini:free",
+                  owned_by: "other",
+                  context_length: 131072,
+                },
+              ],
+            }),
+            { status: 200, headers: { "Content-Type": "application/json" } },
+          );
+        }
+
+        const body = JSON.parse(String(init?.body ?? "{}")) as { model?: string };
+        requestedModels.push(String(body.model));
+        if (String(body.model).startsWith("inclusionai/")) {
+          return new Response(
+            JSON.stringify({ error: { message: "Provider returned error" } }),
+            {
+              status: 400,
+              statusText: "Bad Request",
+              headers: { "Content-Type": "application/json" },
+            },
+          );
+        }
+        return completion(String(body.model));
+      },
+    });
+
+    await expect(
+      client.createChatCompletion({
+        model: "kilo-auto/free",
+        messages: [{ role: "user", content: "review" }],
+        routing: { task: "review_general" },
+      }),
+    ).resolves.toMatchObject({ routed_model: "other/mini:free" });
+
+    expect(requestedModels).toEqual(["inclusionai/flash-fast:free", "other/mini:free"]);
+
+    requestedModels.length = 0;
+    await client.createChatCompletion({
+      model: "kilo-auto/free",
+      messages: [{ role: "user", content: "review again" }],
+      routing: { task: "review_security" },
+    });
+    expect(requestedModels[0]).toBe("other/mini:free");
+  });
+
+  it("prefers bounded-review speed signals over oversized context windows", async () => {
+    const requestedModels: string[] = [];
+
+    const client = new AdaptiveFreeGatewayClient({
+      maxRetries: 0,
+      maxModelAttempts: 2,
+      fetch: async (input, init) => {
+        if (String(input).endsWith("/models")) {
+          return new Response(
+            JSON.stringify({
+              data: [
+                {
+                  id: "nvidia/nemotron-ultra-550b:free",
+                  owned_by: "nvidia",
+                  context_length: 1000000,
+                },
+                {
+                  id: "fast/mini-flash:free",
+                  owned_by: "fast",
+                  context_length: 131072,
+                },
+              ],
+            }),
+            { status: 200, headers: { "Content-Type": "application/json" } },
+          );
+        }
+        const body = JSON.parse(String(init?.body ?? "{}")) as { model?: string };
+        requestedModels.push(String(body.model));
+        return completion(String(body.model));
+      },
+    });
+
+    await client.createChatCompletion({
+      model: "kilo-auto/free",
+      messages: [{ role: "user", content: "review" }],
+      routing: { task: "review_general" },
+    });
+
+    expect(requestedModels[0]).toBe("fast/mini-flash:free");
+  });
+
   it("falls back to configured Auto Free when live catalog discovery fails", async () => {
     const requestedModels: string[] = [];
 
