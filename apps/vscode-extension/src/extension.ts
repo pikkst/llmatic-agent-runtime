@@ -1448,6 +1448,22 @@ async function refreshWorkspaceRecovery(
               .join(", "),
         );
       }
+      if ((recovery.pendingPullRequestBranches?.length ?? 0) > 0) {
+        output.appendLine(
+          "[RECOVERY] Pushed branches without PR: " +
+            recovery.pendingPullRequestBranches
+              ?.map(
+                (branch) =>
+                  branch.branch +
+                  " [" +
+                  String(branch.aheadOfDefault) +
+                  " ahead, upstream " +
+                  branch.upstream +
+                  "]",
+              )
+              .join(", "),
+        );
+      }
       output.appendLine(
         "[NEXT] " + recovery.recommendation.title + " — " + recovery.recommendation.detail,
       );
