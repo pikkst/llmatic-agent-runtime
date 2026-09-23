@@ -217,8 +217,7 @@ describe("VS Code extension activation surface", () => {
   });
   it("packages one fresh VSIX candidate under generic and versioned names", async () => {
     const source = await readFile(new URL("../scripts/package-vsix.mjs", import.meta.url), "utf8");
-    const workspaceBuildCall =
-      'runPnpm(["run", "build"], "VSIX workspace build", repositoryRoot)';
+    const workspaceBuildCall = 'runPnpm(["run", "build"], "VSIX workspace build", repositoryRoot)';
     const vsixPackageCall = '["exec", "vsce", "package"';
 
     expect(source).toContain(workspaceBuildCall);
