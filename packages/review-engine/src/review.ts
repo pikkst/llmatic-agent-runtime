@@ -321,6 +321,18 @@ export type ReviewActivityEvent =
       durationMs: number;
     }
   | {
+      type: "model-raw-response";
+      lens: ReviewLens;
+      step: number;
+      routedModel?: string;
+      responseModel: string;
+      finishReason?: string;
+      content: string | null;
+      contentLength: number;
+      contentTruncated: boolean;
+      toolCalls: GatewayToolCall[];
+    }
+  | {
       type: "tool-start";
       lens: ReviewLens;
       step: number;
@@ -364,6 +376,7 @@ interface ReviewExecutionOptions {
   model?: string;
   maxSteps?: number;
   lenses?: ReviewLens[];
+  captureRawResponses?: boolean;
   onActivity?: (event: ReviewActivityEvent) => void;
 }
 
@@ -1181,7 +1194,28 @@ async function runReviewLens(
       max_tokens: 3000,
       temperature: 0,
     });
-    const assistant = response.choices[0]?.message;
+    const choice = response.choices[0];
+    const assistant = choice?.message;
+    if (options.captureRawResponses) {
+      const rawContent = assistant?.content ?? null;
+      const maxRawResponseChars = 24_000;
+      const content =
+        rawContent && rawContent.length > maxRawResponseChars
+          ? rawContent.slice(0, maxRawResponseChars)
+          : rawContent;
+      options.onActivity?.({
+        type: "model-raw-response",
+        lens,
+        step,
+        routedModel: response.routed_model,
+        responseModel: response.model,
+        finishReason: choice?.finish_reason,
+        content,
+        contentLength: rawContent?.length ?? 0,
+        contentTruncated: Boolean(rawContent && rawContent.length > maxRawResponseChars),
+        toolCalls: assistant?.tool_calls ?? [],
+      });
+    }
     options.onActivity?.({
       type: "model-response",
       lens,
