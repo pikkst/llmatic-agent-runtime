@@ -1037,9 +1037,7 @@ function findingHasValidInlineTarget(
 function speculativeTypeScriptNullabilityFinding(finding: ReviewFinding): boolean {
   if (finding.basis !== "defect") return false;
 
-  const text = [finding.title, finding.evidence, finding.recommendation]
-    .join(" ")
-    .toLowerCase();
+  const text = [finding.title, finding.evidence, finding.recommendation].join(" ").toLowerCase();
   if (!/(null|undefined)/.test(text)) return false;
   if (!/(could|might|may|if\s+.+(?:null|undefined))/.test(text)) return false;
 
