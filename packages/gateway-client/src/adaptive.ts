@@ -16,7 +16,8 @@ export type AdaptiveGatewayRouteEvent =
   | {
       type: "review-history";
       task: string;
-      provenModels: string[];
+      trustedModels: string[];
+      mixedModels: string[];
       explorationModels: string[];
     }
   | {
@@ -61,7 +62,6 @@ export interface AdaptiveFreeGatewayClientOptions extends KiloGatewayClientOptio
   catalogTtlMs?: number;
   modelCooldownMs?: number;
   reviewHistory?: ReviewModelHistoryRecord[];
-  reviewProvenMinValidated?: number;
   reviewHistoryMaxAgeMs?: number;
   reviewExplorationSlots?: number;
   onReviewHistoryChange?: (history: ReviewModelHistoryRecord[]) => void | Promise<void>;
@@ -252,7 +252,6 @@ export class AdaptiveFreeGatewayClient implements GatewayChatClient {
   private readonly onReviewHistoryChange?: (
     history: ReviewModelHistoryRecord[],
   ) => void | Promise<void>;
-  private readonly reviewProvenMinValidated: number;
   private readonly reviewHistoryMaxAgeMs: number;
   private readonly reviewExplorationSlots: number;
   private readonly reviewHistory = new Map<string, ReviewModelHistoryRecord>();
@@ -276,7 +275,6 @@ export class AdaptiveFreeGatewayClient implements GatewayChatClient {
     this.maxModelAttempts = Math.max(1, Math.min(8, Math.trunc(options.maxModelAttempts ?? 4)));
     this.catalogTtlMs = Math.max(30_000, Math.trunc(options.catalogTtlMs ?? 5 * 60_000));
     this.modelCooldownMs = Math.max(30_000, Math.trunc(options.modelCooldownMs ?? 5 * 60_000));
-    this.reviewProvenMinValidated = Math.max(1, Math.trunc(options.reviewProvenMinValidated ?? 2));
     this.reviewHistoryMaxAgeMs = Math.max(
       60_000,
       Math.trunc(options.reviewHistoryMaxAgeMs ?? 7 * 24 * 60 * 60_000),
@@ -504,29 +502,35 @@ export class AdaptiveFreeGatewayClient implements GatewayChatClient {
       }
 
       const orderedModels = [...diverse, ...remainder];
-      const provenModels = task.startsWith("review_")
-        ? orderedModels.filter((model) => this.isProvenReviewModel(model.id, task))
+      const trustedModels = task.startsWith("review_")
+        ? orderedModels.filter((model) => this.reviewModelTier(model.id, task) === "trusted")
         : [];
-      const explorationModels =
-        task.startsWith("review_") && provenModels.length > 0
-          ? orderedModels
-              .filter((model) => !provenModels.some((proven) => proven.id === model.id))
-              .slice(0, this.reviewExplorationSlots)
-          : [];
+      const mixedModels = task.startsWith("review_")
+        ? orderedModels.filter((model) => this.reviewModelTier(model.id, task) === "mixed")
+        : [];
+      const knownModels = new Set([
+        ...trustedModels.map((model) => model.id),
+        ...mixedModels.map((model) => model.id),
+      ]);
+      const explorationModels = task.startsWith("review_")
+        ? orderedModels
+            .filter((model) => !knownModels.has(model.id))
+            .slice(0, this.reviewExplorationSlots)
+        : [];
 
       if (task.startsWith("review_")) {
         await this.onRoute?.({
           type: "review-history",
           task,
-          provenModels: provenModels.map((model) => model.id),
+          trustedModels: trustedModels.map((model) => model.id),
+          mixedModels: mixedModels.map((model) => model.id),
           explorationModels: explorationModels.map((model) => model.id),
         });
       }
 
-      const selectedModels =
-        task.startsWith("review_") && provenModels.length > 0
-          ? [...provenModels, ...explorationModels]
-          : orderedModels;
+      const selectedModels = task.startsWith("review_")
+        ? [...trustedModels, ...mixedModels, ...explorationModels]
+        : orderedModels;
 
       for (const model of selectedModels) {
         if (!candidates.includes(model.id)) candidates.push(model.id);
@@ -753,11 +757,34 @@ export class AdaptiveFreeGatewayClient implements GatewayChatClient {
     );
   }
 
-  private isProvenReviewModel(model: string, task: string): boolean {
+  private reviewModelTier(model: string, task: string): "trusted" | "mixed" | "unproven" {
     const records = this.freshReviewHistory(model);
+    if (records.length === 0) return "unproven";
+
     const exactValidated = records.find((record) => record.task === task)?.validatedReports ?? 0;
     const totalValidated = records.reduce((total, record) => total + record.validatedReports, 0);
-    return exactValidated >= 1 || totalValidated >= this.reviewProvenMinValidated;
+    const totalSemanticFailures = records.reduce(
+      (total, record) => total + record.semanticFailures,
+      0,
+    );
+    const totalLengthFailures = records.reduce((total, record) => total + record.lengthFailures, 0);
+    const totalTransportFailures = records.reduce(
+      (total, record) => total + record.transportFailures,
+      0,
+    );
+    const totalAttempts = totalValidated + totalSemanticFailures + totalTransportFailures;
+    const validatedRate = totalAttempts > 0 ? totalValidated / totalAttempts : 0;
+    const lengthFailureRate = totalAttempts > 0 ? totalLengthFailures / totalAttempts : 0;
+
+    if (
+      (exactValidated >= 2 || totalValidated >= 4) &&
+      validatedRate >= 0.5 &&
+      lengthFailureRate < 0.35
+    ) {
+      return "trusted";
+    }
+
+    return totalValidated >= 1 ? "mixed" : "unproven";
   }
 
   private persistentReviewScore(model: string, task: string): number {
