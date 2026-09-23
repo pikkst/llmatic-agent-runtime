@@ -8,6 +8,7 @@ import type {
   GitProcessResult,
   GitProcessRunner,
   GitStatus,
+  PublishedBranchSnapshot,
   PushOptions,
   PushResult,
 } from "./types.js";
@@ -135,6 +136,102 @@ export async function getGitStatus(
     unstagedCount,
     untrackedCount,
   };
+}
+
+function parseCountPair(value: string): [number, number] | undefined {
+  const parts = value
+    .trim()
+    .split(/\s+/)
+    .map((part) => Number(part));
+  if (parts.length !== 2 || parts.some((part) => !Number.isFinite(part) || part < 0)) {
+    return undefined;
+  }
+  return [parts[0]!, parts[1]!];
+}
+
+export async function listPublishedBranches(
+  root: string,
+  runner: GitProcessRunner = defaultRunner,
+): Promise<PublishedBranchSnapshot> {
+  const defaultRefResult = run(
+    root,
+    ["symbolic-ref", "--quiet", "--short", "refs/remotes/origin/HEAD"],
+    runner,
+  );
+  const defaultRef = defaultRefResult.exitCode === 0 ? defaultRefResult.stdout.trim() : "";
+  const defaultBranch = defaultRef.startsWith("origin/")
+    ? defaultRef.slice("origin/".length)
+    : defaultRef || undefined;
+
+  const refsArgs = [
+    "for-each-ref",
+    "--format=%(refname:short)|%(upstream:short)|%(objectname)|%(committerdate:iso-strict)",
+    "refs/heads/",
+  ];
+  const refs = requireSuccess(run(root, refsArgs, runner), refsArgs)
+    .stdout.split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean);
+
+  const branches: PublishedBranchSnapshot["branches"] = [];
+
+  for (const line of refs) {
+    const [branch, upstream, commitSha, committedAt] = line.split("|");
+    if (!branch || !upstream || !commitSha) continue;
+    if (defaultBranch && branch === defaultBranch) continue;
+
+    let aheadOfDefault = 0;
+    let behindDefault = 0;
+    if (defaultBranch) {
+      const merged = run(root, ["merge-base", "--is-ancestor", branch, defaultBranch], runner);
+      if (merged.exitCode === 0) continue;
+      if (merged.exitCode !== 1) continue;
+
+      const defaultCounts = run(
+        root,
+        ["rev-list", "--left-right", "--count", defaultBranch + "..." + branch],
+        runner,
+      );
+      const parsedDefaultCounts =
+        defaultCounts.exitCode === 0 ? parseCountPair(defaultCounts.stdout) : undefined;
+      if (!parsedDefaultCounts) continue;
+      [behindDefault, aheadOfDefault] = parsedDefaultCounts;
+      if (aheadOfDefault === 0) continue;
+    }
+
+    const upstreamCounts = run(
+      root,
+      ["rev-list", "--left-right", "--count", branch + "..." + upstream],
+      runner,
+    );
+    const parsedUpstreamCounts =
+      upstreamCounts.exitCode === 0 ? parseCountPair(upstreamCounts.stdout) : undefined;
+    if (!parsedUpstreamCounts) continue;
+    const [aheadOfUpstream, behindUpstream] = parsedUpstreamCounts;
+
+    branches.push({
+      branch,
+      upstream,
+      commitSha,
+      committedAt: committedAt || undefined,
+      aheadOfDefault,
+      behindDefault,
+      aheadOfUpstream,
+      behindUpstream,
+      fullyPushed: aheadOfUpstream === 0,
+    });
+  }
+
+  branches.sort((left, right) => {
+    const leftTime = Date.parse(left.committedAt ?? "");
+    const rightTime = Date.parse(right.committedAt ?? "");
+    if (Number.isFinite(leftTime) && Number.isFinite(rightTime) && leftTime !== rightTime) {
+      return rightTime - leftTime;
+    }
+    return left.branch.localeCompare(right.branch);
+  });
+
+  return { defaultBranch, branches };
 }
 
 export async function createBranch(

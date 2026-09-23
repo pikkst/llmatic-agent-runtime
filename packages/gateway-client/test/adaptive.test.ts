@@ -823,6 +823,188 @@ describe("AdaptiveFreeGatewayClient", () => {
     expect(requestedModels[0]).not.toBe(failedModel);
   });
 
+  it("retires a review model after repeated generation-length semantic failures with no validated success", async () => {
+    const requestedModels: string[] = [];
+
+    const client = new AdaptiveFreeGatewayClient({
+      maxRetries: 0,
+      maxModelAttempts: 1,
+      fetch: async (input, init) => {
+        if (String(input).endsWith("/models")) {
+          return new Response(
+            JSON.stringify({
+              data: [
+                {
+                  id: "provider/starved:free",
+                  owned_by: "provider-a",
+                  context_length: 131072,
+                },
+              ],
+            }),
+            { status: 200, headers: { "Content-Type": "application/json" } },
+          );
+        }
+
+        const body = JSON.parse(String(init?.body ?? "{}")) as { model?: string };
+        requestedModels.push(String(body.model));
+        return completion(String(body.model));
+      },
+    });
+
+    const first = await client.createChatCompletion({
+      model: "kilo-auto/free",
+      messages: [{ role: "user", content: "general" }],
+      routing: { task: "review_general" },
+    });
+    await client.reportModelFailure({
+      model: first.routed_model!,
+      responseModel: first.model,
+      task: "review_general",
+      reason: "generation length limit reached without structured review content",
+    });
+
+    const second = await client.createChatCompletion({
+      model: "kilo-auto/free",
+      messages: [{ role: "user", content: "bug hunter" }],
+      routing: { task: "review_bug_hunter" },
+    });
+    await client.reportModelFailure({
+      model: second.routed_model!,
+      responseModel: second.model,
+      task: "review_bug_hunter",
+      reason: "generation length limit reached without structured review content",
+    });
+
+    requestedModels.length = 0;
+    await client.createChatCompletion({
+      model: "kilo-auto/free",
+      messages: [{ role: "user", content: "security" }],
+      routing: { task: "review_security" },
+    });
+
+    expect(requestedModels[0]).toBe("kilo-auto/free");
+  });
+
+  it("retires a review model after repeated transport failures with no validated success", async () => {
+    const requestedModels: string[] = [];
+    let failuresRemaining = 2;
+
+    const client = new AdaptiveFreeGatewayClient({
+      maxRetries: 0,
+      maxModelAttempts: 1,
+      fetch: async (input, init) => {
+        if (String(input).endsWith("/models")) {
+          return new Response(
+            JSON.stringify({
+              data: [
+                {
+                  id: "provider/dead:free",
+                  owned_by: "provider-a",
+                  context_length: 131072,
+                },
+              ],
+            }),
+            { status: 200, headers: { "Content-Type": "application/json" } },
+          );
+        }
+
+        const body = JSON.parse(String(init?.body ?? "{}")) as { model?: string };
+        requestedModels.push(String(body.model));
+        if (failuresRemaining > 0 && body.model === "provider/dead:free") {
+          failuresRemaining -= 1;
+          return new Response("temporarily unavailable", {
+            status: 503,
+            statusText: "Service Unavailable",
+          });
+        }
+        return completion(String(body.model));
+      },
+    });
+
+    await expect(
+      client.createChatCompletion({
+        model: "kilo-auto/free",
+        messages: [{ role: "user", content: "general" }],
+        routing: { task: "review_general" },
+      }),
+    ).rejects.toThrow();
+
+    await expect(
+      client.createChatCompletion({
+        model: "kilo-auto/free",
+        messages: [{ role: "user", content: "bug hunter" }],
+        routing: { task: "review_bug_hunter" },
+      }),
+    ).rejects.toThrow();
+
+    requestedModels.length = 0;
+    await client.createChatCompletion({
+      model: "kilo-auto/free",
+      messages: [{ role: "user", content: "security" }],
+      routing: { task: "review_security" },
+    });
+
+    expect(requestedModels[0]).toBe("kilo-auto/free");
+  });
+
+  it("keeps mixed-behavior review models eligible after a validated structured report", async () => {
+    const requestedModels: string[] = [];
+
+    const client = new AdaptiveFreeGatewayClient({
+      maxRetries: 0,
+      maxModelAttempts: 1,
+      fetch: async (input, init) => {
+        if (String(input).endsWith("/models")) {
+          return new Response(
+            JSON.stringify({
+              data: [
+                {
+                  id: "provider/mixed:free",
+                  owned_by: "provider-a",
+                  context_length: 131072,
+                },
+              ],
+            }),
+            { status: 200, headers: { "Content-Type": "application/json" } },
+          );
+        }
+
+        const body = JSON.parse(String(init?.body ?? "{}")) as { model?: string };
+        requestedModels.push(String(body.model));
+        return completion(String(body.model));
+      },
+    });
+
+    const validated = await client.createChatCompletion({
+      model: "kilo-auto/free",
+      messages: [{ role: "user", content: "general" }],
+      routing: { task: "review_general" },
+    });
+    await client.reportModelSuccess({
+      model: validated.routed_model!,
+      responseModel: validated.model,
+      task: "review_general",
+    });
+
+    for (const task of ["review_bug_hunter", "review_security"]) {
+      await client.reportModelFailure({
+        model: validated.routed_model!,
+        responseModel: validated.model,
+        task,
+        reason: "generation length limit reached without structured review content",
+      });
+    }
+
+    requestedModels.length = 0;
+    await client.createChatCompletion({
+      model: "kilo-auto/free",
+      messages: [{ role: "user", content: "follow-up" }],
+      routing: { task: "review_follow_up" },
+    });
+
+    expect(requestedModels[0]).toBe("provider/mixed:free");
+  });
+
   it("does not treat generic reasoning capability metadata as reasoning-heavy", async () => {
     const requestedModels: string[] = [];
     const attempts: Array<{ candidateModel: string; reasoningModel?: boolean }> = [];

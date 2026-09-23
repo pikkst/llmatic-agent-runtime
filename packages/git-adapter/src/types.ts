@@ -24,6 +24,23 @@ export interface GitStatus {
   untrackedCount: number;
 }
 
+export interface PublishedBranchStatus {
+  branch: string;
+  upstream: string;
+  commitSha: string;
+  committedAt?: string;
+  aheadOfDefault: number;
+  behindDefault: number;
+  aheadOfUpstream: number;
+  behindUpstream: number;
+  fullyPushed: boolean;
+}
+
+export interface PublishedBranchSnapshot {
+  defaultBranch?: string;
+  branches: PublishedBranchStatus[];
+}
+
 export interface BranchResult {
   branch: string;
 }

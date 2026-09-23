@@ -113,6 +113,9 @@ describe("VS Code extension activation surface", () => {
     expect(source).toContain("beginOperation");
     expect(source).toContain("active-operation");
     expect(source).toContain("External PR Review");
+    expect(source).toContain("activeExternalReviewId");
+    expect(source).toContain("activeExternalReviewTimer");
+    expect(source).toContain('finish("Stopped", Date.now() - startedAt)');
     expect(source).toContain("Auto Review Agent");
     expect(source).toContain("Review Activity Log");
     expect(source).toContain("loading~spin");

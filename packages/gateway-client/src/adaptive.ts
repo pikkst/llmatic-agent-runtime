@@ -233,6 +233,8 @@ export class AdaptiveFreeGatewayClient implements GatewayChatClient {
   private readonly validatedReviewSuccesses = new Map<string, number>();
   private readonly reviewSemanticFailures = new Map<string, number>();
   private readonly reviewTransportFailures = new Map<string, number>();
+  private readonly reviewLengthFailures = new Map<string, number>();
+  private readonly reviewFamilyExcludedModels = new Set<string>();
   private readonly taskUnhealthyUntil = new Map<string, Map<string, number>>();
   private readonly globallyUnhealthyUntil = new Map<string, number>();
   private readonly taskExcludedModels = new Map<string, Set<string>>();
@@ -255,6 +257,14 @@ export class AdaptiveFreeGatewayClient implements GatewayChatClient {
     const task = feedback.task?.trim() || "generic";
     for (const candidate of this.feedbackModels(model, feedback.responseModel)) {
       this.recordSemanticFailure(task, candidate);
+      if (
+        task.startsWith("review_") &&
+        /generation length limit reached without structured review content/i.test(feedback.reason)
+      ) {
+        const failures = (this.reviewLengthFailures.get(candidate) ?? 0) + 1;
+        this.reviewLengthFailures.set(candidate, failures);
+        this.excludeFromReviewFamilyAfterRepeatedFailure(candidate, failures);
+      }
       if (candidate !== "kilo-auto/free" && isFreeModelId(candidate)) {
         this.excludeForTask(task, candidate, feedback.reason);
       }
@@ -390,6 +400,7 @@ export class AdaptiveFreeGatewayClient implements GatewayChatClient {
       requested !== "kilo-auto/free" &&
       !avoided.has(requested) &&
       !taskExcluded?.has(requested) &&
+      !(task.startsWith("review_") && this.reviewFamilyExcludedModels.has(requested)) &&
       !this.blockedProviders.has(providerKey(requested)) &&
       (taskUnhealthy?.get(requested) ?? 0) <= Date.now() &&
       (this.globallyUnhealthyUntil.get(requested) ?? 0) <= Date.now()
@@ -405,6 +416,7 @@ export class AdaptiveFreeGatewayClient implements GatewayChatClient {
           (model) =>
             !avoided.has(model.id) &&
             !taskExcluded?.has(model.id) &&
+            !(task.startsWith("review_") && this.reviewFamilyExcludedModels.has(model.id)) &&
             !(
               task.startsWith("review_") &&
               /content.?safety|moderation|guard/.test(model.id.toLowerCase())
@@ -583,8 +595,16 @@ export class AdaptiveFreeGatewayClient implements GatewayChatClient {
     current.failures += success ? 0 : 1;
     current.totalLatencyMs += latencyMs;
     if (!success && task.startsWith("review_")) {
-      this.reviewTransportFailures.set(model, (this.reviewTransportFailures.get(model) ?? 0) + 1);
+      const failures = (this.reviewTransportFailures.get(model) ?? 0) + 1;
+      this.reviewTransportFailures.set(model, failures);
+      this.excludeFromReviewFamilyAfterRepeatedFailure(model, failures);
     }
+  }
+
+  private excludeFromReviewFamilyAfterRepeatedFailure(model: string, failures: number): void {
+    if (model === "kilo-auto/free" || failures < 2) return;
+    if ((this.validatedReviewSuccesses.get(model) ?? 0) > 0) return;
+    this.reviewFamilyExcludedModels.add(model);
   }
 
   private recordSemanticFailure(task: string, model: string): void {
@@ -600,6 +620,7 @@ export class AdaptiveFreeGatewayClient implements GatewayChatClient {
     current.validatedSuccesses += 1;
     if (task.startsWith("review_")) {
       this.validatedReviewSuccesses.set(model, (this.validatedReviewSuccesses.get(model) ?? 0) + 1);
+      this.reviewFamilyExcludedModels.delete(model);
     }
   }
 }
