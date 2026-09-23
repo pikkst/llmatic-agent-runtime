@@ -608,6 +608,109 @@ describe("AdaptiveFreeGatewayClient", () => {
     expect(requestedModels).toEqual(["provider/fast-model:free", "provider/fast-model:free"]);
   });
 
+  it("soft-penalizes transport failures across review lenses without globally excluding the model", async () => {
+    const requestedModels: string[] = [];
+    let failNext = true;
+
+    const client = new AdaptiveFreeGatewayClient({
+      maxRetries: 0,
+      maxModelAttempts: 1,
+      fetch: async (input, init) => {
+        if (String(input).endsWith("/models")) {
+          return new Response(
+            JSON.stringify({
+              data: [
+                {
+                  id: "provider/a:free",
+                  owned_by: "provider-a",
+                  context_length: 131072,
+                },
+                {
+                  id: "provider/b:free",
+                  owned_by: "provider-b",
+                  context_length: 131072,
+                },
+              ],
+            }),
+            { status: 200, headers: { "Content-Type": "application/json" } },
+          );
+        }
+
+        const body = JSON.parse(String(init?.body ?? "{}")) as { model?: string };
+        requestedModels.push(String(body.model));
+        if (failNext) {
+          failNext = false;
+          return new Response("temporarily unavailable", {
+            status: 503,
+            statusText: "Service Unavailable",
+          });
+        }
+        return completion(String(body.model));
+      },
+    });
+
+    await expect(
+      client.createChatCompletion({
+        model: "kilo-auto/free",
+        messages: [{ role: "user", content: "general" }],
+        routing: { task: "review_general" },
+      }),
+    ).rejects.toThrow();
+
+    const failedModel = requestedModels[0];
+    requestedModels.length = 0;
+
+    await client.createChatCompletion({
+      model: "kilo-auto/free",
+      messages: [{ role: "user", content: "security" }],
+      routing: { task: "review_security" },
+    });
+
+    expect(requestedModels[0]).not.toBe(failedModel);
+  });
+
+  it("excludes safety-only models from bounded review candidates", async () => {
+    const requestedModels: string[] = [];
+
+    const client = new AdaptiveFreeGatewayClient({
+      maxRetries: 0,
+      maxModelAttempts: 1,
+      fetch: async (input, init) => {
+        if (String(input).endsWith("/models")) {
+          return new Response(
+            JSON.stringify({
+              data: [
+                {
+                  id: "nvidia/content-safety-model:free",
+                  owned_by: "nvidia",
+                  context_length: 200000,
+                },
+                {
+                  id: "provider/code-model:free",
+                  owned_by: "provider",
+                  context_length: 131072,
+                },
+              ],
+            }),
+            { status: 200, headers: { "Content-Type": "application/json" } },
+          );
+        }
+
+        const body = JSON.parse(String(init?.body ?? "{}")) as { model?: string };
+        requestedModels.push(String(body.model));
+        return completion(String(body.model));
+      },
+    });
+
+    await client.createChatCompletion({
+      model: "kilo-auto/free",
+      messages: [{ role: "user", content: "review" }],
+      routing: { task: "review_general" },
+    });
+
+    expect(requestedModels[0]).toBe("provider/code-model:free");
+  });
+
   it("shares validated structured-review success across review lenses", async () => {
     const requestedModels: string[] = [];
 
