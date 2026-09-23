@@ -885,7 +885,7 @@ describe("AdaptiveFreeGatewayClient", () => {
     expect(requestedModels[0]).toBe("kilo-auto/free");
   });
 
-  it("retires a review model after repeated transport failures with no validated success", async () => {
+  it("keeps transient review transport failures recoverable across later lenses", async () => {
     const requestedModels: string[] = [];
     let failuresRemaining = 2;
 
@@ -944,7 +944,7 @@ describe("AdaptiveFreeGatewayClient", () => {
       routing: { task: "review_security" },
     });
 
-    expect(requestedModels[0]).toBe("kilo-auto/free");
+    expect(requestedModels[0]).toBe("provider/dead:free");
   });
 
   it("keeps mixed-behavior review models eligible after a validated structured report", async () => {
