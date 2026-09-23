@@ -2390,11 +2390,13 @@ function adaptiveRouteDescription(event: AdaptiveGatewayRouteEvent): string {
     case "review-history":
       return (
         event.task +
-        " proven pool: " +
-        (event.provenModels.length > 0 ? event.provenModels.join(", ") : "cold-start") +
+        " Tier A: " +
+        (event.trustedModels.length > 0 ? event.trustedModels.join(", ") : "none") +
+        " · Tier B: " +
+        (event.mixedModels.length > 0 ? event.mixedModels.join(", ") : "none") +
         (event.explorationModels.length > 0
           ? " · exploration: " + event.explorationModels.join(", ")
-          : "")
+          : " · exploration: none")
       );
     case "attempt":
       return (
@@ -2999,7 +3001,6 @@ async function reviewExternalPullRequestInUi(
       maxModelAttempts: configuration().get<number>("reviewFreeModelFallbacks", 3),
       requestTimeoutMs: configuration().get<number>("reviewRequestTimeoutMs", 60_000),
       reviewHistory,
-      reviewProvenMinValidated: 2,
       reviewExplorationSlots: 1,
       onReviewHistoryChange: (history) => storeReviewModelHistory(context, history),
       onRoute: (event) => {
@@ -3290,7 +3291,6 @@ async function runAutomaticExternalPullRequestReview(
       maxModelAttempts: configuration().get<number>("reviewFreeModelFallbacks", 3),
       requestTimeoutMs: configuration().get<number>("reviewRequestTimeoutMs", 60_000),
       reviewHistory,
-      reviewProvenMinValidated: 2,
       reviewExplorationSlots: 1,
       onReviewHistoryChange: (history) => storeReviewModelHistory(context, history),
       onRoute: (event) => {
