@@ -505,12 +505,12 @@ export class LlmaticStatusProvider implements vscode.TreeDataProvider<vscode.Tre
         : (this.recovery.openPullRequests?.length ?? 0) > 0
           ? String(this.recovery.openPullRequests?.length ?? 0) + " open PR(s) · choose target"
           : this.recovery.workflow
-          ? this.recovery.workflow.state
-          : this.recovery.task
-            ? this.recovery.task.status.name
-            : this.recovery.nextTask
-              ? this.recovery.nextTask.summary
-              : "no active task";
+            ? this.recovery.workflow.state
+            : this.recovery.task
+              ? this.recovery.task.status.name
+              : this.recovery.nextTask
+                ? this.recovery.nextTask.summary
+                : "no active task";
       recovered.tooltip =
         this.recovery.recommendation.title + "\n" + this.recovery.recommendation.detail;
       recovered.command = {
