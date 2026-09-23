@@ -13,22 +13,34 @@ const versionedOutput = resolve(artifactsRoot, "llmatic-agent-runtime-" + versio
 
 await mkdir(dirname(output), { recursive: true });
 
-// Never leave an older candidate under either canonical install name.
-await Promise.all([rm(output, { force: true }), rm(versionedOutput, { force: true })]);
-
-const result = spawnSync(
-  "pnpm",
-  ["exec", "vsce", "package", "--no-dependencies", "--out", output],
-  {
+function runPnpm(args, label) {
+  const result = spawnSync("pnpm", args, {
     cwd: extensionRoot,
     env: process.env,
     stdio: "inherit",
     shell: process.platform === "win32",
-  },
-);
+  });
 
-if (result.error) throw result.error;
-if (result.status !== 0) process.exit(result.status ?? 1);
+  if (result.error) {
+    throw new Error(label + " could not start: " + result.error.message);
+  }
+  if (result.status !== 0) {
+    throw new Error(label + " failed with exit code " + String(result.status) + ".");
+  }
+}
+
+// Packaging must be self-contained. Rebuild the extension and bundled MCP runtime
+// immediately before creating the VSIX so source changes can never be packaged
+// with a stale dist/extension.cjs from an earlier build.
+runPnpm(["run", "bundle"], "VSIX bundle rebuild");
+
+// Never leave an older candidate under either canonical install name.
+await Promise.all([rm(output, { force: true }), rm(versionedOutput, { force: true })]);
+
+runPnpm(
+  ["exec", "vsce", "package", "--no-dependencies", "--out", output],
+  "VSIX packaging",
+);
 
 const bytes = await readFile(output);
 await copyFile(output, versionedOutput);
