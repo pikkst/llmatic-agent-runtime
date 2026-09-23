@@ -38,10 +38,7 @@ runPnpm(["run", "build"], "VSIX workspace build", repositoryRoot);
 // Never leave an older candidate under either canonical install name.
 await Promise.all([rm(output, { force: true }), rm(versionedOutput, { force: true })]);
 
-runPnpm(
-  ["exec", "vsce", "package", "--no-dependencies", "--out", output],
-  "VSIX packaging",
-);
+runPnpm(["exec", "vsce", "package", "--no-dependencies", "--out", output], "VSIX packaging");
 
 const bytes = await readFile(output);
 await copyFile(output, versionedOutput);
