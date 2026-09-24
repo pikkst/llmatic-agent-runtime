@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
   AdaptiveFreeGatewayClient,
   type AdaptiveGatewayRouteEvent,
@@ -290,6 +290,94 @@ describe("AdaptiveFreeGatewayClient", () => {
     });
 
     expect(requestedModels).not.toContain("daily/model:free");
+  });
+
+  it("retries a transient generic 429 after the short review cooldown", async () => {
+    const requestedModels: string[] = [];
+    const now = Date.now();
+    let currentTime = now;
+    let rateLimited = true;
+    const nowSpy = vi.spyOn(Date, "now").mockImplementation(() => currentTime);
+
+    try {
+      const client = new AdaptiveFreeGatewayClient({
+        maxRetries: 0,
+        maxModelAttempts: 2,
+        modelCooldownMs: 5 * 60_000,
+        reviewHistory: [
+          {
+            model: "provider/rate-model:free",
+            task: "review_general",
+            validatedReports: 4,
+            semanticFailures: 0,
+            lengthFailures: 0,
+            transportFailures: 0,
+            lastValidatedAt: now,
+            updatedAt: now,
+          },
+        ],
+        fetch: async (input, init) => {
+          if (String(input).endsWith("/models")) {
+            return new Response(
+              JSON.stringify({
+                data: [
+                  {
+                    id: "provider/rate-model:free",
+                    owned_by: "provider-a",
+                    context_length: 131072,
+                  },
+                  {
+                    id: "provider/fallback:free",
+                    owned_by: "provider-b",
+                    context_length: 131072,
+                  },
+                ],
+              }),
+              { status: 200, headers: { "Content-Type": "application/json" } },
+            );
+          }
+
+          const body = JSON.parse(String(init?.body ?? "{}")) as { model?: string };
+          const model = String(body.model);
+          requestedModels.push(model);
+          if (model === "provider/rate-model:free" && rateLimited) {
+            rateLimited = false;
+            return new Response(JSON.stringify({ error: { message: "Provider returned error" } }), {
+              status: 429,
+              statusText: "Too Many Requests",
+              headers: { "Content-Type": "application/json" },
+            });
+          }
+          return completion(model);
+        },
+      });
+
+      await client.createChatCompletion({
+        model: "kilo-auto/free",
+        messages: [{ role: "user", content: "first" }],
+        routing: { task: "review_general" },
+      });
+
+      requestedModels.length = 0;
+      await client.createChatCompletion({
+        model: "kilo-auto/free",
+        messages: [{ role: "user", content: "during cooldown" }],
+        routing: { task: "review_general" },
+      });
+      expect(requestedModels).not.toContain("provider/rate-model:free");
+
+      currentTime += 61_000;
+      requestedModels.length = 0;
+      await client.createChatCompletion({
+        model: "kilo-auto/free",
+        messages: [{ role: "user", content: "after cooldown" }],
+        routing: { task: "review_general" },
+      });
+
+      expect(requestedModels[0]).toBe("provider/rate-model:free");
+    } finally {
+      nowSpy.mockRestore();
+    }
   });
 
   it("preserves routed free-model identity when provider response drops the :free suffix", async () => {
