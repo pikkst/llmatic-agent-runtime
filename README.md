@@ -29,7 +29,7 @@ Every tagged GitHub release also publishes a verified VSIX and release manifest.
 Download the VSIX from the matching GitHub Release, then either use **Extensions → … → Install from VSIX…** or:
 
 ```powershell
-code --install-extension .\llmatic-agent-runtime-0.2.0.vsix
+code --install-extension .\llmatic-agent-runtime-0.3.1.vsix
 ```
 
 ## Requirements
@@ -348,7 +348,7 @@ Gateway credentials are stored in VS Code SecretStorage.
 
 ## Releases and updates
 
-Semantic tags such as `v0.2.0` run the release pipeline, package the VSIX, verify release metadata and hashes, execute clean-install acceptance, and publish a GitHub Release.
+Semantic tags such as `v0.3.1` run the release pipeline, install the locked dependency graph, package the VSIX, verify release metadata and hashes, execute clean-install acceptance, and publish a GitHub Release.
 
 Update commands:
 
@@ -357,7 +357,7 @@ LLMatic: Check for Updates
 LLMatic: Install Latest Update
 ```
 
-Marketplace publishing is gated separately. Future automated releases use GitHub OIDC to authenticate to Microsoft Entra ID, then `vsce publish --azure-credential`; no Marketplace PAT or Entra client secret is stored in the repository.
+Visual Studio Marketplace publication is intentionally manual for v0.3.1. Upload the exact versioned VSIX attached to the accepted GitHub Release; do not rebuild a separate Marketplace artifact.
 
 ## Troubleshooting
 
@@ -401,7 +401,7 @@ Important acceptance commands:
 ```bash
 pnpm product:acceptance
 pnpm vscode:acceptance
-pnpm release:acceptance v0.2.0 <commit-sha>
+pnpm release:acceptance v0.3.1 <commit-sha>
 ```
 
 The milestone roadmap is maintained in [docs/ROADMAP.md](docs/ROADMAP.md).
