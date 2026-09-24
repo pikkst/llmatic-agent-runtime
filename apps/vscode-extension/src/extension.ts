@@ -2334,7 +2334,7 @@ async function runGatewayReview(
   const gateway = new KiloGatewayClient({
     apiKey: gatewayAccess.apiKey,
     maxRetries: 0,
-    requestTimeoutMs: configuration().get<number>("reviewRequestTimeoutMs", 60_000),
+    requestTimeoutMs: configuration().get<number>("reviewRequestTimeoutMs", 120_000),
     onRetry: (event) => {
       output.appendLine(
         "[RETRY] Kilo Gateway " + event.nextAttempt + "/" + event.maxAttempts + ": " + event.reason,
@@ -3186,7 +3186,7 @@ async function reviewExternalPullRequestInUi(
       apiKey: gatewayAccess.apiKey,
       maxRetries: 0,
       maxModelAttempts: configuration().get<number>("reviewFreeModelFallbacks", 3),
-      requestTimeoutMs: configuration().get<number>("reviewRequestTimeoutMs", 60_000),
+      requestTimeoutMs: configuration().get<number>("reviewRequestTimeoutMs", 120_000),
       reviewHistory,
       reviewExplorationSlots: 1,
       onReviewHistoryChange: (history) => storeReviewModelHistory(context, history),
@@ -3498,7 +3498,7 @@ async function runAutomaticExternalPullRequestReview(
       apiKey: gatewayAccess.apiKey,
       maxRetries: 0,
       maxModelAttempts: configuration().get<number>("reviewFreeModelFallbacks", 3),
-      requestTimeoutMs: configuration().get<number>("reviewRequestTimeoutMs", 60_000),
+      requestTimeoutMs: configuration().get<number>("reviewRequestTimeoutMs", 120_000),
       reviewHistory,
       reviewExplorationSlots: 1,
       onReviewHistoryChange: (history) => storeReviewModelHistory(context, history),

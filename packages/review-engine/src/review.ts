@@ -509,6 +509,120 @@ interface ExternalReviewBatch {
   packet: string;
 }
 
+interface ExternalReviewBatchResult {
+  summary: string;
+  findings: ReviewFinding[];
+  recoveryFailures: string[];
+}
+
+function externalReviewBatch(
+  material: PullRequestReviewMaterial,
+  files: string[],
+): ExternalReviewBatch {
+  return {
+    files,
+    packet: files
+      .map((path) => {
+        const diff = pullRequestDiffForPath(material.diff, path);
+        return "### " + path + "\n" + boundedExternalReviewDiff(diff);
+      })
+      .join("\n\n"),
+  };
+}
+
+function recoverableExternalReviewFailure(error: unknown): boolean {
+  const message = error instanceof Error ? error.message : String(error);
+  return /timeout|timed out|429|too many requests|temporar|overload|upstream|provider|gateway|internal|without structured review content|valid structured report|neither tool calls nor a JSON report|missing assistant message|maximum step limit|context.*(?:window|length)|insufficient context/i.test(
+    message,
+  );
+}
+
+async function runExternalReviewBatchWithRecovery(
+  options: ExternalPullRequestReviewOptions,
+  constitution: RepositoryConstitution,
+  lens: ReviewLens,
+  batch: ExternalReviewBatch,
+): Promise<ExternalReviewBatchResult> {
+  try {
+    const result = await runReviewLens(
+      options,
+      constitution,
+      batch.files,
+      lens,
+      options.material,
+      batch.packet,
+    );
+    return { ...result, recoveryFailures: [] };
+  } catch (initialError) {
+    if (!recoverableExternalReviewFailure(initialError)) throw initialError;
+
+    const initialReason =
+      initialError instanceof Error ? initialError.message : String(initialError);
+
+    if (batch.files.length === 1) {
+      try {
+        const result = await runReviewLens(
+          options,
+          constitution,
+          batch.files,
+          lens,
+          options.material,
+          batch.packet,
+        );
+        return { ...result, recoveryFailures: [] };
+      } catch (recoveryError) {
+        throw new Error(
+          "Recovery retry failed after " +
+            initialReason +
+            ": " +
+            (recoveryError instanceof Error ? recoveryError.message : String(recoveryError)),
+        );
+      }
+    }
+
+    const midpoint = Math.ceil(batch.files.length / 2);
+    const recoveryBatches = [
+      externalReviewBatch(options.material, batch.files.slice(0, midpoint)),
+      externalReviewBatch(options.material, batch.files.slice(midpoint)),
+    ].filter((candidate) => candidate.files.length > 0);
+    const recovered: Array<{ summary: string; findings: ReviewFinding[] }> = [];
+    const recoveryFailures: string[] = [];
+
+    for (const recoveryBatch of recoveryBatches) {
+      try {
+        recovered.push(
+          await runReviewLens(
+            options,
+            constitution,
+            recoveryBatch.files,
+            lens,
+            options.material,
+            recoveryBatch.packet,
+          ),
+        );
+      } catch (recoveryError) {
+        recoveryFailures.push(
+          recoveryBatch.files.join(", ") +
+            ": " +
+            (recoveryError instanceof Error ? recoveryError.message : String(recoveryError)),
+        );
+      }
+    }
+
+    if (recovered.length === 0) {
+      throw new Error(
+        "Split recovery failed after " + initialReason + ": " + recoveryFailures.join(" | "),
+      );
+    }
+
+    return {
+      summary: recovered.map((item) => item.summary).join(" "),
+      findings: recovered.flatMap((item) => item.findings),
+      recoveryFailures,
+    };
+  }
+}
+
 function reviewableCodePath(path: string): boolean {
   return (
     /\.(?:[cm]?[jt]sx?|json|sql|ya?ml)$/i.test(path) && !/(?:^|\/)(?:dist|build)\//i.test(path)
@@ -560,8 +674,7 @@ function externalReviewBatches(
       continue;
     }
 
-    const boundedDiff = boundedExternalReviewDiff(diff);
-    const section = "### " + path + "\n" + boundedDiff;
+    const section = "### " + path + "\n" + boundedExternalReviewDiff(diff);
 
     if (
       currentFiles.length > 0 &&
@@ -950,6 +1063,30 @@ function extractJson(content: string): unknown {
     : new Error("Review model response did not contain valid JSON.");
 }
 
+function pruneImpossibleExternalDodFindings(
+  value: unknown,
+  material: PullRequestReviewMaterial | undefined,
+): unknown {
+  if (!material || pullRequestAcceptanceEvidence(material.body).length > 0) return value;
+  if (!value || typeof value !== "object" || Array.isArray(value)) return value;
+
+  const report = value as Record<string, unknown>;
+  if (!Array.isArray(report.findings)) return value;
+
+  return {
+    ...report,
+    findings: report.findings.filter(
+      (finding) =>
+        !(
+          finding &&
+          typeof finding === "object" &&
+          !Array.isArray(finding) &&
+          (finding as Record<string, unknown>).basis === "dod"
+        ),
+    ),
+  };
+}
+
 function normalizeReviewFinding(
   raw: RawReviewFinding,
   lens: ReviewLens,
@@ -1193,7 +1330,8 @@ async function runReviewLens(
                   "Authoritative bounded changed-code packet:",
                   "Use ONLY this packet plus documentedAcceptanceEvidence and repository Constitution to produce this batch report.",
                   "No model tools are available in external review batches. Do not ask for more context and do not speculate beyond the packet.",
-                  "If the packet is insufficient to prove a defect, omit that finding.",
+                  "Bounded context is expected and is not a review failure. Do not claim the review could not be performed merely because unrelated or cross-batch context is not present.",
+                  "If the packet is insufficient to prove a specific defect, omit that finding and still return a complete valid JSON report for this batch.",
                   "A FILE DIFF TRUNCATED marker means the remainder was intentionally omitted. It must never be treated as evidence that the source line itself is truncated, misspelled or incomplete.",
                   externalPacket,
                 ].join("\n")
@@ -1385,7 +1523,10 @@ async function runReviewLens(
     }
 
     try {
-      const extracted = extractJson(assistant.content);
+      const extracted = pruneImpossibleExternalDodFindings(
+        extractJson(assistant.content),
+        material,
+      );
       const parsed = rawReviewSchema.parse(extracted);
       await reportValidatedModelSuccess(options.gateway, response, lens);
       return {
@@ -1538,16 +1679,28 @@ export async function runExternalPullRequestReview(
       });
 
       try {
-        batchResults.push(
-          await runReviewLens(
-            options,
-            constitution,
-            batch.files,
-            lens,
-            options.material,
-            batch.packet,
-          ),
+        const batchResult = await runExternalReviewBatchWithRecovery(
+          options,
+          constitution,
+          lens,
+          batch,
         );
+        batchResults.push(batchResult);
+
+        if (batchResult.recoveryFailures.length > 0) {
+          const reason =
+            "split recovery incomplete after an initial recoverable failure: " +
+            batchResult.recoveryFailures.join(" | ");
+          batchFailures.push("batch " + batchNumber + "/" + batches.length + ": " + reason);
+          options.onActivity?.({
+            type: "lens-batch-failed",
+            lens,
+            batch: batchNumber,
+            totalBatches: batches.length,
+            reason,
+            durationMs: Date.now() - batchStartedAt,
+          });
+        }
       } catch (error) {
         const reason = error instanceof Error ? error.message : String(error);
         batchFailures.push("batch " + batchNumber + "/" + batches.length + ": " + reason);

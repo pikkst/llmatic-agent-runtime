@@ -330,6 +330,68 @@ describe("review engine", () => {
     expect(report.summary).toContain("0 concrete defect/rule violation(s)");
   });
 
+  it("drops impossible DoD findings without invoking report repair when acceptance evidence is absent", async () => {
+    const root = await repository();
+    const config = configFor(root);
+    const events: ReviewActivityEvent[] = [];
+    const gateway = new ScriptedGateway([
+      response(
+        JSON.stringify({
+          summary: "Reliability improvements reviewed.",
+          findings: [
+            {
+              severity: "non_blocking",
+              category: "reliability",
+              basis: "dod",
+              title: "Timeout increase improves resilience",
+              path: "src/value.ts",
+              evidence: "The timeout was increased.",
+              recommendation: "No action needed.",
+            },
+          ],
+        }),
+        undefined,
+        "liquid/lfm-2.5-2.6b:free",
+      ),
+    ]);
+
+    const report = await runExternalPullRequestReview({
+      root,
+      config,
+      gateway,
+      lenses: ["general"],
+      onActivity: (event) => events.push(event),
+      material: {
+        reference: "42",
+        headRefOid: "head-42",
+        title: "No documented acceptance evidence",
+        body: "",
+        ciState: "passing",
+        changedFiles: ["src/value.ts"],
+        diff: "diff --git a/src/value.ts b/src/value.ts\n--- a/src/value.ts\n+++ b/src/value.ts\n@@ -1 +1 @@\n-export const value = 1;\n+export const value = 2;\n",
+        diffTruncated: false,
+      },
+    });
+
+    expect(gateway.requests).toHaveLength(1);
+    expect(gateway.modelFailures).toEqual([]);
+    expect(gateway.modelSuccesses).toEqual([
+      {
+        model: "liquid/lfm-2.5-2.6b:free",
+        responseModel: "liquid/lfm-2.5-2.6b:free",
+        task: "review_general",
+      },
+    ]);
+    expect(events).not.toContainEqual(
+      expect.objectContaining({
+        type: "report-repair",
+      }),
+    );
+    expect(report.reviewStatus).toBe("complete");
+    expect(report.findings).toEqual([]);
+    expect(report.summary).toContain("0 documented DoD/acceptance violation(s)");
+  });
+
   it("keeps only DoD findings backed by documented PR acceptance evidence", async () => {
     const root = await repository();
     const config = configFor(root);
@@ -569,7 +631,7 @@ describe("review engine", () => {
     expect(report.findings).toEqual([]);
   });
 
-  it("keeps successful lenses when one external review lens fails", async () => {
+  it("recovers a transient external review lens failure before marking the review partial", async () => {
     const root = await repository();
     const config = configFor(root);
     const events: ReviewActivityEvent[] = [];
@@ -609,18 +671,14 @@ describe("review engine", () => {
       },
     });
 
-    expect(report.reviewStatus).toBe("partial");
-    expect(report.lensFailures).toEqual([
-      {
-        lens: "bug_hunter",
-        reason: "batch 1/1: simulated bug-hunter timeout",
-      },
-    ]);
+    expect(call).toBe(4);
+    expect(report.reviewStatus).toBe("complete");
+    expect(report.lensFailures).toEqual([]);
     expect(report.summary).toContain(
       "Focused review: 0 documented DoD/acceptance violation(s), 0 concrete defect/rule violation(s).",
     );
-    expect(report.summary).toContain("Incomplete lenses: bug_hunter");
-    expect(events).toContainEqual(
+    expect(report.summary).not.toContain("Incomplete lenses:");
+    expect(events).not.toContainEqual(
       expect.objectContaining({
         type: "lens-failed",
         lens: "bug_hunter",
@@ -628,7 +686,7 @@ describe("review engine", () => {
     );
   });
 
-  it("keeps successful external review batches when another batch times out", async () => {
+  it("recovers a transient external review batch timeout without losing successful findings", async () => {
     const root = await repository();
     const config = configFor(root);
     let request = 0;
@@ -699,16 +757,132 @@ describe("review engine", () => {
       },
     });
 
-    expect(request).toBe(2);
-    expect(report.reviewStatus).toBe("partial");
+    expect(request).toBe(3);
+    expect(report.reviewStatus).toBe("complete");
     expect(report.findings).toEqual([
       expect.objectContaining({
         title: "First batch defect",
         path: "src/file-1.ts",
       }),
     ]);
-    expect(report.lensFailures[0]?.lens).toBe("general");
-    expect(report.lensFailures[0]?.reason).toContain("1/2 review batch(es) incomplete");
+    expect(report.lensFailures).toEqual([]);
+  });
+
+  it("preserves successful split-recovery findings when a sibling split still fails", async () => {
+    const root = await repository();
+    const config = configFor(root);
+    let request = 0;
+    const gateway: GatewayChatClient = {
+      async createChatCompletion() {
+        request += 1;
+
+        if (request === 1 || request === 3) {
+          throw new Error("simulated provider timeout");
+        }
+
+        return response(
+          JSON.stringify({
+            summary: "Recovered first split.",
+            findings: [
+              {
+                severity: "blocking",
+                category: "correctness",
+                basis: "defect",
+                title: "Recovered split defect",
+                path: "src/file-1.ts",
+                line: 1,
+                side: "RIGHT",
+                evidence: "The recovered split proves the changed line is incorrect.",
+                recommendation: "Return the required value.",
+              },
+            ],
+          }),
+        );
+      },
+    };
+
+    const changedFiles = ["src/file-1.ts", "src/file-2.ts"];
+    const diff = changedFiles
+      .map(
+        (path, index) =>
+          "diff --git a/" +
+          path +
+          " b/" +
+          path +
+          "\n--- a/" +
+          path +
+          "\n+++ b/" +
+          path +
+          "\n@@ -1 +1 @@\n-export const value = " +
+          index +
+          ";\n+export const value = " +
+          (index + 1) +
+          ";\n",
+      )
+      .join("");
+
+    const report = await runExternalPullRequestReview({
+      root,
+      config,
+      gateway,
+      lenses: ["general"],
+      material: {
+        reference: "42",
+        headRefOid: "head-42",
+        title: "Partial split recovery",
+        body: "",
+        ciState: "passing",
+        changedFiles,
+        diff,
+        diffTruncated: false,
+      },
+    });
+
+    expect(request).toBe(3);
+    expect(report.reviewStatus).toBe("partial");
+    expect(report.findings).toEqual([
+      expect.objectContaining({
+        title: "Recovered split defect",
+        path: "src/file-1.ts",
+      }),
+    ]);
+    expect(report.lensFailures).toHaveLength(1);
+    expect(report.lensFailures[0]?.reason).toContain("split recovery incomplete");
+    expect(report.lensFailures[0]?.reason).toContain("src/file-2.ts");
+    expect(report.lensFailures[0]?.reason).toContain("simulated provider timeout");
+  });
+
+  it("surfaces an external review failure only after the recovery retry is exhausted", async () => {
+    const root = await repository();
+    const config = configFor(root);
+    let requests = 0;
+    const gateway: GatewayChatClient = {
+      async createChatCompletion() {
+        requests += 1;
+        throw new Error("simulated provider timeout");
+      },
+    };
+
+    await expect(
+      runExternalPullRequestReview({
+        root,
+        config,
+        gateway,
+        lenses: ["general"],
+        material: {
+          reference: "42",
+          headRefOid: "head-42",
+          title: "Recovery exhaustion",
+          body: "",
+          ciState: "passing",
+          changedFiles: ["src/value.ts"],
+          diff: "diff --git a/src/value.ts b/src/value.ts\n--- a/src/value.ts\n+++ b/src/value.ts\n@@ -1 +1 @@\n-export const value = 1;\n+export const value = 2;\n",
+          diffTruncated: false,
+        },
+      }),
+    ).rejects.toThrow(/Recovery retry failed.*simulated provider timeout/);
+
+    expect(requests).toBe(2);
   });
 
   it("reports empty structured output as a semantic model failure and repairs with another model", async () => {

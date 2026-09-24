@@ -198,7 +198,7 @@ describe("VS Code extension activation surface", () => {
           default?: number;
         }
       ).default,
-    ).toBe(60000);
+    ).toBe(120000);
     expect(packageJson.contributes.configuration.properties).toHaveProperty(
       "llmatic.reviewMaxSteps",
     );
