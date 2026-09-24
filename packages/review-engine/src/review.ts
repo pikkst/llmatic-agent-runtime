@@ -1492,7 +1492,11 @@ async function runReviewLens(
             changedFiles.map((path) => "- " + path).join("\n"),
             "All changed non-secret files in the pull request:",
             material.changedFiles
-              .filter((path) => !isWorkspacePathSensitive(path))
+              .filter(
+                (path) =>
+                  !isWorkspacePathSensitive(path) &&
+                  pullRequestDiffContainsPath(material.diff, path),
+              )
               .map((path) => "- " + path)
               .join("\n"),
             "This batch contains " +
