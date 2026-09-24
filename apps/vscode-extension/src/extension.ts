@@ -41,7 +41,7 @@ import {
 import {
   getGitHubRepositoryName,
   getPullRequestReviewContext,
-  getPullRequestStatus,
+  getPullRequestRequiredStatus,
   listOpenPullRequests,
   publishPullRequestReview,
   readPullRequestFileAtHead,
@@ -3110,20 +3110,20 @@ function externalPullRequestReviewDraft(
 
 interface AutoReviewPublicationDecision {
   intendedEvent?: PullRequestReviewEvent;
-  ciState: Awaited<ReturnType<typeof getPullRequestStatus>>["ciState"];
+  requiredCiState?: Awaited<ReturnType<typeof getPullRequestRequiredStatus>>["ciState"];
   note?: string;
 }
 
 function autoReviewPublicationEvent(
   mode: AutoReviewPublicationMode,
   report: Awaited<ReturnType<typeof runExternalPullRequestReview>>,
-  ciState: Awaited<ReturnType<typeof getPullRequestStatus>>["ciState"] = report.ciState,
+  requiredCiState: Awaited<ReturnType<typeof getPullRequestRequiredStatus>>["ciState"],
 ): PullRequestReviewEvent | undefined {
   if (mode === "local_only") return undefined;
   if (mode === "comment_only") return "COMMENT";
   if (report.reviewStatus === "partial" || report.coverage !== "complete") return "COMMENT";
   if (report.blockingCount > 0) return "REQUEST_CHANGES";
-  return ciState === "passing" ? "APPROVE" : "COMMENT";
+  return requiredCiState === "passing" || requiredCiState === "none" ? "APPROVE" : "COMMENT";
 }
 
 async function resolveAutoReviewPublicationDecision(
@@ -3131,55 +3131,61 @@ async function resolveAutoReviewPublicationDecision(
   report: Awaited<ReturnType<typeof runExternalPullRequestReview>>,
   mode: AutoReviewPublicationMode,
 ): Promise<AutoReviewPublicationDecision> {
-  if (mode === "local_only") {
-    return { ciState: report.ciState };
-  }
+  if (mode === "local_only") return {};
 
   try {
-    const latest = await getPullRequestStatus(root, report.reference);
-    if (latest.pullRequest.headRefOid !== report.headRefOid) {
+    const requiredStatus = await getPullRequestRequiredStatus(root, report.reference);
+    if (requiredStatus.pullRequest.headRefOid !== report.headRefOid) {
       throw new Error(
         "Pull-request head changed after review. Expected " +
           report.headRefOid +
           " but found " +
-          latest.pullRequest.headRefOid +
+          requiredStatus.pullRequest.headRefOid +
           ".",
       );
     }
 
-    const intendedEvent = autoReviewPublicationEvent(mode, report, latest.ciState);
+    const intendedEvent = autoReviewPublicationEvent(
+      mode,
+      report,
+      requiredStatus.ciState,
+    );
     const note =
       mode === "review_decision" &&
       intendedEvent === "COMMENT" &&
       report.reviewStatus === "complete" &&
       report.coverage === "complete" &&
-      report.blockingCount === 0 &&
-      latest.ciState !== "passing"
-        ? "LLMatic did not issue APPROVE because fresh remote CI is **" +
-          latest.ciState +
-          "**. Re-evaluate after CI passes."
-        : undefined;
+      report.blockingCount === 0
+        ? "LLMatic did not issue APPROVE because required remote CI is **" +
+          requiredStatus.ciState +
+          "**. Non-required review bots/checks do not block this decision."
+        : mode === "review_decision" &&
+            intendedEvent === "APPROVE" &&
+            report.ciState !== "passing" &&
+            (requiredStatus.ciState === "passing" || requiredStatus.ciState === "none")
+          ? "Required CI is **" +
+            requiredStatus.ciState +
+            "**; non-required checks may still be pending or failing and are advisory for this review decision."
+          : undefined;
 
     return {
       intendedEvent,
-      ciState: latest.ciState,
+      requiredCiState: requiredStatus.ciState,
       note,
     };
   } catch (error) {
     if (report.blockingCount > 0 && mode === "review_decision") {
       return {
         intendedEvent: "REQUEST_CHANGES",
-        ciState: report.ciState,
         note:
-          "Fresh CI status could not be verified before publication, but concrete blocking findings were validated.",
+          "Required CI status could not be verified before publication, but concrete blocking findings were validated.",
       };
     }
 
     return {
       intendedEvent: "COMMENT",
-      ciState: report.ciState,
       note:
-        "LLMatic did not issue APPROVE because fresh remote CI status could not be verified: " +
+        "LLMatic did not issue APPROVE because required remote CI status could not be verified: " +
         (error instanceof Error ? error.message : String(error)),
     };
   }
@@ -3215,12 +3221,8 @@ async function publishAutomaticReviewResult(
   const config = await loadAgentConfig(root, {
     LLMATIC_HOME: context.globalStorageUri.fsPath,
   });
-  const publicationReport = {
-    ...report,
-    ciState: publicationDecision.ciState,
-  };
   const body =
-    externalPullRequestReviewDraft(publicationReport) +
+    externalPullRequestReviewDraft(report) +
     (publicationDecision.note ? "\n\n> " + publicationDecision.note : "");
   const inlineComments = externalPullRequestInlineComments(report);
 
