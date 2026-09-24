@@ -160,6 +160,15 @@ interface AutoReviewRetryState {
   retryAfter: number;
 }
 
+interface AutoReviewLastPublication {
+  number: number;
+  headRefOid: string;
+  intendedEvent: PullRequestReviewEvent;
+  publishedEvent: PullRequestReviewEvent;
+  publishedAt: string;
+  fallback: boolean;
+}
+
 type AutoReviewPublicationMode = "local_only" | "comment_only" | "review_decision";
 
 interface AutoReviewWorkspaceState {
@@ -169,6 +178,7 @@ interface AutoReviewWorkspaceState {
   publicationMode?: AutoReviewPublicationMode;
   retry?: Record<string, AutoReviewRetryState>;
   lastReviewed?: AutoReviewLastResult;
+  lastPublished?: AutoReviewLastPublication;
   lastError?: string;
 }
 
@@ -2979,6 +2989,131 @@ function externalPullRequestReviewDraft(
     "",
     "_Scope: documented DoD/acceptance, concrete defects, and explicit repository-rule violations only._",
   ].join("\n");
+}
+
+function autoReviewPublicationEvent(
+  mode: AutoReviewPublicationMode,
+  report: Awaited<ReturnType<typeof runExternalPullRequestReview>>,
+): PullRequestReviewEvent | undefined {
+  if (mode === "local_only") return undefined;
+  if (mode === "comment_only" || report.reviewStatus === "partial") return "COMMENT";
+  return report.blockingCount > 0 ? "REQUEST_CHANGES" : "APPROVE";
+}
+
+function selfReviewDecisionError(message: string): boolean {
+  return /own pull request|your own pull request|cannot approve.*own|can not approve.*own/i.test(
+    message,
+  );
+}
+
+async function publishAutomaticReviewResult(
+  context: vscode.ExtensionContext,
+  root: string,
+  report: Awaited<ReturnType<typeof runExternalPullRequestReview>>,
+  mode: AutoReviewPublicationMode,
+  output: vscode.OutputChannel,
+  reviewLog: vscode.OutputChannel,
+  sessionId: string,
+  startedAt: number,
+): Promise<{
+  intendedEvent?: PullRequestReviewEvent;
+  publishedEvent?: PullRequestReviewEvent;
+  fallback: boolean;
+  error?: string;
+}> {
+  const intendedEvent = autoReviewPublicationEvent(mode, report);
+  if (!intendedEvent) return { fallback: false };
+
+  const config = await loadAgentConfig(root, {
+    LLMATIC_HOME: context.globalStorageUri.fsPath,
+  });
+  const body = externalPullRequestReviewDraft(report);
+  const inlineComments = externalPullRequestInlineComments(report);
+
+  const logPublication = (detail: string) => {
+    output.appendLine("[AUTO REVIEW][PUBLISH] " + detail);
+    appendReviewActivity(context, reviewLog, sessionId, report.reference, startedAt, {
+      type: "session",
+      phase: "Review publication",
+      detail,
+    });
+  };
+
+  logPublication(
+    "Publishing " +
+      intendedEvent +
+      " for PR #" +
+      report.reference +
+      " at head " +
+      report.headRefOid.slice(0, 12) +
+      "…",
+  );
+
+  try {
+    await publishPullRequestReview(
+      root,
+      config,
+      report.reference,
+      {
+        body,
+        event: intendedEvent,
+        expectedHeadOid: report.headRefOid,
+        inlineComments,
+      },
+      { approved: true },
+    );
+    logPublication("Published " + intendedEvent + " successfully.");
+    return {
+      intendedEvent,
+      publishedEvent: intendedEvent,
+      fallback: false,
+    };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+
+    if (intendedEvent !== "COMMENT" && selfReviewDecisionError(message)) {
+      const fallbackBody =
+        body +
+        "\n\n> LLMatic intended GitHub review decision: **" +
+        intendedEvent +
+        "**. GitHub rejected that decision for a self-authored pull request, so this result was published as **COMMENT** instead.";
+
+      try {
+        await publishPullRequestReview(
+          root,
+          config,
+          report.reference,
+          {
+            body: fallbackBody,
+            event: "COMMENT",
+            expectedHeadOid: report.headRefOid,
+            // The first decision attempt may already have published inline comments
+            // before GitHub rejected the final APPROVE/REQUEST_CHANGES event.
+            inlineComments: [],
+          },
+          { approved: true },
+        );
+        logPublication(
+          "GitHub rejected " +
+            intendedEvent +
+            " for a self-authored PR; published COMMENT fallback instead.",
+        );
+        return {
+          intendedEvent,
+          publishedEvent: "COMMENT",
+          fallback: true,
+        };
+      } catch (fallbackError) {
+        const fallbackMessage =
+          fallbackError instanceof Error ? fallbackError.message : String(fallbackError);
+        logPublication("Publication failed: " + fallbackMessage);
+        return { intendedEvent, fallback: true, error: fallbackMessage };
+      }
+    }
+
+    logPublication("Publication failed: " + message);
+    return { intendedEvent, fallback: false, error: message };
+  }
 }
 
 async function reviewExternalPullRequestInUi(
