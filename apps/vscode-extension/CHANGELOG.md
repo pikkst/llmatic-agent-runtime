@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.3.0 — Unreleased
+## 0.3.0 — 2026-09-24
 
 - Started the v0.3.0 development line after the accepted v0.2.0 release.
 - External pull-request review is the first active milestone: explicitly review another engineer's PR without changing Jira ownership or workspace task recovery state.
