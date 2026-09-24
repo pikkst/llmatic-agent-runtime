@@ -1239,7 +1239,7 @@ describe("AdaptiveFreeGatewayClient", () => {
     });
   });
 
-  it("uses at most one Tier B model before exploration when no lens-specific trusted model exists", async () => {
+  it("uses the review attempt budget on proven Tier B models before exploration or Auto Free", async () => {
     const requestedModels: string[] = [];
     const now = Date.now();
 
@@ -1298,7 +1298,64 @@ describe("AdaptiveFreeGatewayClient", () => {
         const body = JSON.parse(String(init?.body ?? "{}")) as { model?: string };
         const model = String(body.model);
         requestedModels.push(model);
-        if (model !== "kilo-auto/free") {
+        if (model.includes("mixed-")) {
+          return new Response("temporarily unavailable", {
+            status: 503,
+            statusText: "Service Unavailable",
+          });
+        }
+        return completion(model);
+      },
+    });
+
+    await expect(
+      client.createChatCompletion({
+        model: "kilo-auto/free",
+        messages: [{ role: "user", content: "review" }],
+        routing: { task: "review_bug_hunter" },
+      }),
+    ).resolves.toMatchObject({ routed_model: "provider/explore:free" });
+
+    expect(requestedModels.filter((model) => model.includes("mixed-"))).toHaveLength(2);
+    expect(requestedModels.at(-1)).toBe("provider/explore:free");
+    expect(requestedModels).not.toContain("kilo-auto/free");
+  });
+
+  it("does not reserve an Auto Free slot when enough trusted review models exist", async () => {
+    const requestedModels: string[] = [];
+    const now = Date.now();
+
+    const client = new AdaptiveFreeGatewayClient({
+      maxRetries: 0,
+      maxModelAttempts: 3,
+      reviewHistory: ["a", "b", "c"].map((suffix) => ({
+        model: "provider-" + suffix + "/trusted:free",
+        task: "review_security",
+        validatedReports: 3,
+        semanticFailures: 0,
+        lengthFailures: 0,
+        transportFailures: 0,
+        lastValidatedAt: now,
+        updatedAt: now,
+      })),
+      fetch: async (input, init) => {
+        if (String(input).endsWith("/models")) {
+          return new Response(
+            JSON.stringify({
+              data: ["a", "b", "c"].map((suffix) => ({
+                id: "provider-" + suffix + "/trusted:free",
+                owned_by: "provider-" + suffix,
+                context_length: 131072,
+              })),
+            }),
+            { status: 200, headers: { "Content-Type": "application/json" } },
+          );
+        }
+
+        const body = JSON.parse(String(init?.body ?? "{}")) as { model?: string };
+        const model = String(body.model);
+        requestedModels.push(model);
+        if (requestedModels.length < 3) {
           return new Response("temporarily unavailable", {
             status: 503,
             statusText: "Service Unavailable",
@@ -1311,12 +1368,12 @@ describe("AdaptiveFreeGatewayClient", () => {
     await client.createChatCompletion({
       model: "kilo-auto/free",
       messages: [{ role: "user", content: "review" }],
-      routing: { task: "review_bug_hunter" },
+      routing: { task: "review_security" },
     });
 
-    expect(requestedModels.filter((model) => model.includes("mixed-"))).toHaveLength(1);
-    expect(requestedModels).toContain("provider/explore:free");
-    expect(requestedModels.at(-1)).toBe("kilo-auto/free");
+    expect(requestedModels).toHaveLength(3);
+    expect(requestedModels.every((model) => model.endsWith("/trusted:free"))).toBe(true);
+    expect(requestedModels).not.toContain("kilo-auto/free");
   });
 
   it("bounds a review cold start to one exploration model plus Auto Free", async () => {
