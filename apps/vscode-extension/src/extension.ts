@@ -3013,8 +3013,6 @@ async function publishAutomaticReviewResult(
   mode: AutoReviewPublicationMode,
   output: vscode.OutputChannel,
   reviewLog: vscode.OutputChannel,
-  sessionId: string,
-  startedAt: number,
 ): Promise<{
   intendedEvent?: PullRequestReviewEvent;
   publishedEvent?: PullRequestReviewEvent;
@@ -3024,6 +3022,8 @@ async function publishAutomaticReviewResult(
   const intendedEvent = autoReviewPublicationEvent(mode, report);
   if (!intendedEvent) return { fallback: false };
 
+  const startedAt = Date.now();
+  const sessionId = "auto-publish-" + report.reference + "-" + String(startedAt);
   const config = await loadAgentConfig(root, {
     LLMATIC_HOME: context.globalStorageUri.fsPath,
   });
