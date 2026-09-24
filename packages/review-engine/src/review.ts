@@ -509,6 +509,105 @@ interface ExternalReviewBatch {
   packet: string;
 }
 
+function externalReviewBatch(
+  material: PullRequestReviewMaterial,
+  files: string[],
+): ExternalReviewBatch {
+  return {
+    files,
+    packet: files
+      .map((path) => {
+        const diff = pullRequestDiffForPath(material.diff, path);
+        return "### " + path + "\n" + boundedExternalReviewDiff(diff);
+      })
+      .join("\n\n"),
+  };
+}
+
+function recoverableExternalReviewFailure(error: unknown): boolean {
+  const message = error instanceof Error ? error.message : String(error);
+  return /timeout|timed out|429|too many requests|temporar|overload|upstream|provider|gateway|internal|without structured review content|valid structured report|neither tool calls nor a JSON report|missing assistant message|maximum step limit|context.*(?:window|length)|insufficient context/i.test(
+    message,
+  );
+}
+
+async function runExternalReviewBatchWithRecovery(
+  options: ExternalPullRequestReviewOptions,
+  constitution: RepositoryConstitution,
+  lens: ReviewLens,
+  batch: ExternalReviewBatch,
+): Promise<{ summary: string; findings: ReviewFinding[] }> {
+  try {
+    return await runReviewLens(
+      options,
+      constitution,
+      batch.files,
+      lens,
+      options.material,
+      batch.packet,
+    );
+  } catch (initialError) {
+    if (!recoverableExternalReviewFailure(initialError)) throw initialError;
+
+    const initialReason =
+      initialError instanceof Error ? initialError.message : String(initialError);
+
+    if (batch.files.length === 1) {
+      try {
+        return await runReviewLens(
+          options,
+          constitution,
+          batch.files,
+          lens,
+          options.material,
+          batch.packet,
+        );
+      } catch (recoveryError) {
+        throw new Error(
+          "Recovery retry failed after " +
+            initialReason +
+            ": " +
+            (recoveryError instanceof Error ? recoveryError.message : String(recoveryError)),
+        );
+      }
+    }
+
+    const midpoint = Math.ceil(batch.files.length / 2);
+    const recoveryBatches = [
+      externalReviewBatch(options.material, batch.files.slice(0, midpoint)),
+      externalReviewBatch(options.material, batch.files.slice(midpoint)),
+    ].filter((candidate) => candidate.files.length > 0);
+    const recovered: Array<{ summary: string; findings: ReviewFinding[] }> = [];
+
+    for (const recoveryBatch of recoveryBatches) {
+      try {
+        recovered.push(
+          await runReviewLens(
+            options,
+            constitution,
+            recoveryBatch.files,
+            lens,
+            options.material,
+            recoveryBatch.packet,
+          ),
+        );
+      } catch (recoveryError) {
+        throw new Error(
+          "Split recovery failed after " +
+            initialReason +
+            ": " +
+            (recoveryError instanceof Error ? recoveryError.message : String(recoveryError)),
+        );
+      }
+    }
+
+    return {
+      summary: recovered.map((item) => item.summary).join(" "),
+      findings: recovered.flatMap((item) => item.findings),
+    };
+  }
+}
+
 function reviewableCodePath(path: string): boolean {
   return (
     /\.(?:[cm]?[jt]sx?|json|sql|ya?ml)$/i.test(path) && !/(?:^|\/)(?:dist|build)\//i.test(path)
@@ -560,8 +659,7 @@ function externalReviewBatches(
       continue;
     }
 
-    const boundedDiff = boundedExternalReviewDiff(diff);
-    const section = "### " + path + "\n" + boundedDiff;
+    const section = "### " + path + "\n" + boundedExternalReviewDiff(diff);
 
     if (
       currentFiles.length > 0 &&
@@ -1193,7 +1291,8 @@ async function runReviewLens(
                   "Authoritative bounded changed-code packet:",
                   "Use ONLY this packet plus documentedAcceptanceEvidence and repository Constitution to produce this batch report.",
                   "No model tools are available in external review batches. Do not ask for more context and do not speculate beyond the packet.",
-                  "If the packet is insufficient to prove a defect, omit that finding.",
+                  "Bounded context is expected and is not a review failure. Do not claim the review could not be performed merely because unrelated or cross-batch context is not present.",
+                  "If the packet is insufficient to prove a specific defect, omit that finding and still return a complete valid JSON report for this batch.",
                   "A FILE DIFF TRUNCATED marker means the remainder was intentionally omitted. It must never be treated as evidence that the source line itself is truncated, misspelled or incomplete.",
                   externalPacket,
                 ].join("\n")
@@ -1539,13 +1638,11 @@ export async function runExternalPullRequestReview(
 
       try {
         batchResults.push(
-          await runReviewLens(
+          await runExternalReviewBatchWithRecovery(
             options,
             constitution,
-            batch.files,
             lens,
-            options.material,
-            batch.packet,
+            batch,
           ),
         );
       } catch (error) {
