@@ -244,6 +244,47 @@ describe("review engine", () => {
     ).toBeGreaterThanOrEqual(0);
   });
 
+  it("truncates external file packets only at complete source-line boundaries", async () => {
+    const root = await repository();
+    const config = configFor(root);
+    const gateway = new ScriptedGateway([
+      response(
+        JSON.stringify({
+          summary: "No concrete finding.",
+          findings: [],
+        }),
+      ),
+    ]);
+
+    const prefix =
+      "diff --git a/src/value.ts b/src/value.ts\n--- a/src/value.ts\n+++ b/src/value.ts\n@@ -1 +1,3 @@\n-export const value = 1;\n";
+    const padding = "+" + "x".repeat(7_850) + "\n";
+    const dangerousLine = "+return fallbackMs;\n";
+
+    await runExternalPullRequestReview({
+      root,
+      config,
+      gateway,
+      lenses: ["general"],
+      material: {
+        reference: "42",
+        headRefOid: "head-42",
+        title: "Large changed file",
+        body: "",
+        ciState: "passing",
+        changedFiles: ["src/value.ts"],
+        diff: prefix + padding + dangerousLine,
+        diffTruncated: false,
+      },
+    });
+
+    const packet = JSON.stringify(gateway.requests[0]?.messages[1]);
+    expect(packet).toContain("FILE DIFF TRUNCATED");
+    expect(packet).toContain("must never be treated as evidence");
+    expect(packet).not.toContain("return fallbac");
+    expect(packet).not.toContain("return fallbackMs");
+  });
+
   it("filters nice-to-have maintainability suggestions from external review findings", async () => {
     const root = await repository();
     const config = configFor(root);
