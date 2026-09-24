@@ -3254,12 +3254,34 @@ async function runAutomaticExternalPullRequestReview(
   state: ExtensionState,
   statusProvider: LlmaticStatusProvider,
   output: vscode.OutputChannel,
+  reviewLog: vscode.OutputChannel,
   pullRequest: OpenPullRequestSummary,
 ): Promise<Awaited<ReturnType<typeof runExternalPullRequestReview>>> {
   if (state.activeExternalReviewPrNumbers.has(pullRequest.number)) {
     throw new Error("Pull request #" + pullRequest.number + " already has an active review.");
   }
   state.activeExternalReviewPrNumbers.add(pullRequest.number);
+
+  const reference = String(pullRequest.number);
+  const startedAt = Date.now();
+  const sessionId = "auto-" + reference + "-" + String(startedAt);
+  const reviewStatus = statusProvider.beginExternalReview(reference);
+
+  appendReviewActivity(context, reviewLog, sessionId, reference, startedAt, {
+    type: "session",
+    phase: "Review started",
+    detail:
+      "Automatic external PR review · telemetry " +
+      (reviewActivityLoggingEnabled() ? "ON" : "OFF") +
+      " · raw responses " +
+      (configuration().get<boolean>("reviewRawResponseLogging", false) ? "ON" : "OFF"),
+  });
+
+  if (reviewActivityLoggingEnabled()) {
+    reviewLog.appendLine("");
+    reviewLog.appendLine("=== LLMatic Auto Review PR #" + reference + " ===");
+    reviewLog.appendLine("Telemetry: " + reviewTelemetryPath(context));
+  }
 
   try {
     const folder = firstWorkspaceFolder();
@@ -3294,13 +3316,42 @@ async function runAutomaticExternalPullRequestReview(
       reviewExplorationSlots: 1,
       onReviewHistoryChange: (history) => storeReviewModelHistory(context, history),
       onRoute: (event) => {
-        output.appendLine("[AUTO REVIEW][MODEL] " + adaptiveRouteDescription(event));
+        const detail = adaptiveRouteDescription(event);
+        output.appendLine("[AUTO REVIEW][MODEL] " + detail);
+        reviewStatus.update("Model router", detail);
+        appendReviewActivity(context, reviewLog, sessionId, reference, startedAt, {
+          type: "session",
+          phase: "Model router",
+          detail,
+        });
       },
     });
 
+    reviewStatus.update("Pull request context", "Reading metadata, checks, diff and threads…");
+    appendReviewActivity(context, reviewLog, sessionId, reference, startedAt, {
+      type: "session",
+      phase: "Pull request context",
+      detail: "Reading metadata, checks, diff and review threads…",
+    });
+
+    const contextStartedAt = Date.now();
     const reviewContext = await getPullRequestReviewContext(root, pullRequest.number);
+
+    appendReviewActivity(context, reviewLog, sessionId, reference, startedAt, {
+      type: "session",
+      phase: "Pull request context ready",
+      detail:
+        reviewContext.changedFiles.length +
+        " changed files · CI snapshot " +
+        reviewContext.status.ciState +
+        " · head " +
+        reviewContext.status.pullRequest.headRefOid.slice(0, 12) +
+        " · " +
+        formatElapsedDuration(Date.now() - contextStartedAt),
+    });
+
     const fileCache = new Map<string, unknown>();
-    return runExternalPullRequestReview({
+    const report = await runExternalPullRequestReview({
       root,
       config,
       gateway,
@@ -3322,6 +3373,12 @@ async function runAutomaticExternalPullRequestReview(
       model,
       maxSteps: configuration().get<number>("externalReviewMaxSteps", 3),
       lenses: ["general", "bug_hunter", "security"],
+      captureRawResponses: configuration().get<boolean>("reviewRawResponseLogging", false),
+      onActivity: (event) => {
+        const description = reviewActivityDescription(event);
+        reviewStatus.update(description.phase, description.detail);
+        appendReviewActivity(context, reviewLog, sessionId, reference, startedAt, event);
+      },
       material: {
         reference: String(reviewContext.status.pullRequest.number),
         headRefOid: reviewContext.status.pullRequest.headRefOid,
@@ -3337,8 +3394,38 @@ async function runAutomaticExternalPullRequestReview(
         reviewThreads: reviewContext.reviewThreads,
       },
     });
+
+    const durationMs = Date.now() - startedAt;
+    reviewStatus.complete(durationMs);
+    appendReviewActivity(context, reviewLog, sessionId, reference, startedAt, {
+      type: "session",
+      phase: "Review finished",
+      detail:
+        report.blockingCount +
+        " blocking · " +
+        report.nonBlockingCount +
+        " non-blocking · " +
+        report.coverage +
+        " coverage · " +
+        report.reviewStatus +
+        " review · total " +
+        formatElapsedDuration(durationMs),
+    });
+
+    return report;
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    const durationMs = Date.now() - startedAt;
+    reviewStatus.fail(message, durationMs);
+    appendReviewActivity(context, reviewLog, sessionId, reference, startedAt, {
+      type: "session",
+      phase: "Review failed",
+      detail: message + " · after " + formatElapsedDuration(durationMs),
+    });
+    throw error;
   } finally {
     state.activeExternalReviewPrNumbers.delete(pullRequest.number);
+    reviewStatus.dispose();
   }
 }
 
@@ -3347,6 +3434,7 @@ async function runAutoReviewScan(
   state: ExtensionState,
   statusProvider: LlmaticStatusProvider,
   output: vscode.OutputChannel,
+  reviewLog: vscode.OutputChannel,
   notifyWhenIdle = false,
 ): Promise<void> {
   let profile = autoReviewWorkspaceState(context);
@@ -3454,6 +3542,7 @@ async function runAutoReviewScan(
           state,
           statusProvider,
           output,
+          reviewLog,
           pullRequest,
         );
 
@@ -3571,6 +3660,7 @@ async function configureAutoReviewInUi(
   state: ExtensionState,
   statusProvider: LlmaticStatusProvider,
   output: vscode.OutputChannel,
+  reviewLog: vscode.OutputChannel,
 ): Promise<void> {
   const folder = firstWorkspaceFolder();
   if (!folder) {
@@ -3631,7 +3721,7 @@ async function configureAutoReviewInUi(
       retry: {},
       lastError: undefined,
     });
-    await runAutoReviewScan(context, state, statusProvider, output, true);
+    await runAutoReviewScan(context, state, statusProvider, output, reviewLog, true);
     return;
   }
 
@@ -3685,7 +3775,7 @@ async function configureAutoReviewInUi(
   );
 
   if (choice.action === "current") {
-    await runAutoReviewScan(context, state, statusProvider, output, true);
+    await runAutoReviewScan(context, state, statusProvider, output, reviewLog, true);
   }
 }
 
@@ -5323,7 +5413,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       async (options?: { probe?: boolean }) => {
         if (options?.probe) return true;
         try {
-          await configureAutoReviewInUi(context, state, statusProvider, output);
+          await configureAutoReviewInUi(context, state, statusProvider, output, reviewLog);
         } catch (error) {
           const message = error instanceof Error ? error.message : String(error);
           await vscode.window.showErrorMessage("LLMatic Auto Review Agent: " + message);
@@ -5483,7 +5573,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   );
 
   const autoReviewTimer = setInterval(() => {
-    void runAutoReviewScan(context, state, statusProvider, output).catch((error) => {
+    void runAutoReviewScan(context, state, statusProvider, output, reviewLog).catch((error) => {
       output.appendLine(
         "[AUTO REVIEW][WARN] Background scan failed: " +
           (error instanceof Error ? error.message : String(error)),
@@ -5516,7 +5606,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     },
   );
 
-  void runAutoReviewScan(context, state, statusProvider, output).catch((error) => {
+  void runAutoReviewScan(context, state, statusProvider, output, reviewLog).catch((error) => {
     output.appendLine(
       "[AUTO REVIEW][WARN] Initial scan failed: " +
         (error instanceof Error ? error.message : String(error)),
