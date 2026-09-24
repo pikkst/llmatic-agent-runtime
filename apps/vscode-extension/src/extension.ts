@@ -3861,28 +3861,31 @@ async function runAutoReviewScan(
         );
         output.appendLine(externalPullRequestReviewDraft(report));
 
-        const action = await vscode.window.showInformationMessage(
-          "LLMatic Auto Review Agent reviewed PR #" +
-            report.reference +
-            ": " +
-            report.blockingCount +
-            " blocking / " +
-            report.nonBlockingCount +
-            " non-blocking finding(s)" +
-            (report.reviewStatus === "partial"
-              ? " · incomplete; retry scheduled after cooldown"
-              : "") +
-            (publicationError
-              ? " · GitHub publication failed"
-              : publication.skipped
-                ? " · publication already up to date"
-                : publication.publishedEvent
-                  ? " · published " + publication.publishedEvent
-                  : " · local only") +
-            ".",
-          "Open Review Output",
-        );
-        if (action === "Open Review Output") output.show(true);
+        void vscode.window
+          .showInformationMessage(
+            "LLMatic Auto Review Agent reviewed PR #" +
+              report.reference +
+              ": " +
+              report.blockingCount +
+              " blocking / " +
+              report.nonBlockingCount +
+              " non-blocking finding(s)" +
+              (report.reviewStatus === "partial"
+                ? " · incomplete; retry scheduled after cooldown"
+                : "") +
+              (publicationError
+                ? " · GitHub publication failed"
+                : publication.skipped
+                  ? " · publication already up to date"
+                  : publication.publishedEvent
+                    ? " · published " + publication.publishedEvent
+                    : " · local only") +
+              ".",
+            "Open Review Output",
+          )
+          .then((action) => {
+            if (action === "Open Review Output") output.show(true);
+          });
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
         profile = autoReviewWorkspaceState(context);
