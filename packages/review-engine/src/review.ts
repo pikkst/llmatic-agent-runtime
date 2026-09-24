@@ -1638,12 +1638,7 @@ export async function runExternalPullRequestReview(
 
       try {
         batchResults.push(
-          await runExternalReviewBatchWithRecovery(
-            options,
-            constitution,
-            lens,
-            batch,
-          ),
+          await runExternalReviewBatchWithRecovery(options, constitution, lens, batch),
         );
       } catch (error) {
         const reason = error instanceof Error ? error.message : String(error);
