@@ -408,7 +408,8 @@ describe("review engine", () => {
               title: "Unknown references are still accepted",
               path: "src/value.ts",
               evidence: "The changed validator accepts an unknown source identifier.",
-              recommendation: "Reject source identifiers that are not present in the grounded input.",
+              recommendation:
+                "Reject source identifiers that are not present in the grounded input.",
               dod_ref: dodRef,
             },
           ],

@@ -471,11 +471,7 @@ function jiraIssueKeys(value: string | undefined, projectKey?: string): string[]
     ...new Set(
       matches
         .map((match) => match.toUpperCase())
-        .filter(
-          (match) =>
-            !normalizedProjectKey ||
-            match.startsWith(normalizedProjectKey + "-"),
-        ),
+        .filter((match) => !normalizedProjectKey || match.startsWith(normalizedProjectKey + "-")),
     ),
   ];
 }
@@ -492,8 +488,7 @@ function pullRequestJiraIssueKey(
   if (primaryKeys.length > 1) {
     return {
       unavailableReason:
-        "multiple Jira task keys are present in the PR title/branch: " +
-        primaryKeys.join(", "),
+        "multiple Jira task keys are present in the PR title/branch: " + primaryKeys.join(", "),
     };
   }
 
@@ -502,8 +497,7 @@ function pullRequestJiraIssueKey(
   if (bodyKeys.length > 1) {
     return {
       unavailableReason:
-        "multiple Jira task keys are present in the PR body: " +
-        bodyKeys.join(", "),
+        "multiple Jira task keys are present in the PR body: " + bodyKeys.join(", "),
     };
   }
 
@@ -520,17 +514,14 @@ async function pullRequestAcceptanceEvidenceFromJira(
   const baseUrl = environment.LLMATIC_JIRA_BASE_URL?.trim();
   const hasCredentials = Boolean(
     environment.LLMATIC_JIRA_BEARER_TOKEN ||
-      (environment.LLMATIC_JIRA_EMAIL && environment.LLMATIC_JIRA_API_TOKEN),
+    (environment.LLMATIC_JIRA_EMAIL && environment.LLMATIC_JIRA_API_TOKEN),
   );
 
   if (!baseUrl || !hasCredentials) {
     return { items: [] };
   }
 
-  const resolved = pullRequestJiraIssueKey(
-    reviewContext,
-    environment.LLMATIC_JIRA_PROJECT_KEY,
-  );
+  const resolved = pullRequestJiraIssueKey(reviewContext, environment.LLMATIC_JIRA_PROJECT_KEY);
   if (resolved.unavailableReason) {
     return {
       items: [],
@@ -547,12 +538,8 @@ async function pullRequestAcceptanceEvidenceFromJira(
     return {
       source: "Jira " + task.key,
       items: [
-        ...task.acceptanceCriteria.map(
-          (item) => "[Jira " + task.key + " AC] " + item,
-        ),
-        ...task.definitionOfDone.map(
-          (item) => "[Jira " + task.key + " DoD] " + item,
-        ),
+        ...task.acceptanceCriteria.map((item) => "[Jira " + task.key + " AC] " + item),
+        ...task.definitionOfDone.map((item) => "[Jira " + task.key + " DoD] " + item),
       ],
     };
   } catch (error) {
@@ -3145,11 +3132,7 @@ async function resolveAutoReviewPublicationDecision(
       );
     }
 
-    const intendedEvent = autoReviewPublicationEvent(
-      mode,
-      report,
-      requiredStatus.ciState,
-    );
+    const intendedEvent = autoReviewPublicationEvent(mode, report, requiredStatus.ciState);
     const note =
       mode === "review_decision" &&
       intendedEvent === "COMMENT" &&
@@ -3177,8 +3160,7 @@ async function resolveAutoReviewPublicationDecision(
     if (report.blockingCount > 0 && mode === "review_decision") {
       return {
         intendedEvent: "REQUEST_CHANGES",
-        note:
-          "Required CI status could not be verified before publication, but concrete blocking findings were validated.",
+        note: "Required CI status could not be verified before publication, but concrete blocking findings were validated.",
       };
     }
 

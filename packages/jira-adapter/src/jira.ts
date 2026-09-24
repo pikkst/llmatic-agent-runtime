@@ -280,7 +280,10 @@ function requirementItem(value: string): string {
 }
 
 function likelySectionHeading(value: string): boolean {
-  const normalized = value.trim().replace(/[:：]\s*$/, "").toLowerCase();
+  const normalized = value
+    .trim()
+    .replace(/[:：]\s*$/, "")
+    .toLowerCase();
   return [
     "objective",
     "purpose",
@@ -336,7 +339,9 @@ function requirementsFromDescription(description: string | undefined): {
 function jiraFieldText(value: unknown): string | undefined {
   if (typeof value === "string") return value.trim() || undefined;
   if (Array.isArray(value)) {
-    const parts = value.map((item) => jiraFieldText(item)).filter((item): item is string => Boolean(item));
+    const parts = value
+      .map((item) => jiraFieldText(item))
+      .filter((item): item is string => Boolean(item));
     return parts.length > 0 ? parts.join("\n") : undefined;
   }
   return adfText(value);
@@ -359,10 +364,7 @@ function requirementsFromNamedFields(
 
     const text = jiraFieldText(fields[fieldId]);
     if (!text) continue;
-    const items = text
-      .split(/\r?\n/)
-      .map(requirementItem)
-      .filter(Boolean);
+    const items = text.split(/\r?\n/).map(requirementItem).filter(Boolean);
 
     (kind === "acceptance" ? acceptanceCriteria : definitionOfDone).push(...items);
   }
@@ -586,9 +588,7 @@ export class JiraTaskProvider implements TaskProvider {
       this.connection,
       this.transport,
       "GET",
-      "/rest/api/3/issue/" +
-        pathFor(reference) +
-        "?fields=*all&expand=names",
+      "/rest/api/3/issue/" + pathFor(reference) + "?fields=*all&expand=names",
     );
 
     return taskFromIssue(this.connection, issue);

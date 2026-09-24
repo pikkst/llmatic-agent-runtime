@@ -923,10 +923,14 @@ function pullRequestAcceptanceEvidence(body: string): string[] {
 
 function documentedAcceptanceEvidence(material: PullRequestReviewMaterial): string[] {
   return [
-    ...new Set([
-      ...(material.documentedAcceptanceEvidence ?? []),
-      ...pullRequestAcceptanceEvidence(material.body),
-    ].map((item) => item.trim()).filter(Boolean)),
+    ...new Set(
+      [
+        ...(material.documentedAcceptanceEvidence ?? []),
+        ...pullRequestAcceptanceEvidence(material.body),
+      ]
+        .map((item) => item.trim())
+        .filter(Boolean),
+    ),
   ].slice(0, 100);
 }
 

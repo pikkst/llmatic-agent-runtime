@@ -240,10 +240,7 @@ describe("jira adapter", () => {
       "Keep deterministic fallback",
       "Tests pass",
     ]);
-    expect(task.definitionOfDone).toEqual([
-      "Tests, lint and build pass",
-      "Documentation updated",
-    ]);
+    expect(task.definitionOfDone).toEqual(["Tests, lint and build pass", "Documentation updated"]);
   });
 
   it("lists assigned Jira recovery candidates in Jira rank order", async () => {
