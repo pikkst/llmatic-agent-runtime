@@ -280,10 +280,10 @@
         },
         "llmatic.reviewRequestTimeoutMs": {
           "type": "number",
-          "default": 60000,
+          "default": 120000,
           "minimum": 30000,
           "maximum": 300000,
-          "description": "Hard timeout for one external PR review model candidate. Adaptive free-model routing may switch to another live free model after a transient timeout/provider failure."
+          "description": "Hard timeout for one external PR review model candidate. Defaults to 120 seconds so thinking-capable free models can finish bounded reviews before adaptive routing switches candidates."
         },
         "llmatic.reviewFreeModelFallbacks": {
           "type": "number",
