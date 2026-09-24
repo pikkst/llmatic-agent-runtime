@@ -267,8 +267,8 @@ export class AdaptiveFreeGatewayClient implements GatewayChatClient {
   private readonly globallyUnhealthyUntil = new Map<string, number>();
   private readonly taskExcludedModels = new Map<string, Set<string>>();
   private readonly blockedProviders = new Set<string>();
-  private autoFreeSessionFailures = 0;
-  private autoFreeDisabled = false;
+  private readonly autoFreeTaskFailures = new Map<string, number>();
+  private readonly autoFreeDisabledTasks = new Set<string>();
 
   public constructor(options: AdaptiveFreeGatewayClientOptions) {
     this.client = new KiloGatewayClient(options);
@@ -313,9 +313,6 @@ export class AdaptiveFreeGatewayClient implements GatewayChatClient {
         history.lengthFailures += 1;
         history.updatedAt = Date.now();
         this.excludeFromReviewFamilyAfterRepeatedFailure(candidate, failures);
-      }
-      if (candidate !== "kilo-auto/free" && isFreeModelId(candidate)) {
-        this.excludeForTask(task, candidate, feedback.reason);
       }
     }
 
@@ -395,6 +392,10 @@ export class AdaptiveFreeGatewayClient implements GatewayChatClient {
         const latencyMs = Date.now() - startedAt;
         this.recordTransport(task, candidateModel, true, latencyMs);
         this.clearTaskFailure(task, candidateModel);
+        if (candidateModel === "kilo-auto/free") {
+          this.autoFreeTaskFailures.delete(task);
+          this.autoFreeDisabledTasks.delete(task);
+        }
         await this.onRoute?.({
           type: "success",
           task,
@@ -428,9 +429,10 @@ export class AdaptiveFreeGatewayClient implements GatewayChatClient {
 
         if (candidateModel === "kilo-auto/free") {
           if (autoFreeCircuitBreakerFailure(reason)) {
-            this.autoFreeSessionFailures += 1;
-            if (this.autoFreeSessionFailures >= AUTO_FREE_SESSION_FAILURE_LIMIT) {
-              this.autoFreeDisabled = true;
+            const failures = (this.autoFreeTaskFailures.get(task) ?? 0) + 1;
+            this.autoFreeTaskFailures.set(task, failures);
+            if (failures >= AUTO_FREE_SESSION_FAILURE_LIMIT) {
+              this.autoFreeDisabledTasks.add(task);
             }
           }
         } else {
@@ -539,7 +541,8 @@ export class AdaptiveFreeGatewayClient implements GatewayChatClient {
       // Live discovery is an optimization. Preserve Auto Free only while its circuit is closed.
     }
 
-    const autoFreeAllowed = !avoided.has("kilo-auto/free") && !this.autoFreeDisabled;
+    const autoFreeDisabled = this.autoFreeDisabledTasks.has(task);
+    const autoFreeAllowed = !avoided.has("kilo-auto/free") && !autoFreeDisabled;
     if (autoFreeAllowed && !candidates.includes("kilo-auto/free")) {
       candidates.push("kilo-auto/free");
     }
@@ -548,7 +551,7 @@ export class AdaptiveFreeGatewayClient implements GatewayChatClient {
       throw new Error(
         "No compatible free-model candidates remain for " +
           task +
-          (this.autoFreeDisabled ? " (Auto Free circuit breaker open)." : "."),
+          (autoFreeDisabled ? " (Auto Free circuit breaker open)." : "."),
       );
     }
 
