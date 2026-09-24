@@ -20,6 +20,7 @@ interface StatusOperation {
 export interface AutoReviewStatus {
   enabled: boolean;
   repository?: string;
+  publicationMode?: "local_only" | "comment_only" | "review_decision";
   lastReviewedPr?: number;
   lastReviewedAt?: string;
   lastReviewStatus?: "complete" | "partial";
@@ -442,6 +443,12 @@ export class LlmaticStatusProvider implements vscode.TreeDataProvider<vscode.Tre
       : this.autoReviewStatus?.enabled
         ? "ON · " +
           (this.autoReviewStatus.repository ?? "current repository") +
+          " · " +
+          (this.autoReviewStatus.publicationMode === "review_decision"
+            ? "decision"
+            : this.autoReviewStatus.publicationMode === "comment_only"
+              ? "comment"
+              : "local") +
           (this.autoReviewStatus.lastReviewedPr
             ? " · last PR #" +
               this.autoReviewStatus.lastReviewedPr +
@@ -453,7 +460,12 @@ export class LlmaticStatusProvider implements vscode.TreeDataProvider<vscode.Tre
     autoReview.tooltip =
       this.autoReviewStatus?.error ??
       (this.autoReviewStatus?.enabled
-        ? "LLMatic watches this repository for new or updated pull requests and runs structured review automatically. Partial/transient reviews are retried after cooldown; review publication remains manual."
+        ? "LLMatic watches this repository for new or updated pull requests and runs structured review automatically. " +
+          (this.autoReviewStatus.publicationMode === "review_decision"
+            ? "Complete reviews publish APPROVE or REQUEST_CHANGES; partial reviews publish COMMENT."
+            : this.autoReviewStatus.publicationMode === "comment_only"
+              ? "Validated results are published as COMMENT reviews only."
+              : "Review results remain local and do not mutate GitHub.")
         : "Enable repository-bound automatic review for new or updated pull requests.");
     autoReview.command = {
       command: "llmatic.configureAutoReview",

@@ -222,6 +222,86 @@ describe("github adapter", () => {
     ]);
   });
 
+  it("publishes an approved GitHub review decision", async () => {
+    const config = configFor("/repo");
+    const calls: string[][] = [];
+    const runner: GitHubProcessRunner = (_executable, args) => {
+      calls.push(args);
+      if (args[0] === "pr" && args[1] === "view") {
+        return { exitCode: 0, stdout: pullRequestJson(), stderr: "" };
+      }
+      if (args[0] === "repo" && args[1] === "view") {
+        return {
+          exitCode: 0,
+          stdout: JSON.stringify({ nameWithOwner: "example/repo" }),
+          stderr: "",
+        };
+      }
+      return { exitCode: 0, stdout: "", stderr: "" };
+    };
+
+    await publishPullRequestReview(
+      "/repo",
+      config,
+      "7",
+      {
+        body: "No blocking findings.",
+        event: "APPROVE",
+        expectedHeadOid: "abc123",
+      },
+      { approved: true, runner },
+    );
+
+    expect(calls).toContainEqual([
+      "pr",
+      "review",
+      "7",
+      "--approve",
+      "--body",
+      "No blocking findings.",
+    ]);
+  });
+
+  it("publishes a request-changes GitHub review decision", async () => {
+    const config = configFor("/repo");
+    const calls: string[][] = [];
+    const runner: GitHubProcessRunner = (_executable, args) => {
+      calls.push(args);
+      if (args[0] === "pr" && args[1] === "view") {
+        return { exitCode: 0, stdout: pullRequestJson(), stderr: "" };
+      }
+      if (args[0] === "repo" && args[1] === "view") {
+        return {
+          exitCode: 0,
+          stdout: JSON.stringify({ nameWithOwner: "example/repo" }),
+          stderr: "",
+        };
+      }
+      return { exitCode: 0, stdout: "", stderr: "" };
+    };
+
+    await publishPullRequestReview(
+      "/repo",
+      config,
+      "7",
+      {
+        body: "Blocking findings require changes.",
+        event: "REQUEST_CHANGES",
+        expectedHeadOid: "abc123",
+      },
+      { approved: true, runner },
+    );
+
+    expect(calls).toContainEqual([
+      "pr",
+      "review",
+      "7",
+      "--request-changes",
+      "--body",
+      "Blocking findings require changes.",
+    ]);
+  });
+
   it("rejects publishing a stale pull-request review snapshot", async () => {
     const config = configFor("/repo");
     const runner: GitHubProcessRunner = (_executable, args) => {

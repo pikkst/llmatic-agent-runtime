@@ -345,7 +345,7 @@
         "llmatic.reviewRawResponseLogging": {
           "type": "boolean",
           "default": false,
-          "description": "DEBUG ONLY: capture bounded raw assistant responses before JSON/schema filtering during manual external PR review. Raw output may contain changed source-code content and is written to the local review activity log."
+          "description": "DEBUG ONLY: capture bounded raw assistant responses before JSON/schema filtering during external PR review, including Auto Review. Raw output may contain changed source-code content and is written to the local review activity log."
         }
       }
     },

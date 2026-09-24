@@ -76,6 +76,21 @@ describe("VS Code extension activation surface", () => {
     expect(source).toContain("[RETRY] Kilo Gateway");
     expect(source).toContain("AdaptiveFreeGatewayClient");
     expect(source).toContain("[MODEL ROUTER]");
+    expect(source).toContain('"local_only" | "comment_only" | "review_decision"');
+    expect(source).toContain('return report.blockingCount > 0 ? "REQUEST_CHANGES" : "APPROVE"');
+    expect(source).toContain('mode === "comment_only" || report.reviewStatus === "partial"');
+    expect(source).toContain("[AUTO REVIEW][PUBLISH]");
+    expect(source).toContain("GitHub rejected that decision for a self-authored pull request");
+    expect(source).toContain("Skipping duplicate ");
+    expect(source).toContain("Auto Review publication mode");
+    expect(source).toContain('sessionId = "auto-" + reference');
+    expect(source).toContain("=== LLMatic Auto Review PR #");
+    expect(source).toContain("CI snapshot");
+    expect(source).toContain("reviewStatus = statusProvider.beginExternalReview(reference)");
+    expect(source).toContain(
+      "appendReviewActivity(context, reviewLog, sessionId, reference, startedAt, event)",
+    );
+    expect(source).toContain("runAutoReviewScan(context, state, statusProvider, output, reviewLog");
     expect(source).toContain("This is not a clean-review verdict");
     expect(source).toContain("Publish Partial Review");
     expect(source).toContain("Diff coverage");
@@ -89,6 +104,23 @@ describe("VS Code extension activation surface", () => {
     expect(source).toContain("password: true");
     expect(source).toContain("Auto Free can run anonymously");
     expect(source).toContain("export function deactivate");
+  });
+
+  it("does not block the Auto Review PR queue on result notifications", async () => {
+    const source = await readFile(new URL("../src/extension.ts", import.meta.url), "utf8");
+    const scanStart = source.indexOf("async function runAutoReviewScan(");
+    const scanEnd = source.indexOf("async function configureAutoReviewInUi(", scanStart);
+    const scanSource = source.slice(scanStart, scanEnd);
+    const candidateLoopStart = scanSource.indexOf("for (const pullRequest of candidates)");
+    const candidateLoopSource = scanSource.slice(candidateLoopStart);
+
+    expect(scanStart).toBeGreaterThanOrEqual(0);
+    expect(scanEnd).toBeGreaterThan(scanStart);
+    expect(candidateLoopStart).toBeGreaterThanOrEqual(0);
+    expect(candidateLoopSource).toContain("void vscode.window");
+    expect(candidateLoopSource).toContain(".showInformationMessage(");
+    expect(candidateLoopSource).toContain(".then((action) => {");
+    expect(candidateLoopSource).not.toContain("await vscode.window.showInformationMessage(");
   });
 
   it("surfaces secure Gateway key setup in the LLMatic Activity Bar", async () => {
@@ -117,6 +149,8 @@ describe("VS Code extension activation surface", () => {
     expect(source).toContain("activeExternalReviewTimer");
     expect(source).toContain('finish("Stopped", Date.now() - startedAt)');
     expect(source).toContain("Auto Review Agent");
+    expect(source).toContain("publicationMode");
+    expect(source).toContain("Complete reviews publish APPROVE or REQUEST_CHANGES");
     expect(source).toContain("Review Activity Log");
     expect(source).toContain("loading~spin");
     expect(source).toContain("live + persistent telemetry");

@@ -86,7 +86,7 @@ export interface PullRequestReviewThreadSnapshot {
   comments: PullRequestCommentSnapshot[];
 }
 
-export type PullRequestReviewEvent = "COMMENT";
+export type PullRequestReviewEvent = "COMMENT" | "APPROVE" | "REQUEST_CHANGES";
 
 export type PullRequestReviewSide = "RIGHT" | "LEFT";
 

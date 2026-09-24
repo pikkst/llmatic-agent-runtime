@@ -2,6 +2,11 @@
 
 ## 0.3.1 — Unreleased
 
+- Auto Review Agent now streams the same live/persistent Review Activity telemetry as manual external review, including lens/batch progress, model routing and optional raw-response debug capture.
+- Added workspace-scoped Auto Review publication modes: **Local only**, **Comment only**, and **Review decision**.
+- In **Review decision** mode, complete reviews with no blocking findings publish **APPROVE**, complete reviews with blockers publish **REQUEST_CHANGES**, and partial reviews publish **COMMENT** only.
+- Auto Review publication is head-SHA guarded and deduplicated per intended review event; self-authored PR decision rejection falls back to a COMMENT without duplicating already-posted inline findings.
+
 - Simplified the tag-driven release pipeline to one deterministic GitHub Release job with least-privilege permissions, per-tag concurrency, frozen-lockfile dependency installation, full CI, release acceptance and VS Code clean-install acceptance.
 - Removed the experimental Visual Studio Marketplace OIDC/Entra publish job and obsolete Marketplace identity workflow because the publisher UI does not expose the required trusted-publishing policy for this project.
 - Made Visual Studio Marketplace publication an explicit manual handoff using the exact versioned VSIX attached to the accepted GitHub Release; the workflow now prints that handoff in the run summary.

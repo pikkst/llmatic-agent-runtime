@@ -45,6 +45,7 @@ import {
   publishPullRequestReview,
   readPullRequestFileAtHead,
   type OpenPullRequestSummary,
+  type PullRequestReviewEvent,
 } from "@llmatic/github-adapter";
 import { verifyJiraConnectionFromEnvironment, type JiraWorkMode } from "@llmatic/jira-adapter";
 import {
@@ -159,12 +160,25 @@ interface AutoReviewRetryState {
   retryAfter: number;
 }
 
+interface AutoReviewLastPublication {
+  number: number;
+  headRefOid: string;
+  intendedEvent: PullRequestReviewEvent;
+  publishedEvent: PullRequestReviewEvent;
+  publishedAt: string;
+  fallback: boolean;
+}
+
+type AutoReviewPublicationMode = "local_only" | "comment_only" | "review_decision";
+
 interface AutoReviewWorkspaceState {
   enabled: boolean;
   repository?: string;
   seenFingerprints: Record<string, string>;
+  publicationMode?: AutoReviewPublicationMode;
   retry?: Record<string, AutoReviewRetryState>;
   lastReviewed?: AutoReviewLastResult;
+  lastPublished?: AutoReviewLastPublication;
   lastError?: string;
 }
 
@@ -212,14 +226,62 @@ function autoReviewWorkspaceState(context: vscode.ExtensionContext): AutoReviewW
     context.workspaceState.get<AutoReviewWorkspaceState>(AUTO_REVIEW_STATE_KEY) ?? {
       enabled: false,
       seenFingerprints: {},
+      publicationMode: "local_only",
     }
   );
+}
+
+function autoReviewPublicationMode(profile: AutoReviewWorkspaceState): AutoReviewPublicationMode {
+  return profile.publicationMode ?? "local_only";
+}
+
+function autoReviewPublicationModeLabel(mode: AutoReviewPublicationMode): string {
+  switch (mode) {
+    case "comment_only":
+      return "Comment only";
+    case "review_decision":
+      return "Review decision";
+    default:
+      return "Local only";
+  }
+}
+
+async function chooseAutoReviewPublicationMode(
+  current: AutoReviewPublicationMode,
+): Promise<AutoReviewPublicationMode | undefined> {
+  const choice = await vscode.window.showQuickPick(
+    [
+      {
+        label: "$(device-desktop) Local only",
+        description: "analyze and log locally; do not mutate GitHub",
+        mode: "local_only" as const,
+      },
+      {
+        label: "$(comment-discussion) Comment only",
+        description: "publish validated review comments, never approve/request changes",
+        mode: "comment_only" as const,
+      },
+      {
+        label: "$(git-pull-request) Review decision",
+        description:
+          "complete + no blockers → approve; complete + blockers → request changes; partial → comment",
+        mode: "review_decision" as const,
+      },
+    ],
+    {
+      title: "Auto Review publication mode",
+      placeHolder: "Current: " + autoReviewPublicationModeLabel(current),
+      ignoreFocusOut: true,
+    },
+  );
+  return choice?.mode;
 }
 
 function autoReviewStatus(profile: AutoReviewWorkspaceState): AutoReviewStatus {
   return {
     enabled: profile.enabled,
     repository: profile.repository,
+    publicationMode: autoReviewPublicationMode(profile),
     lastReviewedPr: profile.lastReviewed?.number,
     lastReviewedAt: profile.lastReviewed?.reviewedAt,
     lastReviewStatus: profile.lastReviewed?.reviewStatus,
@@ -2929,6 +2991,131 @@ function externalPullRequestReviewDraft(
   ].join("\n");
 }
 
+function autoReviewPublicationEvent(
+  mode: AutoReviewPublicationMode,
+  report: Awaited<ReturnType<typeof runExternalPullRequestReview>>,
+): PullRequestReviewEvent | undefined {
+  if (mode === "local_only") return undefined;
+  if (mode === "comment_only" || report.reviewStatus === "partial") return "COMMENT";
+  return report.blockingCount > 0 ? "REQUEST_CHANGES" : "APPROVE";
+}
+
+function selfReviewDecisionError(message: string): boolean {
+  return /own pull request|your own pull request|cannot approve.*own|can not approve.*own/i.test(
+    message,
+  );
+}
+
+async function publishAutomaticReviewResult(
+  context: vscode.ExtensionContext,
+  root: string,
+  report: Awaited<ReturnType<typeof runExternalPullRequestReview>>,
+  mode: AutoReviewPublicationMode,
+  output: vscode.OutputChannel,
+  reviewLog: vscode.OutputChannel,
+): Promise<{
+  intendedEvent?: PullRequestReviewEvent;
+  publishedEvent?: PullRequestReviewEvent;
+  fallback: boolean;
+  error?: string;
+}> {
+  const intendedEvent = autoReviewPublicationEvent(mode, report);
+  if (!intendedEvent) return { fallback: false };
+
+  const startedAt = Date.now();
+  const sessionId = "auto-publish-" + report.reference + "-" + String(startedAt);
+  const config = await loadAgentConfig(root, {
+    LLMATIC_HOME: context.globalStorageUri.fsPath,
+  });
+  const body = externalPullRequestReviewDraft(report);
+  const inlineComments = externalPullRequestInlineComments(report);
+
+  const logPublication = (detail: string) => {
+    output.appendLine("[AUTO REVIEW][PUBLISH] " + detail);
+    appendReviewActivity(context, reviewLog, sessionId, report.reference, startedAt, {
+      type: "session",
+      phase: "Review publication",
+      detail,
+    });
+  };
+
+  logPublication(
+    "Publishing " +
+      intendedEvent +
+      " for PR #" +
+      report.reference +
+      " at head " +
+      report.headRefOid.slice(0, 12) +
+      "…",
+  );
+
+  try {
+    await publishPullRequestReview(
+      root,
+      config,
+      report.reference,
+      {
+        body,
+        event: intendedEvent,
+        expectedHeadOid: report.headRefOid,
+        inlineComments,
+      },
+      { approved: true },
+    );
+    logPublication("Published " + intendedEvent + " successfully.");
+    return {
+      intendedEvent,
+      publishedEvent: intendedEvent,
+      fallback: false,
+    };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+
+    if (intendedEvent !== "COMMENT" && selfReviewDecisionError(message)) {
+      const fallbackBody =
+        body +
+        "\n\n> LLMatic intended GitHub review decision: **" +
+        intendedEvent +
+        "**. GitHub rejected that decision for a self-authored pull request, so this result was published as **COMMENT** instead.";
+
+      try {
+        await publishPullRequestReview(
+          root,
+          config,
+          report.reference,
+          {
+            body: fallbackBody,
+            event: "COMMENT",
+            expectedHeadOid: report.headRefOid,
+            // The first decision attempt may already have published inline comments
+            // before GitHub rejected the final APPROVE/REQUEST_CHANGES event.
+            inlineComments: [],
+          },
+          { approved: true },
+        );
+        logPublication(
+          "GitHub rejected " +
+            intendedEvent +
+            " for a self-authored PR; published COMMENT fallback instead.",
+        );
+        return {
+          intendedEvent,
+          publishedEvent: "COMMENT",
+          fallback: true,
+        };
+      } catch (fallbackError) {
+        const fallbackMessage =
+          fallbackError instanceof Error ? fallbackError.message : String(fallbackError);
+        logPublication("Publication failed: " + fallbackMessage);
+        return { intendedEvent, fallback: true, error: fallbackMessage };
+      }
+    }
+
+    logPublication("Publication failed: " + message);
+    return { intendedEvent, fallback: false, error: message };
+  }
+}
+
 async function reviewExternalPullRequestInUi(
   context: vscode.ExtensionContext,
   state: ExtensionState,
@@ -3254,12 +3441,34 @@ async function runAutomaticExternalPullRequestReview(
   state: ExtensionState,
   statusProvider: LlmaticStatusProvider,
   output: vscode.OutputChannel,
+  reviewLog: vscode.OutputChannel,
   pullRequest: OpenPullRequestSummary,
 ): Promise<Awaited<ReturnType<typeof runExternalPullRequestReview>>> {
   if (state.activeExternalReviewPrNumbers.has(pullRequest.number)) {
     throw new Error("Pull request #" + pullRequest.number + " already has an active review.");
   }
   state.activeExternalReviewPrNumbers.add(pullRequest.number);
+
+  const reference = String(pullRequest.number);
+  const startedAt = Date.now();
+  const sessionId = "auto-" + reference + "-" + String(startedAt);
+  const reviewStatus = statusProvider.beginExternalReview(reference);
+
+  appendReviewActivity(context, reviewLog, sessionId, reference, startedAt, {
+    type: "session",
+    phase: "Review started",
+    detail:
+      "Automatic external PR review · telemetry " +
+      (reviewActivityLoggingEnabled() ? "ON" : "OFF") +
+      " · raw responses " +
+      (configuration().get<boolean>("reviewRawResponseLogging", false) ? "ON" : "OFF"),
+  });
+
+  if (reviewActivityLoggingEnabled()) {
+    reviewLog.appendLine("");
+    reviewLog.appendLine("=== LLMatic Auto Review PR #" + reference + " ===");
+    reviewLog.appendLine("Telemetry: " + reviewTelemetryPath(context));
+  }
 
   try {
     const folder = firstWorkspaceFolder();
@@ -3294,13 +3503,42 @@ async function runAutomaticExternalPullRequestReview(
       reviewExplorationSlots: 1,
       onReviewHistoryChange: (history) => storeReviewModelHistory(context, history),
       onRoute: (event) => {
-        output.appendLine("[AUTO REVIEW][MODEL] " + adaptiveRouteDescription(event));
+        const detail = adaptiveRouteDescription(event);
+        output.appendLine("[AUTO REVIEW][MODEL] " + detail);
+        reviewStatus.update("Model router", detail);
+        appendReviewActivity(context, reviewLog, sessionId, reference, startedAt, {
+          type: "session",
+          phase: "Model router",
+          detail,
+        });
       },
     });
 
+    reviewStatus.update("Pull request context", "Reading metadata, checks, diff and threads…");
+    appendReviewActivity(context, reviewLog, sessionId, reference, startedAt, {
+      type: "session",
+      phase: "Pull request context",
+      detail: "Reading metadata, checks, diff and review threads…",
+    });
+
+    const contextStartedAt = Date.now();
     const reviewContext = await getPullRequestReviewContext(root, pullRequest.number);
+
+    appendReviewActivity(context, reviewLog, sessionId, reference, startedAt, {
+      type: "session",
+      phase: "Pull request context ready",
+      detail:
+        reviewContext.changedFiles.length +
+        " changed files · CI snapshot " +
+        reviewContext.status.ciState +
+        " · head " +
+        reviewContext.status.pullRequest.headRefOid.slice(0, 12) +
+        " · " +
+        formatElapsedDuration(Date.now() - contextStartedAt),
+    });
+
     const fileCache = new Map<string, unknown>();
-    return runExternalPullRequestReview({
+    const report = await runExternalPullRequestReview({
       root,
       config,
       gateway,
@@ -3322,6 +3560,12 @@ async function runAutomaticExternalPullRequestReview(
       model,
       maxSteps: configuration().get<number>("externalReviewMaxSteps", 3),
       lenses: ["general", "bug_hunter", "security"],
+      captureRawResponses: configuration().get<boolean>("reviewRawResponseLogging", false),
+      onActivity: (event) => {
+        const description = reviewActivityDescription(event);
+        reviewStatus.update(description.phase, description.detail);
+        appendReviewActivity(context, reviewLog, sessionId, reference, startedAt, event);
+      },
       material: {
         reference: String(reviewContext.status.pullRequest.number),
         headRefOid: reviewContext.status.pullRequest.headRefOid,
@@ -3337,8 +3581,38 @@ async function runAutomaticExternalPullRequestReview(
         reviewThreads: reviewContext.reviewThreads,
       },
     });
+
+    const durationMs = Date.now() - startedAt;
+    reviewStatus.complete(durationMs);
+    appendReviewActivity(context, reviewLog, sessionId, reference, startedAt, {
+      type: "session",
+      phase: "Review finished",
+      detail:
+        report.blockingCount +
+        " blocking · " +
+        report.nonBlockingCount +
+        " non-blocking · " +
+        report.coverage +
+        " coverage · " +
+        report.reviewStatus +
+        " review · total " +
+        formatElapsedDuration(durationMs),
+    });
+
+    return report;
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    const durationMs = Date.now() - startedAt;
+    reviewStatus.fail(message, durationMs);
+    appendReviewActivity(context, reviewLog, sessionId, reference, startedAt, {
+      type: "session",
+      phase: "Review failed",
+      detail: message + " · after " + formatElapsedDuration(durationMs),
+    });
+    throw error;
   } finally {
     state.activeExternalReviewPrNumbers.delete(pullRequest.number);
+    reviewStatus.dispose();
   }
 }
 
@@ -3347,6 +3621,7 @@ async function runAutoReviewScan(
   state: ExtensionState,
   statusProvider: LlmaticStatusProvider,
   output: vscode.OutputChannel,
+  reviewLog: vscode.OutputChannel,
   notifyWhenIdle = false,
 ): Promise<void> {
   let profile = autoReviewWorkspaceState(context);
@@ -3454,6 +3729,7 @@ async function runAutoReviewScan(
           state,
           statusProvider,
           output,
+          reviewLog,
           pullRequest,
         );
 
@@ -3461,6 +3737,65 @@ async function runAutoReviewScan(
         const key = String(report.reference);
         const fingerprint = report.headRefOid + ":ready";
         const nextRetry = { ...(profile.retry ?? {}) };
+        const publicationMode = autoReviewPublicationMode(profile);
+        const intendedEvent = autoReviewPublicationEvent(publicationMode, report);
+        const duplicatePublication =
+          intendedEvent !== undefined &&
+          profile.lastPublished?.number === Number(report.reference) &&
+          profile.lastPublished.headRefOid === report.headRefOid &&
+          profile.lastPublished.intendedEvent === intendedEvent;
+
+        const publication: {
+          intendedEvent?: PullRequestReviewEvent;
+          publishedEvent?: PullRequestReviewEvent;
+          fallback: boolean;
+          error?: string;
+          skipped: boolean;
+        } = duplicatePublication
+          ? {
+              intendedEvent,
+              publishedEvent: profile.lastPublished?.publishedEvent,
+              fallback: profile.lastPublished?.fallback ?? false,
+              skipped: true,
+            }
+          : {
+              ...(await publishAutomaticReviewResult(
+                context,
+                root,
+                report,
+                publicationMode,
+                output,
+                reviewLog,
+              )),
+              skipped: false,
+            };
+
+        if (duplicatePublication && intendedEvent) {
+          output.appendLine(
+            "[AUTO REVIEW][PUBLISH] Skipping duplicate " +
+              intendedEvent +
+              " for unchanged PR #" +
+              report.reference +
+              " head " +
+              report.headRefOid.slice(0, 12) +
+              ".",
+          );
+        }
+
+        const publicationError = publication.error
+          ? "PR #" + report.reference + " publication: " + publication.error
+          : undefined;
+        const publishedState =
+          publication.publishedEvent && publication.intendedEvent
+            ? {
+                number: Number(report.reference),
+                headRefOid: report.headRefOid,
+                intendedEvent: publication.intendedEvent,
+                publishedEvent: publication.publishedEvent,
+                publishedAt: new Date().toISOString(),
+                fallback: publication.fallback,
+              }
+            : profile.lastPublished;
 
         if (report.reviewStatus === "complete") {
           delete nextRetry[key];
@@ -3482,7 +3817,8 @@ async function runAutoReviewScan(
               coverage: report.coverage,
               reviewStatus: report.reviewStatus,
             },
-            lastError: undefined,
+            lastPublished: publishedState,
+            lastError: publicationError,
           };
         } else {
           nextRetry[key] = {
@@ -3503,7 +3839,8 @@ async function runAutoReviewScan(
               coverage: report.coverage,
               reviewStatus: report.reviewStatus,
             },
-            lastError: undefined,
+            lastPublished: publishedState,
+            lastError: publicationError,
           };
         }
         await storeAutoReviewWorkspaceState(context, statusProvider, profile);
@@ -3524,21 +3861,31 @@ async function runAutoReviewScan(
         );
         output.appendLine(externalPullRequestReviewDraft(report));
 
-        const action = await vscode.window.showInformationMessage(
-          "LLMatic Auto Review Agent reviewed PR #" +
-            report.reference +
-            ": " +
-            report.blockingCount +
-            " blocking / " +
-            report.nonBlockingCount +
-            " non-blocking finding(s)" +
-            (report.reviewStatus === "partial"
-              ? " · incomplete; retry scheduled after cooldown"
-              : "") +
-            ".",
-          "Open Review Output",
-        );
-        if (action === "Open Review Output") output.show(true);
+        void vscode.window
+          .showInformationMessage(
+            "LLMatic Auto Review Agent reviewed PR #" +
+              report.reference +
+              ": " +
+              report.blockingCount +
+              " blocking / " +
+              report.nonBlockingCount +
+              " non-blocking finding(s)" +
+              (report.reviewStatus === "partial"
+                ? " · incomplete; retry scheduled after cooldown"
+                : "") +
+              (publicationError
+                ? " · GitHub publication failed"
+                : publication.skipped
+                  ? " · publication already up to date"
+                  : publication.publishedEvent
+                    ? " · published " + publication.publishedEvent
+                    : " · local only") +
+              ".",
+            "Open Review Output",
+          )
+          .then((action) => {
+            if (action === "Open Review Output") output.show(true);
+          });
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
         profile = autoReviewWorkspaceState(context);
@@ -3571,6 +3918,7 @@ async function configureAutoReviewInUi(
   state: ExtensionState,
   statusProvider: LlmaticStatusProvider,
   output: vscode.OutputChannel,
+  reviewLog: vscode.OutputChannel,
 ): Promise<void> {
   const folder = firstWorkspaceFolder();
   if (!folder) {
@@ -3588,6 +3936,13 @@ async function configureAutoReviewInUi(
           label: "$(play) Review open pull requests now",
           description: "run once now and keep watching future updates",
           action: "review_now" as const,
+        },
+        {
+          label:
+            "$(git-pull-request) Publication: " +
+            autoReviewPublicationModeLabel(autoReviewPublicationMode(current)),
+          description: "choose local-only, comment-only or GitHub review decisions",
+          action: "publication" as const,
         },
         {
           label: "$(debug-stop) Disable Auto Review Agent",
@@ -3615,6 +3970,26 @@ async function configureAutoReviewInUi(
       return;
     }
 
+    if (choice.action === "publication") {
+      const publicationMode = await chooseAutoReviewPublicationMode(
+        autoReviewPublicationMode(current),
+      );
+      if (!publicationMode) return;
+
+      await storeAutoReviewWorkspaceState(context, statusProvider, {
+        ...current,
+        repository,
+        publicationMode,
+        lastError: undefined,
+      });
+      await vscode.window.showInformationMessage(
+        "LLMatic Auto Review publication mode: " +
+          autoReviewPublicationModeLabel(publicationMode) +
+          ".",
+      );
+      return;
+    }
+
     const pullRequests = listOpenPullRequests(root);
     const seenFingerprints = { ...current.seenFingerprints };
     for (const pullRequest of pullRequests) {
@@ -3631,7 +4006,7 @@ async function configureAutoReviewInUi(
       retry: {},
       lastError: undefined,
     });
-    await runAutoReviewScan(context, state, statusProvider, output, true);
+    await runAutoReviewScan(context, state, statusProvider, output, reviewLog, true);
     return;
   }
 
@@ -3662,6 +4037,9 @@ async function configureAutoReviewInUi(
   );
   if (!choice) return;
 
+  const publicationMode = await chooseAutoReviewPublicationMode("local_only");
+  if (!publicationMode) return;
+
   const pullRequests = listOpenPullRequests(root);
   const seenFingerprints: Record<string, string> = {};
   for (const pullRequest of pullRequests) {
@@ -3674,6 +4052,7 @@ async function configureAutoReviewInUi(
     enabled: true,
     repository,
     seenFingerprints,
+    publicationMode,
     retry: {},
     lastError: undefined,
   });
@@ -3681,11 +4060,13 @@ async function configureAutoReviewInUi(
   await vscode.window.showInformationMessage(
     "LLMatic Auto Review Agent enabled for " +
       repository +
-      ". It reviews new or updated review-ready PRs while this VS Code workspace is open. Publishing remains manual.",
+      ". It reviews new or updated review-ready PRs while this VS Code workspace is open. Publication mode: " +
+      autoReviewPublicationModeLabel(publicationMode) +
+      ".",
   );
 
   if (choice.action === "current") {
-    await runAutoReviewScan(context, state, statusProvider, output, true);
+    await runAutoReviewScan(context, state, statusProvider, output, reviewLog, true);
   }
 }
 
@@ -5323,7 +5704,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       async (options?: { probe?: boolean }) => {
         if (options?.probe) return true;
         try {
-          await configureAutoReviewInUi(context, state, statusProvider, output);
+          await configureAutoReviewInUi(context, state, statusProvider, output, reviewLog);
         } catch (error) {
           const message = error instanceof Error ? error.message : String(error);
           await vscode.window.showErrorMessage("LLMatic Auto Review Agent: " + message);
@@ -5483,7 +5864,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   );
 
   const autoReviewTimer = setInterval(() => {
-    void runAutoReviewScan(context, state, statusProvider, output).catch((error) => {
+    void runAutoReviewScan(context, state, statusProvider, output, reviewLog).catch((error) => {
       output.appendLine(
         "[AUTO REVIEW][WARN] Background scan failed: " +
           (error instanceof Error ? error.message : String(error)),
@@ -5516,7 +5897,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     },
   );
 
-  void runAutoReviewScan(context, state, statusProvider, output).catch((error) => {
+  void runAutoReviewScan(context, state, statusProvider, output, reviewLog).catch((error) => {
     output.appendLine(
       "[AUTO REVIEW][WARN] Initial scan failed: " +
         (error instanceof Error ? error.message : String(error)),
