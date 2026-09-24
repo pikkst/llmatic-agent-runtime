@@ -76,6 +76,16 @@ describe("VS Code extension activation surface", () => {
     expect(source).toContain("[RETRY] Kilo Gateway");
     expect(source).toContain("AdaptiveFreeGatewayClient");
     expect(source).toContain("[MODEL ROUTER]");
+    expect(source).toContain('sessionId = "auto-" + reference');
+    expect(source).toContain("=== LLMatic Auto Review PR #");
+    expect(source).toContain("CI snapshot");
+    expect(source).toContain("reviewStatus = statusProvider.beginExternalReview(reference)");
+    expect(source).toContain(
+      "appendReviewActivity(context, reviewLog, sessionId, reference, startedAt, event)",
+    );
+    expect(source).toContain(
+      "runAutoReviewScan(context, state, statusProvider, output, reviewLog",
+    );
     expect(source).toContain("This is not a clean-review verdict");
     expect(source).toContain("Publish Partial Review");
     expect(source).toContain("Diff coverage");
