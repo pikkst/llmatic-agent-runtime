@@ -1223,7 +1223,6 @@ function strictExternalFindings(
   });
 }
 
-
 interface TypedMemberAbsenceClaim {
   owner: string;
   member: string;
@@ -1263,9 +1262,7 @@ function readFileContent(value: unknown): string | undefined {
 
 function namedTypeDeclarationBlocks(content: string, owner: string): string[] {
   const declaration = new RegExp(
-    "\\b(?:export\\s+)?(?:declare\\s+)?(?:interface|class|type)\\s+" +
-      owner +
-      "\\b",
+    "\\b(?:export\\s+)?(?:declare\\s+)?(?:interface|class|type)\\s+" + owner + "\\b",
     "g",
   );
   const blocks: string[] = [];
@@ -1299,9 +1296,7 @@ function namedTypeDeclarationBlocks(content: string, owner: string): string[] {
 
 function declarationHasMember(block: string, member: string): boolean {
   return new RegExp(
-    "(?:^|[\\n;,{])\\s*(?:readonly\\s+)?[\\\"']?" +
-      member +
-      "[\\\"']?\\s*(?:\\?|!)?\\s*(?::|\\()",
+    "(?:^|[\\n;,{])\\s*(?:readonly\\s+)?[\\\"']?" + member + "[\\\"']?\\s*(?:\\?|!)?\\s*(?::|\\()",
     "m",
   ).test(block);
 }
@@ -1310,13 +1305,9 @@ function diffPositivelyProvesMemberRemoval(
   material: PullRequestReviewMaterial,
   claim: TypedMemberAbsenceClaim,
 ): boolean {
-  const ownerPattern = new RegExp(
-    "\\b(?:interface|class|type)\\s+" + claim.owner + "\\b",
-  );
+  const ownerPattern = new RegExp("\\b(?:interface|class|type)\\s+" + claim.owner + "\\b");
   const removedMemberPattern = new RegExp(
-    "^-\\s*(?:readonly\\s+)?[\\\"']?" +
-      claim.member +
-      "[\\\"']?\\s*(?:\\?|!)?\\s*(?::|\\()",
+    "^-\\s*(?:readonly\\s+)?[\\\"']?" + claim.member + "[\\\"']?\\s*(?:\\?|!)?\\s*(?::|\\()",
     "m",
   );
 

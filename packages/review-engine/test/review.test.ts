@@ -630,7 +630,7 @@ describe("review engine", () => {
       "--- a/src/use.ts\n" +
       "+++ b/src/use.ts\n" +
       "@@ -1 +1 @@\n" +
-      "-export const path = \"evidence.findings\";\n" +
+      '-export const path = "evidence.findings";\n' +
       '+export const path = "evidence.findings[].summary";\n' +
       "diff --git a/src/types.ts b/src/types.ts\n" +
       "--- a/src/types.ts\n" +
