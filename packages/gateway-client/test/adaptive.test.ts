@@ -185,27 +185,21 @@ describe("AdaptiveFreeGatewayClient", () => {
     expect(requestedModels[0]).toBe("provider/b:free");
   });
 
-  it("cools down a semantically invalid model for subsequent review requests", async () => {
+  it("keeps a semantically invalid model eligible for later batches in the same review task", async () => {
     const requestedModels: string[] = [];
 
     const client = new AdaptiveFreeGatewayClient({
       maxRetries: 0,
-      maxModelAttempts: 3,
-      modelCooldownMs: 60_000,
+      maxModelAttempts: 1,
       fetch: async (input, init) => {
         if (String(input).endsWith("/models")) {
           return new Response(
             JSON.stringify({
               data: [
                 {
-                  id: "dots/model:free",
-                  owned_by: "dots",
-                  context_length: 200000,
-                },
-                {
-                  id: "other/model:free",
-                  owned_by: "other",
-                  context_length: 100000,
+                  id: "provider/recoverable:free",
+                  owned_by: "provider",
+                  context_length: 131072,
                 },
               ],
             }),
@@ -220,18 +214,18 @@ describe("AdaptiveFreeGatewayClient", () => {
     });
 
     await client.reportModelFailure({
-      model: "dots/model:free",
+      model: "provider/recoverable:free",
       task: "review_general",
-      reason: "empty structured review content",
+      reason: "invalid structured JSON",
     });
 
     await client.createChatCompletion({
       model: "kilo-auto/free",
-      messages: [{ role: "user", content: "review" }],
+      messages: [{ role: "user", content: "next batch" }],
       routing: { task: "review_general" },
     });
 
-    expect(requestedModels[0]).toBe("other/model:free");
+    expect(requestedModels[0]).toBe("provider/recoverable:free");
   });
 
   it("uses a 24-hour cooldown for provider daily-limit failures", async () => {
@@ -601,6 +595,55 @@ describe("AdaptiveFreeGatewayClient", () => {
       "Auto Free circuit breaker open",
     );
     expect(chatRequests).toBe(2);
+  });
+
+  it("keeps the Auto Free circuit breaker scoped to one review task", async () => {
+    let chatRequests = 0;
+
+    const client = new AdaptiveFreeGatewayClient({
+      maxRetries: 0,
+      maxModelAttempts: 1,
+      fetch: async (input) => {
+        if (String(input).endsWith("/models")) {
+          return new Response(JSON.stringify({ data: [] }), {
+            status: 200,
+            headers: { "Content-Type": "application/json" },
+          });
+        }
+
+        chatRequests += 1;
+        if (chatRequests <= 2) {
+          return new Response(
+            JSON.stringify({
+              error: { message: "Upstream error from Nvidia: Service temporarily overloaded" },
+            }),
+            { status: 200, headers: { "Content-Type": "application/json" } },
+          );
+        }
+        return completion("kilo-auto/free");
+      },
+    });
+
+    const generalRequest = {
+      model: "kilo-auto/free",
+      messages: [{ role: "user" as const, content: "general" }],
+      routing: { task: "review_general" },
+    };
+
+    await expect(client.createChatCompletion(generalRequest)).rejects.toThrow();
+    await expect(client.createChatCompletion(generalRequest)).rejects.toThrow();
+    await expect(client.createChatCompletion(generalRequest)).rejects.toThrow(
+      "Auto Free circuit breaker open",
+    );
+
+    await expect(
+      client.createChatCompletion({
+        model: "kilo-auto/free",
+        messages: [{ role: "user", content: "bug hunter" }],
+        routing: { task: "review_bug_hunter" },
+      }),
+    ).resolves.toMatchObject({ routed_model: "kilo-auto/free" });
+    expect(chatRequests).toBe(3);
   });
 
   it("keeps transient explicit-model exclusion scoped to one review task", async () => {
