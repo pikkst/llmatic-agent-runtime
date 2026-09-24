@@ -106,6 +106,21 @@ describe("VS Code extension activation surface", () => {
     expect(source).toContain("export function deactivate");
   });
 
+  it("does not block the Auto Review PR queue on result notifications", async () => {
+    const source = await readFile(new URL("../src/extension.ts", import.meta.url), "utf8");
+    const scanStart = source.indexOf("async function runAutoReviewScan(");
+    const scanEnd = source.indexOf("async function configureAutoReviewInUi(", scanStart);
+    const scanSource = source.slice(scanStart, scanEnd);
+
+    expect(scanStart).toBeGreaterThanOrEqual(0);
+    expect(scanEnd).toBeGreaterThan(scanStart);
+    expect(scanSource).toContain("for (const pullRequest of candidates)");
+    expect(scanSource).toContain("void vscode.window");
+    expect(scanSource).toContain(".showInformationMessage(");
+    expect(scanSource).toContain(".then((action) => {");
+    expect(scanSource).not.toContain("await vscode.window.showInformationMessage(");
+  });
+
   it("surfaces secure Gateway key setup in the LLMatic Activity Bar", async () => {
     const source = await readFile(new URL("../src/status-view.ts", import.meta.url), "utf8");
 
