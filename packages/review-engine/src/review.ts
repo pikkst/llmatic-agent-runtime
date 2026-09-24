@@ -509,6 +509,12 @@ interface ExternalReviewBatch {
   packet: string;
 }
 
+interface ExternalReviewBatchResult {
+  summary: string;
+  findings: ReviewFinding[];
+  recoveryFailures: string[];
+}
+
 function externalReviewBatch(
   material: PullRequestReviewMaterial,
   files: string[],
@@ -536,9 +542,9 @@ async function runExternalReviewBatchWithRecovery(
   constitution: RepositoryConstitution,
   lens: ReviewLens,
   batch: ExternalReviewBatch,
-): Promise<{ summary: string; findings: ReviewFinding[] }> {
+): Promise<ExternalReviewBatchResult> {
   try {
-    return await runReviewLens(
+    const result = await runReviewLens(
       options,
       constitution,
       batch.files,
@@ -546,6 +552,7 @@ async function runExternalReviewBatchWithRecovery(
       options.material,
       batch.packet,
     );
+    return { ...result, recoveryFailures: [] };
   } catch (initialError) {
     if (!recoverableExternalReviewFailure(initialError)) throw initialError;
 
@@ -554,7 +561,7 @@ async function runExternalReviewBatchWithRecovery(
 
     if (batch.files.length === 1) {
       try {
-        return await runReviewLens(
+        const result = await runReviewLens(
           options,
           constitution,
           batch.files,
@@ -562,6 +569,7 @@ async function runExternalReviewBatchWithRecovery(
           options.material,
           batch.packet,
         );
+        return { ...result, recoveryFailures: [] };
       } catch (recoveryError) {
         throw new Error(
           "Recovery retry failed after " +
@@ -578,6 +586,7 @@ async function runExternalReviewBatchWithRecovery(
       externalReviewBatch(options.material, batch.files.slice(midpoint)),
     ].filter((candidate) => candidate.files.length > 0);
     const recovered: Array<{ summary: string; findings: ReviewFinding[] }> = [];
+    const recoveryFailures: string[] = [];
 
     for (const recoveryBatch of recoveryBatches) {
       try {
@@ -592,18 +601,27 @@ async function runExternalReviewBatchWithRecovery(
           ),
         );
       } catch (recoveryError) {
-        throw new Error(
-          "Split recovery failed after " +
-            initialReason +
+        recoveryFailures.push(
+          recoveryBatch.files.join(", ") +
             ": " +
             (recoveryError instanceof Error ? recoveryError.message : String(recoveryError)),
         );
       }
     }
 
+    if (recovered.length === 0) {
+      throw new Error(
+        "Split recovery failed after " +
+          initialReason +
+          ": " +
+          recoveryFailures.join(" | "),
+      );
+    }
+
     return {
       summary: recovered.map((item) => item.summary).join(" "),
       findings: recovered.flatMap((item) => item.findings),
+      recoveryFailures,
     };
   }
 }
@@ -1637,9 +1655,28 @@ export async function runExternalPullRequestReview(
       });
 
       try {
-        batchResults.push(
-          await runExternalReviewBatchWithRecovery(options, constitution, lens, batch),
+        const batchResult = await runExternalReviewBatchWithRecovery(
+          options,
+          constitution,
+          lens,
+          batch,
         );
+        batchResults.push(batchResult);
+
+        if (batchResult.recoveryFailures.length > 0) {
+          const reason =
+            "split recovery incomplete after an initial recoverable failure: " +
+            batchResult.recoveryFailures.join(" | ");
+          batchFailures.push("batch " + batchNumber + "/" + batches.length + ": " + reason);
+          options.onActivity?.({
+            type: "lens-batch-failed",
+            lens,
+            batch: batchNumber,
+            totalBatches: batches.length,
+            reason,
+            durationMs: Date.now() - batchStartedAt,
+          });
+        }
       } catch (error) {
         const reason = error instanceof Error ? error.message : String(error);
         batchFailures.push("batch " + batchNumber + "/" + batches.length + ": " + reason);
