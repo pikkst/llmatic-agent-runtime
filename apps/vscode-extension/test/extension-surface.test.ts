@@ -90,9 +90,7 @@ describe("VS Code extension activation surface", () => {
     expect(source).toContain(
       "appendReviewActivity(context, reviewLog, sessionId, reference, startedAt, event)",
     );
-    expect(source).toContain(
-      "runAutoReviewScan(context, state, statusProvider, output, reviewLog",
-    );
+    expect(source).toContain("runAutoReviewScan(context, state, statusProvider, output, reviewLog");
     expect(source).toContain("This is not a clean-review verdict");
     expect(source).toContain("Publish Partial Review");
     expect(source).toContain("Diff coverage");
