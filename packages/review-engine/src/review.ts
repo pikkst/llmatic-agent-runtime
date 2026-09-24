@@ -611,10 +611,7 @@ async function runExternalReviewBatchWithRecovery(
 
     if (recovered.length === 0) {
       throw new Error(
-        "Split recovery failed after " +
-          initialReason +
-          ": " +
-          recoveryFailures.join(" | "),
+        "Split recovery failed after " + initialReason + ": " + recoveryFailures.join(" | "),
       );
     }
 
@@ -1655,7 +1652,12 @@ export async function runExternalPullRequestReview(
       });
 
       try {
-        const batchResult = await runExternalReviewBatchWithRecovery(options, constitution, lens, batch);
+        const batchResult = await runExternalReviewBatchWithRecovery(
+          options,
+          constitution,
+          lens,
+          batch,
+        );
         batchResults.push(batchResult);
 
         if (batchResult.recoveryFailures.length > 0) {
