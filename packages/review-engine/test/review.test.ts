@@ -392,6 +392,95 @@ describe("review engine", () => {
     expect(report.summary).toContain("0 documented DoD/acceptance violation(s)");
   });
 
+  it("accepts Jira-backed DoD evidence even when the PR body has no acceptance section", async () => {
+    const root = await repository();
+    const config = configFor(root);
+    const dodRef = "[Jira KT-121 AC] Strict output rejects unknown references";
+    const gateway = new ScriptedGateway([
+      response(
+        JSON.stringify({
+          summary: "Jira acceptance gap.",
+          findings: [
+            {
+              severity: "blocking",
+              category: "correctness",
+              basis: "dod",
+              title: "Unknown references are still accepted",
+              path: "src/value.ts",
+              evidence: "The changed validator accepts an unknown source identifier.",
+              recommendation: "Reject source identifiers that are not present in the grounded input.",
+              dod_ref: dodRef,
+            },
+          ],
+        }),
+      ),
+    ]);
+
+    const report = await runExternalPullRequestReview({
+      root,
+      config,
+      gateway,
+      lenses: ["general"],
+      material: {
+        reference: "211",
+        headRefOid: "head-211",
+        title: "KT-121: strict output firewall",
+        body: "",
+        ciState: "passing",
+        changedFiles: ["src/value.ts"],
+        diff: "diff --git a/src/value.ts b/src/value.ts\n--- a/src/value.ts\n+++ b/src/value.ts\n@@ -1 +1 @@\n-export const acceptsUnknown = false;\n+export const acceptsUnknown = true;\n",
+        diffTruncated: false,
+        documentedAcceptanceEvidence: [dodRef],
+        acceptanceEvidenceSource: "Jira KT-121",
+      },
+    });
+
+    expect(report.reviewStatus).toBe("complete");
+    expect(report.findings).toHaveLength(1);
+    expect(report.findings[0]).toMatchObject({
+      basis: "dod",
+      dodRef,
+      severity: "blocking",
+    });
+  });
+
+  it("marks the review partial instead of claiming DoD coverage when Jira evidence cannot be loaded", async () => {
+    const root = await repository();
+    const config = configFor(root);
+    const gateway = new ScriptedGateway([
+      response(
+        JSON.stringify({
+          summary: "Code review completed without a concrete defect.",
+          findings: [],
+        }),
+      ),
+    ]);
+
+    const report = await runExternalPullRequestReview({
+      root,
+      config,
+      gateway,
+      lenses: ["general"],
+      material: {
+        reference: "211",
+        headRefOid: "head-211",
+        title: "KT-121: strict output firewall",
+        body: "",
+        ciState: "pending",
+        changedFiles: ["src/value.ts"],
+        diff: "diff --git a/src/value.ts b/src/value.ts\n--- a/src/value.ts\n+++ b/src/value.ts\n@@ -1 +1 @@\n-export const value = 1;\n+export const value = 2;\n",
+        diffTruncated: false,
+        acceptanceEvidenceSource: "Jira KT-121",
+        acceptanceEvidenceUnavailableReason: "could not load KT-121 acceptance criteria",
+      },
+    });
+
+    expect(report.reviewStatus).toBe("partial");
+    expect(report.findings).toEqual([]);
+    expect(report.summary).toContain("DoD/acceptance verification unavailable");
+    expect(report.summary).not.toContain("0 documented DoD/acceptance violation(s)");
+  });
+
   it("keeps only DoD findings backed by documented PR acceptance evidence", async () => {
     const root = await repository();
     const config = configFor(root);
