@@ -76,6 +76,13 @@ describe("VS Code extension activation surface", () => {
     expect(source).toContain("[RETRY] Kilo Gateway");
     expect(source).toContain("AdaptiveFreeGatewayClient");
     expect(source).toContain("[MODEL ROUTER]");
+    expect(source).toContain('"local_only" | "comment_only" | "review_decision"');
+    expect(source).toContain('return report.blockingCount > 0 ? "REQUEST_CHANGES" : "APPROVE"');
+    expect(source).toContain('mode === "comment_only" || report.reviewStatus === "partial"');
+    expect(source).toContain("[AUTO REVIEW][PUBLISH]");
+    expect(source).toContain("GitHub rejected that decision for a self-authored pull request");
+    expect(source).toContain("Skipping duplicate ");
+    expect(source).toContain("Auto Review publication mode");
     expect(source).toContain('sessionId = "auto-" + reference');
     expect(source).toContain("=== LLMatic Auto Review PR #");
     expect(source).toContain("CI snapshot");
@@ -127,6 +134,8 @@ describe("VS Code extension activation surface", () => {
     expect(source).toContain("activeExternalReviewTimer");
     expect(source).toContain('finish("Stopped", Date.now() - startedAt)');
     expect(source).toContain("Auto Review Agent");
+    expect(source).toContain("publicationMode");
+    expect(source).toContain("Complete reviews publish APPROVE or REQUEST_CHANGES");
     expect(source).toContain("Review Activity Log");
     expect(source).toContain("loading~spin");
     expect(source).toContain("live + persistent telemetry");
