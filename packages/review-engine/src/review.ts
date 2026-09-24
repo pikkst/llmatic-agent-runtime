@@ -1655,12 +1655,7 @@ export async function runExternalPullRequestReview(
       });
 
       try {
-        const batchResult = await runExternalReviewBatchWithRecovery(
-          options,
-          constitution,
-          lens,
-          batch,
-        );
+        const batchResult = await runExternalReviewBatchWithRecovery(options, constitution, lens, batch);
         batchResults.push(batchResult);
 
         if (batchResult.recoveryFailures.length > 0) {
