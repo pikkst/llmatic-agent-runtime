@@ -3745,7 +3745,13 @@ async function runAutoReviewScan(
           profile.lastPublished.headRefOid === report.headRefOid &&
           profile.lastPublished.intendedEvent === intendedEvent;
 
-        const publication = duplicatePublication
+        const publication: {
+          intendedEvent?: PullRequestReviewEvent;
+          publishedEvent?: PullRequestReviewEvent;
+          fallback: boolean;
+          error?: string;
+          skipped: boolean;
+        } = duplicatePublication
           ? {
               intendedEvent,
               publishedEvent: profile.lastPublished?.publishedEvent,
