@@ -271,6 +271,18 @@ The draft is generated from captured task/workflow/check/review/security/archite
 
 When recovery finds a failing GitHub PR, Agent Chat can read PR check state and bounded failed GitHub Actions logs through read-only tools before proposing a fix.
 
+### Reviewing another engineer's pull request
+
+Use:
+
+```text
+LLMatic: Review External Pull Request
+```
+
+Enter the target pull-request number, URL, or branch reference. LLMatic reads the target PR metadata, changed files, unified diff, CI state, reviews, comments, and bounded inline review threads, then runs the same evidence-driven General Engineering, Bug Hunter, Security, and Repository Constitution review policy without selecting the PR author's task or changing Jira/workflow ownership.
+
+The resulting Markdown review is shown before any remote mutation. You can copy the draft or explicitly publish it as a GitHub review comment. Publication requires the dedicated `pullRequestReview` permission and a modal confirmation; reviewing the PR itself remains read-only.
+
 ## Living architecture
 
 Projects initialized from an approved LLMatic plan include a living-architecture gate.

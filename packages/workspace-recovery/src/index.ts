@@ -1,6 +1,16 @@
 import type { AgentConfig, WorkflowRun, WorkflowStateStore } from "@llmatic/core";
-import { getGitStatus, type GitStatus } from "@llmatic/git-adapter";
-import { getPullRequestStatus, type PullRequestStatus } from "@llmatic/github-adapter";
+import {
+  getGitStatus,
+  listPublishedBranches,
+  type GitStatus,
+  type PublishedBranchStatus,
+} from "@llmatic/git-adapter";
+import {
+  getPullRequestStatus,
+  listOpenPullRequests,
+  type OpenPullRequestSummary,
+  type PullRequestStatus,
+} from "@llmatic/github-adapter";
 import {
   buildRepositoryIndex,
   loadRepositoryIndex,
@@ -24,6 +34,7 @@ export type WorkspaceRecoveryAction =
   | "fix_pr"
   | "wait_for_ci"
   | "review_pr"
+  | "create_pr"
   | "continue_task"
   | "start_task"
   | "continue_changes"
@@ -55,6 +66,8 @@ export interface WorkspaceRecovery {
   taskCandidates: TaskRecord[];
   constitution: RepositoryConstitution;
   pullRequest?: PullRequestStatus;
+  openPullRequests?: OpenPullRequestSummary[];
+  pendingPullRequestBranches?: PublishedBranchStatus[];
   warnings: string[];
   recommendation: WorkspaceRecoveryRecommendation;
 }
@@ -214,12 +227,50 @@ async function recoverProviderTasks(
   return { candidates: [] };
 }
 
-async function recoverPullRequest(root: string): Promise<PullRequestStatus | undefined> {
+export function selectRecoveryPullRequest(
+  pullRequests: OpenPullRequestSummary[],
+  branch: string | undefined,
+): OpenPullRequestSummary | undefined {
+  const normalizedBranch = branch?.trim();
+  const branchMatch = normalizedBranch
+    ? pullRequests.find((pullRequest) => pullRequest.headRefName === normalizedBranch)
+    : undefined;
+
+  if (branchMatch) return branchMatch;
+  return pullRequests.length === 1 ? pullRequests[0] : undefined;
+}
+
+async function recoverPullRequest(
+  root: string,
+  branch: string | undefined,
+): Promise<{
+  pullRequest?: PullRequestStatus;
+  openPullRequests: OpenPullRequestSummary[];
+}> {
   try {
-    const status = await getPullRequestStatus(root);
-    return status.pullRequest.state === "OPEN" ? status : undefined;
+    const openPullRequests = listOpenPullRequests(root);
+    const selected = selectRecoveryPullRequest(openPullRequests, branch);
+    if (!selected) return { openPullRequests };
+
+    try {
+      const status = await getPullRequestStatus(root, selected.number);
+      return status.pullRequest.state === "OPEN"
+        ? { pullRequest: status, openPullRequests }
+        : { openPullRequests };
+    } catch {
+      return { openPullRequests };
+    }
   } catch {
-    return undefined;
+    // Preserve the legacy current-branch recovery path when repository-wide listing is unavailable.
+    try {
+      const status = await getPullRequestStatus(root);
+      return {
+        pullRequest: status.pullRequest.state === "OPEN" ? status : undefined,
+        openPullRequests: [],
+      };
+    } catch {
+      return { openPullRequests: [] };
+    }
   }
 }
 
@@ -230,8 +281,12 @@ export function recommendWorkspaceAction(input: {
   task?: TaskRecord;
   nextTask?: TaskRecord;
   pullRequest?: PullRequestStatus;
+  openPullRequests?: OpenPullRequestSummary[];
+  pendingPullRequestBranches?: PublishedBranchStatus[];
 }): WorkspaceRecoveryRecommendation {
   const { repository, git, workflow, task, nextTask, pullRequest } = input;
+  const openPullRequests = input.openPullRequests ?? [];
+  const pendingPullRequestBranches = input.pendingPullRequestBranches ?? [];
 
   if (workflow) {
     if (pullRequest?.ciState === "failing" || pullRequest?.ciState === "cancelled") {
@@ -309,6 +364,37 @@ export function recommendWorkspaceAction(input: {
     };
   }
 
+  if (pendingPullRequestBranches.length === 1) {
+    const branch = pendingPullRequestBranches[0]!;
+    return {
+      action: "create_pr",
+      title: "Create a pull request for the pushed branch",
+      detail:
+        branch.branch +
+        " is pushed to " +
+        branch.upstream +
+        " and is " +
+        String(branch.aheadOfDefault) +
+        " commit(s) ahead of " +
+        (branch.behindDefault > 0
+          ? "the default branch while " + String(branch.behindDefault) + " commit(s) behind"
+          : "the default branch") +
+        ", but no open pull request exists.",
+    };
+  }
+
+  if (pendingPullRequestBranches.length > 1) {
+    return {
+      action: "ask_goal",
+      title: "Choose a pushed branch to open as a pull request",
+      detail:
+        String(pendingPullRequestBranches.length) +
+        " pushed unmerged branches have no open pull request: " +
+        pendingPullRequestBranches.map((branch) => branch.branch).join(", ") +
+        ".",
+    };
+  }
+
   if (!git.clean) {
     return {
       action: "continue_changes",
@@ -334,6 +420,21 @@ export function recommendWorkspaceAction(input: {
       action: "start_task",
       title: "Start the next unblocked task",
       detail: nextTask.key + " — " + nextTask.summary,
+    };
+  }
+
+  if (openPullRequests.length > 0) {
+    const draftCount = openPullRequests.filter((pullRequest) => pullRequest.isDraft).length;
+    return {
+      action: "ask_goal",
+      title: "Choose an open pull request",
+      detail:
+        String(openPullRequests.length) +
+        " open pull request(s) were found" +
+        (draftCount > 0 ? " (" + String(draftCount) + " draft)" : "") +
+        ", but none uniquely matches the current branch " +
+        (git.branch ?? "detached HEAD") +
+        ".",
     };
   }
 
@@ -370,7 +471,24 @@ export async function recoverWorkspace(
   const git = await getGitStatus(root);
   const workflow = activeWorkflow(await store.loadCurrent());
   const taskSource = await detectTaskSources(root, environment);
-  const pullRequest = await recoverPullRequest(root);
+  const recoveredPullRequests = await recoverPullRequest(root, git.branch);
+  const pullRequest = recoveredPullRequests.pullRequest;
+  const openPullRequests = recoveredPullRequests.openPullRequests;
+  const publishedBranches = await listPublishedBranches(root).catch(() => ({
+    defaultBranch: undefined,
+    branches: [],
+  }));
+  const openPullRequestHeads = new Set(openPullRequests.map((item) => item.headRefName));
+  const pendingPullRequestBranches = publishedBranches.branches.filter(
+    (branch) => branch.fullyPushed && !openPullRequestHeads.has(branch.branch),
+  );
+
+  if (openPullRequests.length > 1 && !pullRequest) {
+    warnings.push(
+      String(openPullRequests.length) +
+        " open pull requests were found, but none uniquely matches the current branch.",
+    );
+  }
 
   let task: TaskRecord | undefined;
   let nextTask: TaskRecord | undefined;
@@ -399,6 +517,8 @@ export async function recoverWorkspace(
     task,
     nextTask,
     pullRequest,
+    openPullRequests,
+    pendingPullRequestBranches,
   });
 
   return {
@@ -412,6 +532,8 @@ export async function recoverWorkspace(
     taskCandidates,
     constitution,
     pullRequest,
+    openPullRequests,
+    pendingPullRequestBranches,
     warnings,
     recommendation,
   };
@@ -479,11 +601,47 @@ export function workspaceRecoveryContext(recovery: WorkspaceRecovery): string {
           .join(" | ")
       : "- Task candidates: none",
     recovery.pullRequest
-      ? "- Open PR: #" +
+      ? "- Selected open PR: #" +
         recovery.pullRequest.pullRequest.number +
+        " / " +
+        (recovery.pullRequest.pullRequest.isDraft ? "draft" : "ready") +
+        " / branch " +
+        recovery.pullRequest.pullRequest.headRefName +
         " / CI " +
         recovery.pullRequest.ciState
-      : "- Open PR: none",
+      : "- Selected open PR: none",
+    "- Repository open PRs: " +
+      (recovery.openPullRequests?.length
+        ? recovery.openPullRequests
+            .map(
+              (pullRequest) =>
+                "#" +
+                String(pullRequest.number) +
+                " [" +
+                (pullRequest.isDraft ? "draft" : "open") +
+                "] " +
+                pullRequest.headRefName +
+                " — " +
+                pullRequest.title,
+            )
+            .join(" | ")
+        : "none"),
+    "- Pushed branches without open PR: " +
+      (recovery.pendingPullRequestBranches?.length
+        ? recovery.pendingPullRequestBranches
+            .map(
+              (branch) =>
+                branch.branch +
+                " [" +
+                String(branch.aheadOfDefault) +
+                " ahead / " +
+                String(branch.behindDefault) +
+                " behind default, upstream " +
+                branch.upstream +
+                "]",
+            )
+            .join(" | ")
+        : "none"),
     "- Recommended next action: " +
       recovery.recommendation.title +
       " — " +

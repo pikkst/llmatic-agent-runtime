@@ -13,9 +13,15 @@ import {
   createPullRequest,
   createWorkflowPullRequest,
   getFailedPullRequestDiagnostics,
+  getGitHubRepositoryName,
+  getPullRequestReviewContext,
+  getPullRequestReviewMetadata,
   getPullRequestStatus,
   mergePullRequest,
+  listOpenPullRequests,
   mergeWorkflowPullRequest,
+  publishPullRequestReview,
+  readPullRequestFileAtHead,
   refreshWorkflowRemoteCi,
 } from "../src/github.js";
 import type { GitHubProcessRunner } from "../src/types.js";
@@ -82,6 +88,172 @@ describe("github adapter", () => {
     ).rejects.toThrow("requires approval");
   });
 
+  it("lists open pull requests for repository auto review", () => {
+    const calls: string[][] = [];
+    const runner: GitHubProcessRunner = (_executable, args) => {
+      calls.push(args);
+      return {
+        exitCode: 0,
+        stdout: JSON.stringify([
+          {
+            number: 7,
+            url: "https://github.com/example/repo/pull/7",
+            state: "OPEN",
+            isDraft: false,
+            mergeable: "MERGEABLE",
+            mergeStateStatus: "CLEAN",
+            reviewDecision: null,
+            headRefName: "feature/one",
+            headRefOid: "head-one",
+            baseRefName: "main",
+            title: "First pull request",
+            author: { login: "alice" },
+          },
+        ]),
+        stderr: "",
+      };
+    };
+
+    const pullRequests = listOpenPullRequests("/repo", runner);
+
+    expect(pullRequests).toEqual([
+      expect.objectContaining({
+        number: 7,
+        title: "First pull request",
+        authorLogin: "alice",
+        headRefOid: "head-one",
+      }),
+    ]);
+    expect(calls[0]).toEqual([
+      "pr",
+      "list",
+      "--state",
+      "open",
+      "--limit",
+      "100",
+      "--json",
+      expect.any(String),
+    ]);
+  });
+
+  it("reads the canonical GitHub repository identity", () => {
+    const runner: GitHubProcessRunner = () => ({
+      exitCode: 0,
+      stdout: JSON.stringify({ nameWithOwner: "example/repo" }),
+      stderr: "",
+    });
+
+    expect(getGitHubRepositoryName("/repo", runner)).toBe("example/repo");
+  });
+
+  it("requires explicit approval before publishing a pull-request review comment", async () => {
+    const config = configFor("/repo");
+    const runner: GitHubProcessRunner = () => ({
+      exitCode: 0,
+      stdout: "",
+      stderr: "",
+    });
+
+    await expect(
+      publishPullRequestReview("/repo", config, "7", { body: "Review body" }, { runner }),
+    ).rejects.toThrow("requires approval");
+  });
+
+  it("publishes an approved focused review with inline comments", async () => {
+    const config = configFor("/repo");
+    const calls: string[][] = [];
+    const runner: GitHubProcessRunner = (_executable, args) => {
+      calls.push(args);
+      if (args[0] === "pr" && args[1] === "view") {
+        return { exitCode: 0, stdout: pullRequestJson(), stderr: "" };
+      }
+      if (args[0] === "repo" && args[1] === "view") {
+        return {
+          exitCode: 0,
+          stdout: JSON.stringify({ nameWithOwner: "example/repo" }),
+          stderr: "",
+        };
+      }
+      return { exitCode: 0, stdout: "", stderr: "" };
+    };
+
+    await publishPullRequestReview(
+      "/repo",
+      config,
+      "7",
+      {
+        body: "Focused review summary",
+        expectedHeadOid: "abc123",
+        inlineComments: [
+          {
+            path: "src/value.ts",
+            line: 1,
+            side: "RIGHT",
+            body: "**BLOCKING** Incorrect value\n\nEvidence: changed contract.",
+          },
+        ],
+      },
+      { approved: true, runner },
+    );
+
+    expect(calls).toContainEqual([
+      "api",
+      "--method",
+      "POST",
+      "repos/example/repo/pulls/7/comments",
+      "-f",
+      "body=**BLOCKING** Incorrect value\n\nEvidence: changed contract.",
+      "-f",
+      "commit_id=abc123",
+      "-f",
+      "path=src/value.ts",
+      "-F",
+      "line=1",
+      "-f",
+      "side=RIGHT",
+    ]);
+    expect(calls).toContainEqual([
+      "pr",
+      "review",
+      "7",
+      "--comment",
+      "--body",
+      "Focused review summary",
+    ]);
+  });
+
+  it("rejects publishing a stale pull-request review snapshot", async () => {
+    const config = configFor("/repo");
+    const runner: GitHubProcessRunner = (_executable, args) => {
+      if (args[0] === "pr" && args[1] === "view") {
+        return {
+          exitCode: 0,
+          stdout: pullRequestJson({ headRefOid: "new-head" }),
+          stderr: "",
+        };
+      }
+      if (args[0] === "repo" && args[1] === "view") {
+        return {
+          exitCode: 0,
+          stdout: JSON.stringify({ nameWithOwner: "example/repo" }),
+          stderr: "",
+        };
+      }
+
+      return { exitCode: 1, stdout: "", stderr: "unexpected command" };
+    };
+
+    await expect(
+      publishPullRequestReview(
+        "/repo",
+        config,
+        "7",
+        { body: "Review body", expectedHeadOid: "old-head" },
+        { approved: true, runner },
+      ),
+    ).rejects.toThrow("Pull-request head changed during review");
+  });
+
   it("creates a pull request with structured gh arguments", async () => {
     const config = configFor("/repo");
     const calls: string[][] = [];
@@ -126,6 +298,25 @@ describe("github adapter", () => {
     ]);
   });
 
+  it("maps an empty no-check response into remote CI state none", async () => {
+    const runner: GitHubProcessRunner = (_executable, args) => {
+      if (args[1] === "view") {
+        return { exitCode: 0, stdout: pullRequestJson(), stderr: "" };
+      }
+
+      return {
+        exitCode: 1,
+        stdout: "",
+        stderr: "no checks reported on the branch",
+      };
+    };
+
+    const status = await getPullRequestStatus("/repo", "7", runner);
+
+    expect(status.ciState).toBe("none");
+    expect(status.checks).toEqual([]);
+  });
+
   it("maps pending check exit code 8 into remote CI status", async () => {
     const runner: GitHubProcessRunner = (_executable, args) => {
       if (args[1] === "view") {
@@ -151,6 +342,291 @@ describe("github adapter", () => {
 
     expect(status.ciState).toBe("pending");
     expect(status.checks).toHaveLength(1);
+  });
+
+  it("reads external pull-request review context without mutations", async () => {
+    const calls: string[][] = [];
+    const runner: GitHubProcessRunner = (_executable, args) => {
+      calls.push(args);
+
+      if (args[1] === "checks") {
+        return { exitCode: 0, stdout: "[]", stderr: "" };
+      }
+
+      if (args[1] === "diff") {
+        return {
+          exitCode: 0,
+          stdout: "diff --git a/src/value.ts b/src/value.ts\n+export const value = 2;\n",
+          stderr: "",
+        };
+      }
+
+      if (args[0] === "repo" && args[1] === "view") {
+        return {
+          exitCode: 0,
+          stdout: JSON.stringify({ nameWithOwner: "example/repo" }),
+          stderr: "",
+        };
+      }
+
+      if (args[0] === "api" && args.includes("--paginate")) {
+        return {
+          exitCode: 0,
+          stdout: JSON.stringify([
+            [
+              {
+                filename: "src/value.ts",
+                additions: 1,
+                deletions: 0,
+              },
+            ],
+          ]),
+          stderr: "",
+        };
+      }
+
+      if (args[0] === "api" && args[1] === "graphql") {
+        return {
+          exitCode: 0,
+          stdout: JSON.stringify({
+            data: {
+              repository: {
+                pullRequest: {
+                  reviewThreads: {
+                    nodes: [
+                      {
+                        isResolved: false,
+                        isOutdated: false,
+                        path: "src/value.ts",
+                        line: 1,
+                        originalLine: 1,
+                        comments: {
+                          nodes: [
+                            {
+                              author: { login: "inline-reviewer" },
+                              body: "Please cover the null case.",
+                              createdAt: "2026-09-22T12:00:00Z",
+                              url: "https://github.com/example/repo/pull/7#discussion_r1",
+                            },
+                          ],
+                        },
+                      },
+                    ],
+                  },
+                },
+              },
+            },
+          }),
+          stderr: "",
+        };
+      }
+
+      if (args[1] === "view" && String(args.at(-1)).includes("title")) {
+        return {
+          exitCode: 0,
+          stdout: pullRequestJson({
+            title: "Improve value handling",
+            body: "PR body",
+            author: { login: "contributor" },
+            reviews: [
+              {
+                author: { login: "reviewer" },
+                state: "COMMENTED",
+                body: "Please verify the edge case.",
+                submittedAt: "2026-09-22T10:00:00Z",
+              },
+            ],
+            comments: [
+              {
+                author: { login: "maintainer" },
+                body: "CI is green.",
+                createdAt: "2026-09-22T11:00:00Z",
+                url: "https://github.com/example/repo/pull/7#issuecomment-1",
+              },
+            ],
+          }),
+          stderr: "",
+        };
+      }
+
+      if (args[1] === "view") {
+        return { exitCode: 0, stdout: pullRequestJson(), stderr: "" };
+      }
+
+      return { exitCode: 1, stdout: "", stderr: "unexpected command" };
+    };
+
+    const context = await getPullRequestReviewContext("/repo", "7", runner);
+
+    expect(context.status.ciState).toBe("none");
+    expect(context.title).toBe("Improve value handling");
+    expect(context.authorLogin).toBe("contributor");
+    expect(context.changedFiles).toEqual([{ path: "src/value.ts", additions: 1, deletions: 0 }]);
+    expect(context.reviews[0]).toMatchObject({
+      authorLogin: "reviewer",
+      state: "COMMENTED",
+    });
+    expect(context.comments[0]?.authorLogin).toBe("maintainer");
+    expect(context.reviewThreads[0]).toMatchObject({
+      path: "src/value.ts",
+      line: 1,
+      resolved: false,
+      outdated: false,
+    });
+    expect(context.reviewThreads[0]?.comments[0]?.authorLogin).toBe("inline-reviewer");
+    expect(context.diff).toContain("+export const value = 2;");
+    expect(context.diffTruncated).toBe(false);
+    expect(calls).toContainEqual(["pr", "diff", "7", "--color", "never"]);
+    expect(calls).toContainEqual([
+      "api",
+      "--paginate",
+      "--slurp",
+      "repos/example/repo/pulls/7/files?per_page=100",
+    ]);
+  });
+
+  it("keeps a 300k pull-request diff intact within the expanded review ingestion bound", async () => {
+    const largeDiff =
+      "diff --git a/src/value.ts b/src/value.ts\n--- a/src/value.ts\n+++ b/src/value.ts\n" +
+      "+".repeat(300_000);
+    const runner: GitHubProcessRunner = (_executable, args) => {
+      if (args[1] === "checks") {
+        return { exitCode: 0, stdout: "[]", stderr: "" };
+      }
+      if (args[1] === "diff") {
+        return { exitCode: 0, stdout: largeDiff, stderr: "" };
+      }
+      if (args[0] === "repo" && args[1] === "view") {
+        return {
+          exitCode: 0,
+          stdout: JSON.stringify({ nameWithOwner: "example/repo" }),
+          stderr: "",
+        };
+      }
+      if (args[0] === "api" && args.includes("--paginate")) {
+        return {
+          exitCode: 0,
+          stdout: JSON.stringify([[{ filename: "src/value.ts", additions: 1, deletions: 0 }]]),
+          stderr: "",
+        };
+      }
+      if (args[0] === "api" && args[1] === "graphql") {
+        return {
+          exitCode: 0,
+          stdout: JSON.stringify({
+            data: {
+              repository: {
+                pullRequest: {
+                  reviewThreads: { nodes: [] },
+                },
+              },
+            },
+          }),
+          stderr: "",
+        };
+      }
+      if (args[1] === "view" && String(args.at(-1)).includes("title")) {
+        return {
+          exitCode: 0,
+          stdout: pullRequestJson({
+            title: "Large bounded diff",
+            body: "",
+            author: { login: "contributor" },
+            reviews: [],
+            comments: [],
+          }),
+          stderr: "",
+        };
+      }
+      if (args[1] === "view") {
+        return { exitCode: 0, stdout: pullRequestJson(), stderr: "" };
+      }
+      return { exitCode: 1, stdout: "", stderr: "unexpected command" };
+    };
+
+    const context = await getPullRequestReviewContext("/repo", "7", runner);
+
+    expect(context.diffTruncated).toBe(false);
+    expect(context.diff).toBe(largeDiff);
+  });
+
+  it("reads bounded file context from the target pull-request head SHA", () => {
+    const calls: string[][] = [];
+    const runner: GitHubProcessRunner = (_executable, args) => {
+      calls.push(args);
+
+      if (args[0] === "repo" && args[1] === "view") {
+        return {
+          exitCode: 0,
+          stdout: JSON.stringify({ nameWithOwner: "example/repo" }),
+          stderr: "",
+        };
+      }
+
+      if (args[0] === "api" && args[1]?.startsWith("repos/example/repo/contents/")) {
+        return {
+          exitCode: 0,
+          stdout: JSON.stringify({
+            type: "file",
+            encoding: "base64",
+            content: Buffer.from("line one\nline two\nline three\n").toString("base64"),
+          }),
+          stderr: "",
+        };
+      }
+
+      return { exitCode: 1, stdout: "", stderr: "unexpected command" };
+    };
+
+    const result = readPullRequestFileAtHead(
+      "/repo",
+      JSON.parse(pullRequestJson()),
+      "src/value.ts",
+      { startLine: 2, endLine: 3 },
+      runner,
+    );
+
+    expect(result).toMatchObject({
+      path: "src/value.ts",
+      ref: "abc123",
+      startLine: 2,
+      endLine: 3,
+      content: "line two\nline three",
+      truncated: false,
+    });
+    expect(calls).toContainEqual(["api", "repos/example/repo/contents/src/value.ts?ref=abc123"]);
+  });
+
+  it("rejects external PR review when the target belongs to another repository", async () => {
+    const runner: GitHubProcessRunner = (_executable, args) => {
+      if (args[0] === "pr" && args[1] === "view") {
+        return {
+          exitCode: 0,
+          stdout: pullRequestJson({
+            url: "https://github.com/other/repo/pull/7",
+          }),
+          stderr: "",
+        };
+      }
+
+      if (args[0] === "pr" && args[1] === "checks") {
+        return { exitCode: 0, stdout: "[]", stderr: "" };
+      }
+
+      if (args[0] === "repo" && args[1] === "view") {
+        return {
+          exitCode: 0,
+          stdout: JSON.stringify({ nameWithOwner: "example/repo" }),
+          stderr: "",
+        };
+      }
+
+      return { exitCode: 1, stdout: "", stderr: "unexpected command" };
+    };
+
+    await expect(getPullRequestReviewMetadata("/repo", "7", runner)).rejects.toThrow(
+      "must target the opened repository",
+    );
   });
 
   it("returns bounded failed GitHub Actions logs for PR diagnostics", async () => {

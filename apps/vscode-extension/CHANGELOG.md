@@ -1,5 +1,33 @@
 # Changelog
 
+## 0.3.0 — 2026-09-24
+
+- Started the v0.3.0 development line after the accepted v0.2.0 release.
+- External pull-request review is the first active milestone: explicitly review another engineer's PR without changing Jira ownership or workspace task recovery state.
+- Added bounded read-only external PR context for Agent Chat, including metadata, changed files, unified diff, CI state, reviews and comments.
+- Added an explicit `LLMatic: Review External Pull Request` flow that runs General, Bug Hunter and Security lenses with Repository Constitution context without mutating Jira ownership or the active workflow.
+- External PR context now includes bounded inline review threads with path/line and resolved/outdated state so the reviewer can account for existing code-review discussion.
+- Review results can be copied as a Markdown draft or published as a GitHub review comment only after explicit modal confirmation and the dedicated `pullRequestReview` permission.
+- Pull requests without CI checks are treated as `ciState=none` instead of failing review context loading, and bounded/truncated diffs are explicitly reported as partial review coverage with omitted changed files.
+- External PR changed-file inventory is read through paginated GitHub REST results so review coverage does not silently stop at a single GraphQL file page.
+- Agent Chat no longer receives or downloads raw external PR diff bytes; it gets secret-policy-filtered metadata only, while the explicit structured review path keeps per-file diff access behind the existing sensitive-path guard. Inline review threads on sensitive paths are also excluded from model context.
+- External review now rejects pull requests from a different repository than the opened workspace, preventing local Constitution/source context from being applied to an unrelated repository.
+- Structured review `read_file` calls now read immutable file content from the target PR head SHA through GitHub instead of the active local branch, preserving external-review isolation without checkout or worktree mutation.
+- Review metadata, diff capture and publication are bound to one PR head SHA; if the PR changes during capture or before publication, LLMatic aborts and requires a refreshed review instead of posting stale findings.
+- External PR findings are now scope-gated: only documented DoD/acceptance violations, concrete changed-code defects, and explicit/human-approved repository-rule violations survive into the final report.
+- Nice-to-have features, optional refactors, cleanup/style preferences, speculative future work and unsupported performance ideas are filtered out; undocumented DoD requirements are discarded.
+- Concrete defect/rule findings must map to a real changed diff line and are previewed/published as GitHub inline comments; DoD gaps without a valid inline target remain summary-only.
+- Published review summaries are deterministic and based on validated findings rather than free-form model suggestion prose.
+- Added visible `External PR Review` and `Auto Review Agent` actions to the LLMatic Runtime Status view.
+- Added a repository-bound local Auto Review Agent that watches every two minutes while VS Code is open, baselines existing PRs on enable, automatically reviews new or updated review-ready PR heads, waits for drafts to become ready, and never auto-publishes review comments.
+- External review now uses bounded, preloaded changed-code batches and no model tools, eliminating broad `read_diff` / `repo_search` discovery loops during PR review.
+- Added adaptive free-model routing for external review: LLMatic discovers the live Kilo Gateway model catalog, persists per-lens review reliability history, prioritizes proven `:free` candidates, records latency/failure telemetry, and uses `kilo-auto/free` only when the explicit candidate budget is not already filled.
+- Adaptive routing now treats empty, malformed or schema-invalid structured review output as a semantic model failure, avoids the failed model within the current repair batch while keeping later batches recoverable, and gives provider daily-limit errors an extended cooldown instead of repeatedly selecting the same unusable model.
+- Adaptive review routing now preserves canonical routed-model identity when providers return alias model names, blacklists failed explicit models for the active review session, falls through provider-level compatibility errors, and ranks bounded review candidates for latency/structured-output suitability instead of oversized context windows.
+- External free-model candidate requests default to a 60-second timeout and up to three model candidates; transient timeout/overload/context/capability failures switch models, generic rate limits use a short recoverable cooldown, and daily limits remain long-lived.
+- Partial reviews no longer present zero findings as a clean verdict. The UI separates complete diff availability from review completeness, and a partial zero-finding review cannot be published as if it were an approval result.
+- Auto Review Agent retries partial/transient review results after a cooldown instead of marking the PR head permanently reviewed.
+
 ## 0.2.0
 
 - Added a persistent LLMatic Agent Chat webview with multi-turn user/assistant history and visible tool activity.

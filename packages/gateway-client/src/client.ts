@@ -1,4 +1,9 @@
-import type { GatewayChatRequest, GatewayChatResponse, GatewayFetch } from "./types.js";
+import type {
+  GatewayChatRequest,
+  GatewayChatResponse,
+  GatewayFetch,
+  GatewayModelInfo,
+} from "./types.js";
 
 const DEFAULT_BASE_URL = "https://api.kilo.ai/api/gateway";
 
@@ -17,12 +22,28 @@ export interface KiloGatewayClientOptions {
   fetch?: GatewayFetch;
   maxRetries?: number;
   retryBaseDelayMs?: number;
+  requestTimeoutMs?: number;
   sleep?: (delayMs: number) => Promise<void>;
   onRetry?: (event: GatewayRetryEvent) => void | Promise<void>;
 }
 
+export interface GatewayModelFailureFeedback {
+  model: string;
+  responseModel?: string;
+  task?: string;
+  reason: string;
+}
+
+export interface GatewayModelSuccessFeedback {
+  model: string;
+  responseModel?: string;
+  task?: string;
+}
+
 export interface GatewayChatClient {
   createChatCompletion(request: GatewayChatRequest): Promise<GatewayChatResponse>;
+  reportModelFailure?(feedback: GatewayModelFailureFeedback): void | Promise<void>;
+  reportModelSuccess?(feedback: GatewayModelSuccessFeedback): void | Promise<void>;
 }
 
 class RetryableGatewayError extends Error {
@@ -102,6 +123,7 @@ export class KiloGatewayClient implements GatewayChatClient {
   private readonly request: GatewayFetch;
   private readonly maxRetries: number;
   private readonly retryBaseDelayMs: number;
+  private readonly requestTimeoutMs: number;
   private readonly sleep: (delayMs: number) => Promise<void>;
   private readonly onRetry?: (event: GatewayRetryEvent) => void | Promise<void>;
 
@@ -112,8 +134,55 @@ export class KiloGatewayClient implements GatewayChatClient {
     this.request = options.fetch ?? fetch;
     this.maxRetries = Math.max(0, Math.min(5, Math.trunc(options.maxRetries ?? 2)));
     this.retryBaseDelayMs = Math.max(0, Math.trunc(options.retryBaseDelayMs ?? 500));
+    this.requestTimeoutMs = Math.max(
+      1_000,
+      Math.min(10 * 60_000, Math.trunc(options.requestTimeoutMs ?? 120_000)),
+    );
     this.sleep = options.sleep ?? defaultSleep;
     this.onRetry = options.onRetry;
+  }
+
+  public async listModels(): Promise<GatewayModelInfo[]> {
+    const controller = new AbortController();
+    const catalogTimeoutMs = Math.min(this.requestTimeoutMs, 10_000);
+    const timeout = setTimeout(() => controller.abort(), catalogTimeoutMs);
+
+    try {
+      const response = await this.request(this.baseUrl + "/models", {
+        method: "GET",
+        headers: { Accept: "application/json" },
+        signal: controller.signal,
+      });
+      if (!response.ok) {
+        throw new Error(
+          "Kilo Gateway model catalog failed with " +
+            response.status +
+            " " +
+            response.statusText +
+            ".",
+        );
+      }
+
+      const parsed = (await response.json()) as { data?: unknown };
+      if (!Array.isArray(parsed.data)) {
+        throw new Error("Kilo Gateway model catalog did not return a data array.");
+      }
+
+      return parsed.data.filter((model): model is GatewayModelInfo =>
+        Boolean(
+          model &&
+          typeof model === "object" &&
+          typeof (model as Record<string, unknown>).id === "string",
+        ),
+      );
+    } catch (error) {
+      if (controller.signal.aborted) {
+        throw new Error("Kilo Gateway model catalog timed out after " + catalogTimeoutMs + "ms.");
+      }
+      throw error;
+    } finally {
+      clearTimeout(timeout);
+    }
   }
 
   public async createChatCompletion(request: GatewayChatRequest): Promise<GatewayChatResponse> {
@@ -163,26 +232,36 @@ export class KiloGatewayClient implements GatewayChatClient {
     }
 
     let response: Response;
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), this.requestTimeoutMs);
 
     try {
       response = await this.request(this.baseUrl + "/chat/completions", {
         method: "POST",
         headers,
+        signal: controller.signal,
         body: JSON.stringify({
           model: request.model,
           messages: request.messages,
           tools: request.tools,
+          tool_choice: request.tool_choice,
+          response_format: request.response_format,
           max_tokens: request.max_tokens,
           temperature: request.temperature,
           stream: false,
         }),
       });
     } catch (error) {
+      const timedOut = controller.signal.aborted;
       throw new RetryableGatewayError(
-        "Kilo Gateway network request failed: " +
-          (error instanceof Error ? error.message : String(error)),
+        timedOut
+          ? "Kilo Gateway request timed out after " + this.requestTimeoutMs + "ms."
+          : "Kilo Gateway network request failed: " +
+              (error instanceof Error ? error.message : String(error)),
         true,
       );
+    } finally {
+      clearTimeout(timeout);
     }
 
     const raw = await response.text();

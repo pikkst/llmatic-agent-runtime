@@ -35,12 +35,39 @@ describe("KiloGatewayClient", () => {
       model: "kilo-auto/free",
       mode: "code",
       messages: [{ role: "user", content: "hello" }],
+      tool_choice: "none",
+      response_format: {
+        type: "json_schema",
+        json_schema: {
+          name: "review_report",
+          strict: true,
+          schema: {
+            type: "object",
+            required: ["summary", "findings"],
+            properties: {
+              summary: { type: "string" },
+              findings: { type: "array" },
+            },
+            additionalProperties: false,
+          },
+        },
+      },
     });
 
     expect(requestedUrl).toBe("https://api.kilo.ai/api/gateway/chat/completions");
     expect(new Headers(requestedHeaders).get("Authorization")).toBe("Bearer secret-key");
     expect(new Headers(requestedHeaders).get("x-kilocode-mode")).toBe("code");
     expect(requestedBody).not.toContain("secret-key");
+    expect(JSON.parse(requestedBody)).toMatchObject({
+      tool_choice: "none",
+      response_format: {
+        type: "json_schema",
+        json_schema: {
+          name: "review_report",
+          strict: true,
+        },
+      },
+    });
   });
   it("supports anonymous free-model requests without an Authorization header", async () => {
     let requestedHeaders: HeadersInit | undefined;
@@ -182,6 +209,29 @@ describe("KiloGatewayClient", () => {
       maxAttempts: 3,
     });
     expect(retries[0]?.reason).toContain("temporarily overloaded");
+  });
+
+  it("aborts a stalled Gateway request at the configured timeout", async () => {
+    const client = new KiloGatewayClient({
+      maxRetries: 0,
+      requestTimeoutMs: 1_000,
+      fetch: async (_input, init) =>
+        new Promise<Response>((_resolve, reject) => {
+          init?.signal?.addEventListener(
+            "abort",
+            () => reject(new DOMException("Aborted", "AbortError")),
+            { once: true },
+          );
+        }),
+    });
+
+    await expect(
+      client.createChatCompletion({
+        model: "kilo-auto/free",
+        mode: "code",
+        messages: [{ role: "user", content: "hello" }],
+      }),
+    ).rejects.toThrow("Kilo Gateway request timed out after 1000ms.");
   });
 
   it("retries HTTP 429 and 5xx failures but does not retry authentication failures", async () => {

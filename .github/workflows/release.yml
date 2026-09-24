@@ -81,9 +81,6 @@ jobs:
     permissions:
       contents: read
       id-token: write
-    env:
-      AZURE_TENANT_ID: ${{ secrets.VSCODE_MARKETPLACE_AZURE_TENANT_ID }}
-      AZURE_CORE_OUTPUT: none
 
     steps:
       - name: Checkout tagged commit
@@ -113,19 +110,8 @@ jobs:
           test -f "artifacts/release-manifest.json"
           sha256sum "artifacts/llmatic-agent-runtime-$VERSION.vsix"
 
-      - name: Login to Microsoft Entra ID
-        uses: azure/login@v3
-        with:
-          client-id: ${{ secrets.VSCODE_MARKETPLACE_AZURE_CLIENT_ID }}
-          tenant-id: ${{ secrets.VSCODE_MARKETPLACE_AZURE_TENANT_ID }}
-          allow-no-subscriptions: true
-
-      - name: Verify Marketplace publisher authorization
-        working-directory: apps/vscode-extension
-        run: pnpm exec vsce verify-pat eventnexus --azure-credential
-
       - name: Publish accepted VSIX to VS Code Marketplace
         working-directory: apps/vscode-extension
         run: |
           VERSION="${GITHUB_REF_NAME#v}"
-          pnpm exec vsce publish --azure-credential --skip-duplicate --packagePath "../../artifacts/llmatic-agent-runtime-$VERSION.vsix"
+          pnpm exec vsce publish --oidc --skip-duplicate --packagePath "../../artifacts/llmatic-agent-runtime-$VERSION.vsix"

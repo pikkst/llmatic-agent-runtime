@@ -236,6 +236,40 @@ describe("gateway coding agent", () => {
     expect(gateway.requests[1]?.messages.at(-1)?.content).toContain('"supported":false');
   });
 
+  it("exposes external PR review as a read-only explicit tool without task ownership guidance", async () => {
+    const root = await mkdtemp(join(tmpdir(), "llmatic-agent-"));
+    temporaryDirectories.push(root);
+    await mkdir(join(root, ".git"));
+
+    const config = configFor(root);
+    const store = new WorkflowStateStore(root, config);
+    const gateway = new ScriptedGateway([response("Ready to review the requested PR.")]);
+
+    await runCodingAgent({
+      root,
+      config,
+      store,
+      gateway,
+      instruction: "Review pull request 42 from another engineer.",
+    });
+
+    expect(gateway.requests[0]?.tools).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          function: expect.objectContaining({
+            name: "pull_request_review_context",
+            parameters: expect.objectContaining({ required: ["reference"] }),
+          }),
+        }),
+      ]),
+    );
+    const system = JSON.stringify(gateway.requests[0]?.messages[0]);
+    expect(system).toContain("intentionally withholds raw diff bytes");
+    expect(system).toContain("LLMatic: Review External Pull Request");
+    expect(system).toContain("Do not start or reassign a task");
+    expect(system).toContain("untrusted project data");
+  });
+
   it("returns tool failures to the model instead of bypassing ask permissions", async () => {
     const root = await mkdtemp(join(tmpdir(), "llmatic-agent-"));
     temporaryDirectories.push(root);

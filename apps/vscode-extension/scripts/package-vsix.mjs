@@ -13,22 +13,32 @@ const versionedOutput = resolve(artifactsRoot, "llmatic-agent-runtime-" + versio
 
 await mkdir(dirname(output), { recursive: true });
 
-// Never leave an older candidate under either canonical install name.
-await Promise.all([rm(output, { force: true }), rm(versionedOutput, { force: true })]);
-
-const result = spawnSync(
-  "pnpm",
-  ["exec", "vsce", "package", "--no-dependencies", "--out", output],
-  {
-    cwd: extensionRoot,
+function runPnpm(args, label, cwd = extensionRoot) {
+  const result = spawnSync("pnpm", args, {
+    cwd,
     env: process.env,
     stdio: "inherit",
     shell: process.platform === "win32",
-  },
-);
+  });
 
-if (result.error) throw result.error;
-if (result.status !== 0) process.exit(result.status ?? 1);
+  if (result.error) {
+    throw new Error(label + " could not start: " + result.error.message);
+  }
+  if (result.status !== 0) {
+    throw new Error(label + " failed with exit code " + String(result.status) + ".");
+  }
+}
+
+// Packaging must be self-contained. Build the full TypeScript project graph first
+// because the VS Code bundle resolves workspace packages through their compiled
+// dist/ exports (for example @llmatic/gateway-client/dist/index.js). Bundling only
+// the extension could otherwise package stale workspace dependency output.
+runPnpm(["run", "build"], "VSIX workspace build", repositoryRoot);
+
+// Never leave an older candidate under either canonical install name.
+await Promise.all([rm(output, { force: true }), rm(versionedOutput, { force: true })]);
+
+runPnpm(["exec", "vsce", "package", "--no-dependencies", "--out", output], "VSIX packaging");
 
 const bytes = await readFile(output);
 await copyFile(output, versionedOutput);

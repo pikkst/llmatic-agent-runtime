@@ -14,6 +14,7 @@ import {
   createBranch,
   createWorkflowBranch,
   getGitStatus,
+  listPublishedBranches,
   pushCurrentBranch,
   pushWorkflowBranch,
 } from "../src/git.js";
@@ -64,6 +65,61 @@ describe("git adapter", () => {
       unstagedCount: 1,
       untrackedCount: 1,
     });
+  });
+
+  it("discovers pushed unmerged branches relative to the remote default branch", async () => {
+    const runner: GitProcessRunner = (_executable, args) => {
+      if (args[0] === "symbolic-ref") {
+        return { exitCode: 0, stdout: "origin/main\n", stderr: "" };
+      }
+
+      if (args[0] === "for-each-ref") {
+        return {
+          exitCode: 0,
+          stdout: [
+            "main|origin/main|aaaaaaaa|2026-09-23T10:00:00+00:00",
+            "feature/KT-115|origin/feature/KT-115|bbbbbbbb|2026-09-23T18:00:00+00:00",
+            "feature/merged|origin/feature/merged|cccccccc|2026-09-22T18:00:00+00:00",
+            "local-only||dddddddd|2026-09-23T17:00:00+00:00",
+          ].join("\n"),
+          stderr: "",
+        };
+      }
+
+      if (args[0] === "merge-base") {
+        const branch = args[2];
+        return branch === "feature/merged"
+          ? { exitCode: 0, stdout: "", stderr: "" }
+          : { exitCode: 1, stdout: "", stderr: "" };
+      }
+
+      if (args[0] === "rev-list") {
+        const range = args.at(-1);
+        if (range === "main...feature/KT-115") {
+          return { exitCode: 0, stdout: "0\t3\n", stderr: "" };
+        }
+        if (range === "feature/KT-115...origin/feature/KT-115") {
+          return { exitCode: 0, stdout: "0\t0\n", stderr: "" };
+        }
+      }
+
+      return { exitCode: 1, stdout: "", stderr: "unexpected git command" };
+    };
+
+    const snapshot = await listPublishedBranches("/repo", runner);
+
+    expect(snapshot.defaultBranch).toBe("main");
+    expect(snapshot.branches).toEqual([
+      expect.objectContaining({
+        branch: "feature/KT-115",
+        upstream: "origin/feature/KT-115",
+        aheadOfDefault: 3,
+        behindDefault: 0,
+        aheadOfUpstream: 0,
+        behindUpstream: 0,
+        fullyPushed: true,
+      }),
+    ]);
   });
 
   it("creates branches with structured Git arguments", async () => {

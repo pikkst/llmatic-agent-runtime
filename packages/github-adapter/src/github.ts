@@ -9,7 +9,18 @@ import type {
   MergeMethod,
   MergePullRequestOptions,
   MergePullRequestResult,
+  OpenPullRequestSummary,
+  PullRequestChangedFile,
   PullRequestCheck,
+  PullRequestFileReadOptions,
+  PullRequestFileReadResult,
+  PullRequestCommentSnapshot,
+  PullRequestInlineCommentInput,
+  PublishPullRequestReviewInput,
+  PullRequestReviewContext,
+  PullRequestReviewMetadata,
+  PullRequestReviewSnapshot,
+  PullRequestReviewThreadSnapshot,
   PullRequestStatus,
   PullRequestSummary,
   RemoteCiState,
@@ -28,7 +39,57 @@ const PR_VIEW_FIELDS = [
   "baseRefName",
 ].join(",");
 
+const PR_LIST_FIELDS = [PR_VIEW_FIELDS, "title", "author"].join(",");
 const PR_CHECK_FIELDS = ["name", "state", "bucket", "workflow", "link"].join(",");
+const PR_REVIEW_FIELDS = [
+  "number",
+  "url",
+  "state",
+  "isDraft",
+  "mergeable",
+  "mergeStateStatus",
+  "reviewDecision",
+  "headRefName",
+  "headRefOid",
+  "baseRefName",
+  "title",
+  "body",
+  "author",
+  "reviews",
+  "comments",
+].join(",");
+const MAX_PULL_REQUEST_REVIEW_DIFF_CHARS = 512_000;
+const MAX_PULL_REQUEST_TEXT_CHARS = 32_000;
+const MAX_PULL_REQUEST_REVIEW_ITEMS = 50;
+const MAX_PULL_REQUEST_FILE_CHARS = 64_000;
+
+const PR_REVIEW_THREADS_QUERY = `
+query PullRequestReviewThreads($owner: String!, $name: String!, $number: Int!) {
+  repository(owner: $owner, name: $name) {
+    pullRequest(number: $number) {
+      reviewThreads(first: 50) {
+        nodes {
+          isResolved
+          isOutdated
+          path
+          line
+          originalLine
+          comments(first: 50) {
+            nodes {
+              author {
+                login
+              }
+              body
+              createdAt
+              url
+            }
+          }
+        }
+      }
+    }
+  }
+}
+`;
 
 function defaultRunner(executable: string, args: string[], cwd: string): GitHubProcessResult {
   const result = spawnSync(executable, args, {
@@ -93,6 +154,24 @@ function assertPermission(
   if (permission === "ask" && !approved) {
     throw new Error(
       permissionName + " requires approval. Re-run with --approve after reviewing the operation.",
+    );
+  }
+}
+
+async function assertPullRequestHeadStable(
+  root: string,
+  ref: string | number,
+  expectedHeadOid: string,
+  runner: GitHubProcessRunner,
+): Promise<void> {
+  const current = await getPullRequestSummary(root, ref, runner);
+  if (current.headRefOid !== expectedHeadOid) {
+    throw new Error(
+      "Pull-request head changed during review. Expected " +
+        expectedHeadOid +
+        " but found " +
+        current.headRefOid +
+        ". Refresh the review before continuing.",
     );
   }
 }
@@ -167,6 +246,39 @@ export async function getPullRequestSummary(
   return normalizePullRequest(parseJson<Record<string, unknown>>(result, args));
 }
 
+export function getGitHubRepositoryName(
+  root: string,
+  runner: GitHubProcessRunner = defaultRunner,
+): string {
+  const args = ["repo", "view", "--json", "nameWithOwner"];
+  const repository = parseJson<{ nameWithOwner?: string }>(
+    requireSuccess(run(root, args, runner), args),
+    args,
+  );
+  const nameWithOwner = String(repository.nameWithOwner ?? "").trim();
+  if (!nameWithOwner || !nameWithOwner.includes("/")) {
+    throw new Error("GitHub repository owner/name could not be resolved.");
+  }
+  return nameWithOwner;
+}
+
+export function listOpenPullRequests(
+  root: string,
+  runner: GitHubProcessRunner = defaultRunner,
+): OpenPullRequestSummary[] {
+  const args = ["pr", "list", "--state", "open", "--limit", "100", "--json", PR_LIST_FIELDS];
+  const raw = parseJson<Record<string, unknown>[]>(
+    requireSuccess(run(root, args, runner), args),
+    args,
+  );
+
+  return raw.map((item) => ({
+    ...normalizePullRequest(item),
+    title: typeof item.title === "string" ? item.title : "",
+    authorLogin: actorLogin(item.author),
+  }));
+}
+
 export async function getPullRequestStatus(
   root: string,
   ref?: string | number,
@@ -180,12 +292,329 @@ export async function getPullRequestStatus(
     requireSuccess(result, args);
   }
 
-  const checks = parseJson<PullRequestCheck[]>(result, args);
+  const checks = result.stdout.trim() ? parseJson<PullRequestCheck[]>(result, args) : [];
 
   return {
     pullRequest,
     checks,
     ciState: ciStateFor(checks),
+  };
+}
+
+function boundedPullRequestText(value: unknown): string {
+  const text = typeof value === "string" ? value : "";
+  return text.length <= MAX_PULL_REQUEST_TEXT_CHARS
+    ? text
+    : text.slice(0, MAX_PULL_REQUEST_TEXT_CHARS) + "\n[TEXT TRUNCATED]";
+}
+
+function actorLogin(value: unknown): string | undefined {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return undefined;
+  const login = (value as Record<string, unknown>).login;
+  return typeof login === "string" && login.trim() ? login.trim() : undefined;
+}
+
+function normalizeReviewSnapshots(value: unknown): PullRequestReviewSnapshot[] {
+  if (!Array.isArray(value)) return [];
+
+  return value.slice(-MAX_PULL_REQUEST_REVIEW_ITEMS).map((item) => {
+    const raw =
+      item && typeof item === "object" && !Array.isArray(item)
+        ? (item as Record<string, unknown>)
+        : {};
+    return {
+      authorLogin: actorLogin(raw.author),
+      state: typeof raw.state === "string" ? raw.state : undefined,
+      body: boundedPullRequestText(raw.body),
+      submittedAt: typeof raw.submittedAt === "string" ? raw.submittedAt : undefined,
+    };
+  });
+}
+
+function normalizeCommentSnapshots(value: unknown): PullRequestCommentSnapshot[] {
+  if (!Array.isArray(value)) return [];
+
+  return value.slice(-MAX_PULL_REQUEST_REVIEW_ITEMS).map((item) => {
+    const raw =
+      item && typeof item === "object" && !Array.isArray(item)
+        ? (item as Record<string, unknown>)
+        : {};
+    return {
+      authorLogin: actorLogin(raw.author),
+      body: boundedPullRequestText(raw.body),
+      createdAt: typeof raw.createdAt === "string" ? raw.createdAt : undefined,
+      url: typeof raw.url === "string" ? raw.url : undefined,
+    };
+  });
+}
+
+function normalizeReviewThreads(value: unknown): PullRequestReviewThreadSnapshot[] {
+  if (!Array.isArray(value)) return [];
+
+  return value
+    .slice(0, MAX_PULL_REQUEST_REVIEW_ITEMS)
+    .map((item) => {
+      const raw =
+        item && typeof item === "object" && !Array.isArray(item)
+          ? (item as Record<string, unknown>)
+          : {};
+      const commentsContainer =
+        raw.comments && typeof raw.comments === "object" && !Array.isArray(raw.comments)
+          ? (raw.comments as Record<string, unknown>)
+          : {};
+
+      return {
+        path: typeof raw.path === "string" ? raw.path.replaceAll("\\", "/") : "",
+        line: typeof raw.line === "number" ? raw.line : undefined,
+        originalLine: typeof raw.originalLine === "number" ? raw.originalLine : undefined,
+        resolved: Boolean(raw.isResolved),
+        outdated: Boolean(raw.isOutdated),
+        comments: normalizeCommentSnapshots(commentsContainer.nodes),
+      };
+    })
+    .filter((thread) => Boolean(thread.path));
+}
+
+interface PullRequestCoordinates {
+  owner: string;
+  name: string;
+  number: number;
+}
+
+function pullRequestCoordinates(pullRequest: PullRequestSummary): PullRequestCoordinates {
+  let pullRequestUrl: URL;
+  try {
+    pullRequestUrl = new URL(pullRequest.url);
+  } catch {
+    throw new Error("Pull-request URL is invalid and cannot resolve its repository.");
+  }
+
+  const pathParts = pullRequestUrl.pathname.split("/").filter(Boolean);
+  const [owner, name, pullSegment, numberSegment] = pathParts;
+  const number = Number(numberSegment);
+  if (
+    !owner ||
+    !name ||
+    pullSegment !== "pull" ||
+    !Number.isInteger(number) ||
+    number <= 0 ||
+    number !== pullRequest.number
+  ) {
+    throw new Error("Pull-request repository/number could not be resolved from its canonical URL.");
+  }
+
+  return { owner, name, number };
+}
+
+function assertPullRequestMatchesWorkspaceRepository(
+  root: string,
+  pullRequest: PullRequestSummary,
+  runner: GitHubProcessRunner,
+): void {
+  const target = pullRequestCoordinates(pullRequest);
+  const workspaceNameWithOwner = getGitHubRepositoryName(root, runner);
+  const targetNameWithOwner = target.owner + "/" + target.name;
+
+  if (
+    !workspaceNameWithOwner ||
+    workspaceNameWithOwner.toLowerCase() !== targetNameWithOwner.toLowerCase()
+  ) {
+    throw new Error(
+      "External pull-request review must target the opened repository. Workspace: " +
+        (workspaceNameWithOwner || "unknown") +
+        "; target: " +
+        targetNameWithOwner +
+        ".",
+    );
+  }
+}
+
+function readPullRequestChangedFiles(
+  root: string,
+  pullRequest: PullRequestSummary,
+  runner: GitHubProcessRunner,
+): PullRequestChangedFile[] {
+  const { owner, name, number } = pullRequestCoordinates(pullRequest);
+  const args = [
+    "api",
+    "--paginate",
+    "--slurp",
+    "repos/" + owner + "/" + name + "/pulls/" + String(number) + "/files?per_page=100",
+  ];
+  const pages = parseJson<unknown[]>(requireSuccess(run(root, args, runner), args), args);
+  const rawFiles = pages.flatMap((page) => (Array.isArray(page) ? page : []));
+
+  return rawFiles
+    .map((item) => {
+      const file =
+        item && typeof item === "object" && !Array.isArray(item)
+          ? (item as Record<string, unknown>)
+          : {};
+      return {
+        path: typeof file.filename === "string" ? file.filename.replaceAll("\\", "/") : "",
+        additions: typeof file.additions === "number" ? file.additions : 0,
+        deletions: typeof file.deletions === "number" ? file.deletions : 0,
+      };
+    })
+    .filter((file) => Boolean(file.path));
+}
+
+function readPullRequestReviewThreads(
+  root: string,
+  pullRequest: PullRequestSummary,
+  runner: GitHubProcessRunner,
+): PullRequestReviewThreadSnapshot[] {
+  const { owner, name, number } = pullRequestCoordinates(pullRequest);
+
+  const args = [
+    "api",
+    "graphql",
+    "-f",
+    "query=" + PR_REVIEW_THREADS_QUERY,
+    "-f",
+    "owner=" + owner,
+    "-f",
+    "name=" + name,
+    "-F",
+    "number=" + String(number),
+  ];
+  const result = parseJson<{
+    data?: {
+      repository?: {
+        pullRequest?: {
+          reviewThreads?: {
+            nodes?: unknown[];
+          };
+        };
+      };
+    };
+  }>(requireSuccess(run(root, args, runner), args), args);
+
+  return normalizeReviewThreads(result.data?.repository?.pullRequest?.reviewThreads?.nodes);
+}
+
+/**
+ * Reads bounded pull-request metadata for explicit external review without
+ * downloading unified diff bytes or mutating local/remote workflow state.
+ */
+export async function getPullRequestReviewMetadata(
+  root: string,
+  ref: string | number,
+  runner: GitHubProcessRunner = defaultRunner,
+): Promise<PullRequestReviewMetadata> {
+  const status = await getPullRequestStatus(root, ref, runner);
+  assertPullRequestMatchesWorkspaceRepository(root, status.pullRequest, runner);
+
+  const target = ref || status.pullRequest.number;
+  const viewArgs = [...prArgs("view", target), "--json", PR_REVIEW_FIELDS];
+  const raw = parseJson<Record<string, unknown>>(
+    requireSuccess(run(root, viewArgs, runner), viewArgs),
+    viewArgs,
+  );
+  const changedFiles = readPullRequestChangedFiles(root, status.pullRequest, runner);
+  const reviewThreads = readPullRequestReviewThreads(root, status.pullRequest, runner);
+  await assertPullRequestHeadStable(root, ref, status.pullRequest.headRefOid, runner);
+
+  return {
+    status,
+    title: typeof raw.title === "string" ? raw.title : "",
+    body: boundedPullRequestText(raw.body),
+    authorLogin: actorLogin(raw.author),
+    changedFiles,
+    reviews: normalizeReviewSnapshots(raw.reviews),
+    comments: normalizeCommentSnapshots(raw.comments),
+    reviewThreads,
+  };
+}
+
+export function readPullRequestFileAtHead(
+  root: string,
+  pullRequest: PullRequestSummary,
+  path: string,
+  options: PullRequestFileReadOptions = {},
+  runner: GitHubProcessRunner = defaultRunner,
+): PullRequestFileReadResult {
+  assertPullRequestMatchesWorkspaceRepository(root, pullRequest, runner);
+
+  const normalizedPath = path.replaceAll("\\", "/").replace(/^\/+/, "");
+  if (!normalizedPath) {
+    throw new Error("Pull-request file path is required.");
+  }
+
+  const { owner, name } = pullRequestCoordinates(pullRequest);
+  const encodedPath = normalizedPath
+    .split("/")
+    .map((segment) => encodeURIComponent(segment))
+    .join("/");
+  const args = [
+    "api",
+    "repos/" +
+      owner +
+      "/" +
+      name +
+      "/contents/" +
+      encodedPath +
+      "?ref=" +
+      encodeURIComponent(pullRequest.headRefOid),
+  ];
+  const raw = parseJson<Record<string, unknown>>(
+    requireSuccess(run(root, args, runner), args),
+    args,
+  );
+
+  if (raw.type !== "file" || raw.encoding !== "base64" || typeof raw.content !== "string") {
+    throw new Error(
+      "Target pull-request path is not a readable text file: " + normalizedPath + ".",
+    );
+  }
+
+  const decoded = Buffer.from(raw.content.replace(/\s+/g, ""), "base64").toString("utf8");
+  if (decoded.includes("\u0000")) {
+    throw new Error("Target pull-request path appears to be binary: " + normalizedPath + ".");
+  }
+
+  const lines = decoded.split(/\r?\n/);
+  const totalLines = lines.length;
+  const startLine = Math.max(1, Math.floor(options.startLine ?? 1));
+  const requestedEnd = Math.floor(options.endLine ?? totalLines);
+  const endLine = Math.max(startLine, Math.min(totalLines, requestedEnd));
+  const selected = lines.slice(startLine - 1, endLine).join("\n");
+  const truncated = selected.length > MAX_PULL_REQUEST_FILE_CHARS;
+
+  return {
+    path: normalizedPath,
+    ref: pullRequest.headRefOid,
+    startLine,
+    endLine,
+    totalLines,
+    content: truncated
+      ? selected.slice(0, MAX_PULL_REQUEST_FILE_CHARS) + "\n[FILE TRUNCATED]"
+      : selected,
+    truncated,
+  };
+}
+
+/**
+ * Adds the bounded unified diff used by the explicit structured review flow.
+ */
+export async function getPullRequestReviewContext(
+  root: string,
+  ref: string | number,
+  runner: GitHubProcessRunner = defaultRunner,
+): Promise<PullRequestReviewContext> {
+  const metadata = await getPullRequestReviewMetadata(root, ref, runner);
+  const target = ref || metadata.status.pullRequest.number;
+  const diffArgs = [...prArgs("diff", target), "--color", "never"];
+  const rawDiff = requireSuccess(run(root, diffArgs, runner), diffArgs).stdout;
+  const diffTruncated = rawDiff.length > MAX_PULL_REQUEST_REVIEW_DIFF_CHARS;
+  await assertPullRequestHeadStable(root, ref, metadata.status.pullRequest.headRefOid, runner);
+
+  return {
+    ...metadata,
+    diff: diffTruncated
+      ? rawDiff.slice(0, MAX_PULL_REQUEST_REVIEW_DIFF_CHARS) + "\n[DIFF TRUNCATED]"
+      : rawDiff,
+    diffTruncated,
   };
 }
 
@@ -259,6 +688,83 @@ export async function getFailedPullRequestDiagnostics(
   }
 
   return { status, failed };
+}
+
+function normalizeInlineReviewComment(
+  comment: PullRequestInlineCommentInput,
+): PullRequestInlineCommentInput {
+  const path = comment.path.replaceAll("\\", "/").replace(/^\/+/, "").trim();
+  const body = comment.body.trim();
+  const line = Math.trunc(comment.line);
+
+  if (!path) throw new Error("Inline review comment path is required.");
+  if (!body) throw new Error("Inline review comment body is required.");
+  if (!Number.isInteger(line) || line <= 0) {
+    throw new Error("Inline review comment line must be a positive integer.");
+  }
+  if (comment.side !== "RIGHT" && comment.side !== "LEFT") {
+    throw new Error("Inline review comment side must be RIGHT or LEFT.");
+  }
+
+  return { path, line, side: comment.side, body };
+}
+
+export async function publishPullRequestReview(
+  root: string,
+  config: AgentConfig,
+  ref: string | number,
+  input: PublishPullRequestReviewInput,
+  options: GitHubMutationOptions = {},
+): Promise<void> {
+  const body = input.body.trim();
+  if (!body) {
+    throw new Error("Pull-request review body is required.");
+  }
+
+  assertPermission(
+    config.permissions.pullRequestReview,
+    "Pull-request review publication",
+    options.approved === true,
+  );
+
+  const target = normalizeRef(ref);
+  if (!target) {
+    throw new Error("Pull-request review reference is required.");
+  }
+
+  const runner = runnerFor(options);
+  const pullRequest = await getPullRequestSummary(root, target, runner);
+  assertPullRequestMatchesWorkspaceRepository(root, pullRequest, runner);
+
+  if (input.expectedHeadOid?.trim()) {
+    await assertPullRequestHeadStable(root, target, input.expectedHeadOid.trim(), runner);
+  }
+
+  const { owner, name, number } = pullRequestCoordinates(pullRequest);
+  const inlineComments = (input.inlineComments ?? []).map(normalizeInlineReviewComment);
+
+  for (const comment of inlineComments) {
+    const inlineArgs = [
+      "api",
+      "--method",
+      "POST",
+      "repos/" + owner + "/" + name + "/pulls/" + String(number) + "/comments",
+      "-f",
+      "body=" + comment.body,
+      "-f",
+      "commit_id=" + pullRequest.headRefOid,
+      "-f",
+      "path=" + comment.path,
+      "-F",
+      "line=" + String(comment.line),
+      "-f",
+      "side=" + comment.side,
+    ];
+    requireSuccess(run(root, inlineArgs, runner), inlineArgs);
+  }
+
+  const args = ["pr", "review", target, "--comment", "--body", body];
+  requireSuccess(run(root, args, runner), args);
 }
 
 export async function createPullRequest(

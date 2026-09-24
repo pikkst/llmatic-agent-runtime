@@ -1,5 +1,5 @@
 import { spawnSync } from "node:child_process";
-import { access } from "node:fs/promises";
+import { access, appendFile, readFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { resolve } from "node:path";
 import * as vscode from "vscode";
@@ -32,7 +32,20 @@ import {
   type BrokerCredential,
   type BrokerResource,
 } from "@llmatic/external-connections";
-import { KiloGatewayClient } from "@llmatic/gateway-client";
+import {
+  AdaptiveFreeGatewayClient,
+  KiloGatewayClient,
+  type AdaptiveGatewayRouteEvent,
+  type ReviewModelHistoryRecord,
+} from "@llmatic/gateway-client";
+import {
+  getGitHubRepositoryName,
+  getPullRequestReviewContext,
+  listOpenPullRequests,
+  publishPullRequestReview,
+  readPullRequestFileAtHead,
+  type OpenPullRequestSummary,
+} from "@llmatic/github-adapter";
 import { verifyJiraConnectionFromEnvironment, type JiraWorkMode } from "@llmatic/jira-adapter";
 import {
   approveCurrentProjectPlan,
@@ -57,8 +70,10 @@ import {
 import {
   loadLatestReviewReport,
   runCodeReview,
+  runExternalPullRequestReview,
   runReviewFixLoop,
   type CodeReviewReport,
+  type ReviewActivityEvent,
   type ReviewLoopEvent,
 } from "@llmatic/review-engine";
 import {
@@ -92,6 +107,7 @@ import { AgentChatViewProvider } from "./agent-chat-view.js";
 import {
   LlmaticStatusDecorationProvider,
   LlmaticStatusProvider,
+  type AutoReviewStatus,
   type WorkspaceJiraStatus,
 } from "./status-view.js";
 
@@ -101,6 +117,11 @@ const KILO_ANONYMOUS_STATE = "llmatic.kiloGatewayAnonymousAccepted";
 const JIRA_PROFILE_STATE_KEY = "llmatic.jiraProfile.v1";
 const JIRA_SECRET_PREFIX = "llmatic.jira.workspace";
 const AUTO_FREE_WARNING_ACCEPTED = "llmatic.autoFreeDataWarningAccepted";
+const AUTO_REVIEW_STATE_KEY = "llmatic.externalPrAutoReview.v1";
+const REVIEW_MODEL_HISTORY_STATE_KEY = "llmatic.reviewModelHistory.v1";
+const AUTO_REVIEW_POLL_INTERVAL_MS = 120_000;
+const AUTO_REVIEW_RETRY_COOLDOWN_MS = 10 * 60_000;
+const WORKSPACE_RECOVERY_FOCUS_REFRESH_COOLDOWN_MS = 30_000;
 const ONBOARDING_VERSION = 1;
 
 interface WorkspaceJiraProfile {
@@ -122,6 +143,31 @@ interface GatewayAccess {
   anonymous: boolean;
 }
 
+interface AutoReviewLastResult {
+  number: number;
+  headRefOid: string;
+  title: string;
+  reviewedAt: string;
+  blockingCount: number;
+  nonBlockingCount: number;
+  coverage: "complete" | "partial";
+  reviewStatus: "complete" | "partial";
+}
+
+interface AutoReviewRetryState {
+  fingerprint: string;
+  retryAfter: number;
+}
+
+interface AutoReviewWorkspaceState {
+  enabled: boolean;
+  repository?: string;
+  seenFingerprints: Record<string, string>;
+  retry?: Record<string, AutoReviewRetryState>;
+  lastReviewed?: AutoReviewLastResult;
+  lastError?: string;
+}
+
 interface ExtensionState {
   activeWorkspace?: ManagedWorkspace;
   runtime?: RuntimeInstallResult;
@@ -132,6 +178,8 @@ interface ExtensionState {
   gatewayKeyConfigured: boolean;
   recovery?: WorkspaceRecovery;
   jiraConnectionError?: string;
+  autoReviewRunning?: boolean;
+  activeExternalReviewPrNumbers: Set<number>;
   lastError?: string;
 }
 
@@ -157,6 +205,52 @@ async function exists(path: string): Promise<boolean> {
 
 function configuration() {
   return vscode.workspace.getConfiguration("llmatic");
+}
+
+function autoReviewWorkspaceState(context: vscode.ExtensionContext): AutoReviewWorkspaceState {
+  return (
+    context.workspaceState.get<AutoReviewWorkspaceState>(AUTO_REVIEW_STATE_KEY) ?? {
+      enabled: false,
+      seenFingerprints: {},
+    }
+  );
+}
+
+function autoReviewStatus(profile: AutoReviewWorkspaceState): AutoReviewStatus {
+  return {
+    enabled: profile.enabled,
+    repository: profile.repository,
+    lastReviewedPr: profile.lastReviewed?.number,
+    lastReviewedAt: profile.lastReviewed?.reviewedAt,
+    lastReviewStatus: profile.lastReviewed?.reviewStatus,
+    error: profile.lastError,
+  };
+}
+
+async function storeAutoReviewWorkspaceState(
+  context: vscode.ExtensionContext,
+  statusProvider: LlmaticStatusProvider,
+  profile: AutoReviewWorkspaceState,
+): Promise<void> {
+  await context.workspaceState.update(AUTO_REVIEW_STATE_KEY, profile);
+  statusProvider.setAutoReviewStatus(autoReviewStatus(profile));
+}
+
+function pullRequestWatchFingerprint(pullRequest: OpenPullRequestSummary): string {
+  return pullRequest.headRefOid + ":" + (pullRequest.isDraft ? "draft" : "ready");
+}
+
+async function automaticGatewayAccess(
+  context: vscode.ExtensionContext,
+  model: string,
+): Promise<GatewayAccess | undefined> {
+  const apiKey = await context.secrets.get(KILO_GATEWAY_SECRET);
+  if (apiKey) return { apiKey, anonymous: false };
+
+  const anonymousAllowed =
+    configuration().get<boolean>("allowAnonymousKiloFree", true) && isAnonymousFreeKiloModel(model);
+  const dataHandlingAccepted = context.globalState.get<boolean>(AUTO_FREE_WARNING_ACCEPTED, false);
+  return anonymousAllowed && dataHandlingAccepted ? { anonymous: true } : undefined;
 }
 
 function jiraSecretKey(workspaceId: string, authType: "basic" | "bearer" | "oauth_broker"): string {
@@ -1331,10 +1425,45 @@ async function refreshWorkspaceRecovery(
       }
       if (recovery.pullRequest) {
         output.appendLine(
-          "[RECOVERY] PR #" +
+          "[RECOVERY] " +
+            (recovery.pullRequest.pullRequest.isDraft ? "Draft PR #" : "PR #") +
             recovery.pullRequest.pullRequest.number +
+            " / " +
+            recovery.pullRequest.pullRequest.headRefName +
             " / CI " +
             recovery.pullRequest.ciState,
+        );
+      }
+      if ((recovery.openPullRequests?.length ?? 0) > 0) {
+        output.appendLine(
+          "[RECOVERY] Repository open PRs: " +
+            recovery.openPullRequests
+              ?.map(
+                (pullRequest) =>
+                  "#" +
+                  String(pullRequest.number) +
+                  " [" +
+                  (pullRequest.isDraft ? "draft" : "open") +
+                  "] " +
+                  pullRequest.headRefName,
+              )
+              .join(", "),
+        );
+      }
+      if ((recovery.pendingPullRequestBranches?.length ?? 0) > 0) {
+        output.appendLine(
+          "[RECOVERY] Pushed branches without PR: " +
+            recovery.pendingPullRequestBranches
+              ?.map(
+                (branch) =>
+                  branch.branch +
+                  " [" +
+                  String(branch.aheadOfDefault) +
+                  " ahead, upstream " +
+                  branch.upstream +
+                  "]",
+              )
+              .join(", "),
         );
       }
       output.appendLine(
@@ -1731,6 +1860,7 @@ function formatAgentActivity(event: CodingAgentEvent): string {
     run_capability: "Running a project quality check…",
     validate_workflow: "Validating the workflow…",
     pull_request_status: "Checking the pull request and CI…",
+    pull_request_review_context: "Reading external pull request review context…",
     pull_request_failed_logs: "Reading failed CI diagnostics…",
     git_status: "Checking Git state…",
     workflow_status: "Checking workflow state…",
@@ -1743,18 +1873,18 @@ async function confirmAutoFreeDataHandling(
   context: vscode.ExtensionContext,
   model: string,
 ): Promise<boolean> {
-  if (model !== "kilo-auto/free") return true;
+  if (!isAnonymousFreeKiloModel(model)) return true;
 
   const accepted = context.globalState.get<boolean>(AUTO_FREE_WARNING_ACCEPTED, false);
   if (accepted) return true;
 
   const selection = await vscode.window.showWarningMessage(
-    "Auto Free may route repository snippets to third-party inference providers that can log prompts/outputs. LLMatic blocks common secret files, but do not use Auto Free for confidential source code.",
+    "Free Kilo models may route repository snippets to third-party inference providers that can log prompts/outputs or use them to improve services. LLMatic blocks common secret files, but do not use free routing for confidential source code.",
     { modal: true },
-    "Continue with Auto Free",
+    "Continue with Free Models",
   );
 
-  if (selection !== "Continue with Auto Free") return false;
+  if (selection !== "Continue with Free Models") return false;
   await context.globalState.update(AUTO_FREE_WARNING_ACCEPTED, true);
   return true;
 }
@@ -1791,7 +1921,17 @@ function printReviewReport(output: vscode.OutputChannel, report: CodeReviewRepor
           " required impact area(s)"
         : "baseline not detected"),
   );
-  output.appendLine("Total blocking review items: " + report.blockingCount);
+  const externalStatus =
+    "reviewStatus" in report && typeof report.reviewStatus === "string"
+      ? report.reviewStatus
+      : undefined;
+  output.appendLine(
+    externalStatus === "partial"
+      ? "Validated blocking review items: " +
+          report.blockingCount +
+          " — review incomplete; this is not an approval verdict"
+      : "Total blocking review items: " + report.blockingCount,
+  );
   output.appendLine("");
 
   for (const finding of report.findings) {
@@ -2131,6 +2271,8 @@ async function runGatewayReview(
   let store = new WorkflowStateStore(root, config);
   const gateway = new KiloGatewayClient({
     apiKey: gatewayAccess.apiKey,
+    maxRetries: 0,
+    requestTimeoutMs: configuration().get<number>("reviewRequestTimeoutMs", 60_000),
     onRetry: (event) => {
       output.appendLine(
         "[RETRY] Kilo Gateway " + event.nextAttempt + "/" + event.maxAttempts + ": " + event.reason,
@@ -2180,7 +2322,7 @@ async function runGatewayReview(
           gateway,
           model,
           lenses: ["general", "bug_hunter", "security"],
-          maxSteps: configuration().get<number>("agentMaxSteps", 20),
+          maxSteps: configuration().get<number>("reviewMaxSteps", 8),
           maxReviewRounds: config.workflow.maxFixAttempts,
           allowAdHoc: true,
           onEvent: (event) => {
@@ -2234,6 +2376,1317 @@ async function runGatewayReview(
       " non-blocking finding(s).",
   );
   return report;
+}
+
+function adaptiveRouteDescription(event: AdaptiveGatewayRouteEvent): string {
+  switch (event.type) {
+    case "catalog":
+      return (
+        "Live free-model catalog: " +
+        event.freeModelCount +
+        " candidate(s) · " +
+        formatElapsedDuration(event.durationMs)
+      );
+    case "review-history":
+      return (
+        event.task +
+        " Tier A: " +
+        (event.trustedModels.length > 0 ? event.trustedModels.join(", ") : "none") +
+        " · Tier B: " +
+        (event.mixedModels.length > 0 ? event.mixedModels.join(", ") : "none") +
+        (event.explorationModels.length > 0
+          ? " · exploration: " + event.explorationModels.join(", ")
+          : " · exploration: none")
+      );
+    case "attempt":
+      return (
+        event.task +
+        " → " +
+        event.candidateModel +
+        " · candidate " +
+        event.attempt +
+        "/" +
+        event.maxAttempts +
+        (event.structuredOutputMode
+          ? " · JSON " + (event.structuredOutputMode === "native" ? "native" : "prompt-only")
+          : "") +
+        (event.reasoningModel ? " · reasoning-heavy" : "")
+      );
+    case "success":
+      return (
+        event.task +
+        " → " +
+        event.candidateModel +
+        " · success in " +
+        formatElapsedDuration(event.latencyMs) +
+        (event.responseModel !== event.candidateModel
+          ? " · response model " + event.responseModel
+          : "")
+      );
+    case "failure":
+      return (
+        event.task +
+        " → " +
+        event.candidateModel +
+        " · failed in " +
+        formatElapsedDuration(event.latencyMs) +
+        " · " +
+        event.reason
+      );
+  }
+}
+
+function formatElapsedDuration(durationMs: number): string {
+  const totalSeconds = Math.max(0, Math.floor(durationMs / 1000));
+  const hours = Math.floor(totalSeconds / 3600);
+  const minutes = Math.floor((totalSeconds % 3600) / 60);
+  const seconds = totalSeconds % 60;
+  const padded = (value: number) => String(value).padStart(2, "0");
+  return hours > 0
+    ? padded(hours) + ":" + padded(minutes) + ":" + padded(seconds)
+    : padded(minutes) + ":" + padded(seconds);
+}
+
+function reviewActivityDescription(event: ReviewActivityEvent): {
+  phase: string;
+  detail: string;
+} {
+  switch (event.type) {
+    case "constitution-start":
+      return {
+        phase: "Repository rules",
+        detail: "Building repository Constitution and review constraints…",
+      };
+    case "constitution-complete":
+      return {
+        phase: "Repository rules ready",
+        detail:
+          event.activeRuleCount +
+          " active rules · " +
+          event.blockingRuleCount +
+          " blocking · " +
+          formatElapsedDuration(event.durationMs),
+      };
+    case "coverage":
+      return {
+        phase: "Review coverage",
+        detail:
+          event.reviewableFileCount +
+          "/" +
+          event.changedFileCount +
+          " changed files reviewable · " +
+          event.coverage,
+      };
+    case "lens-start":
+      return {
+        phase: event.lens.replaceAll("_", " ") + " lens",
+        detail: "Starting " + event.lens.replaceAll("_", " ") + " review…",
+      };
+    case "lens-batch-start":
+      return {
+        phase:
+          event.lens.replaceAll("_", " ") + " · batch " + event.batch + "/" + event.totalBatches,
+        detail:
+          "Reviewing " +
+          event.files.length +
+          " changed file(s): " +
+          event.files.slice(0, 4).join(", ") +
+          (event.files.length > 4 ? "…" : ""),
+      };
+    case "lens-batch-failed":
+      return {
+        phase:
+          event.lens.replaceAll("_", " ") +
+          " · batch " +
+          event.batch +
+          "/" +
+          event.totalBatches +
+          " incomplete",
+        detail:
+          "Batch stopped after " + formatElapsedDuration(event.durationMs) + ": " + event.reason,
+      };
+    case "lens-failed":
+      return {
+        phase: event.lens.replaceAll("_", " ") + " incomplete",
+        detail:
+          "Lens stopped after " + formatElapsedDuration(event.durationMs) + ": " + event.reason,
+      };
+    case "model-request":
+      return {
+        phase: event.lens.replaceAll("_", " ") + " · model step " + event.step,
+        detail: "Waiting for model response…",
+      };
+    case "report-repair":
+      return {
+        phase: event.lens.replaceAll("_", " ") + " · report repair",
+        detail:
+          "Structured report was " +
+          (event.reason === "invalid_json" ? "not valid JSON" : "outside the required schema") +
+          " · repair attempt " +
+          event.attempt,
+      };
+    case "model-response":
+      return {
+        phase: event.lens.replaceAll("_", " ") + " · model step " + event.step,
+        detail:
+          "Model responded in " +
+          formatElapsedDuration(event.durationMs) +
+          " · " +
+          event.toolCallCount +
+          " tool call(s)",
+      };
+    case "model-raw-response":
+      return {
+        phase: event.lens.replaceAll("_", " ") + " · raw model response",
+        detail:
+          (event.routedModel ?? event.responseModel) +
+          " → " +
+          event.responseModel +
+          " · " +
+          event.contentLength +
+          " char(s)" +
+          (event.contentTruncated ? " · assistant content truncated" : "") +
+          (event.rawResponseTruncated ? " · gateway response truncated" : "") +
+          (event.finishReason ? " · finish=" + event.finishReason : ""),
+      };
+    case "tool-start":
+      return {
+        phase: event.lens.replaceAll("_", " ") + " · " + event.tool,
+        detail:
+          "Running review tool" +
+          (event.target ? " on " + event.target : "") +
+          " at step " +
+          event.step +
+          "…",
+      };
+    case "tool-complete":
+      return {
+        phase: event.lens.replaceAll("_", " ") + " · " + event.tool,
+        detail:
+          (event.success ? "Completed" : "Failed") +
+          (event.target ? " " + event.target : "") +
+          " in " +
+          formatElapsedDuration(event.durationMs) +
+          " · step " +
+          event.step,
+      };
+    case "lens-complete":
+      return {
+        phase: event.lens.replaceAll("_", " ") + " complete",
+        detail: event.findingCount + " finding(s) · " + formatElapsedDuration(event.durationMs),
+      };
+    case "architecture-start":
+      return {
+        phase: "Architecture impact",
+        detail: "Comparing changed files against living architecture evidence…",
+      };
+    case "architecture-complete":
+      return {
+        phase: "Architecture impact complete",
+        detail:
+          event.unresolvedCount +
+          " unresolved impact(s) · " +
+          formatElapsedDuration(event.durationMs),
+      };
+    case "complete":
+      return {
+        phase: "Review complete",
+        detail: "Total review time " + formatElapsedDuration(event.durationMs),
+      };
+    default:
+      return {
+        phase: "Review activity",
+        detail: "Review state updated.",
+      };
+  }
+}
+
+function reviewTelemetryPath(context: vscode.ExtensionContext): string {
+  return resolve(context.globalStorageUri.fsPath, "review-activity.jsonl");
+}
+
+function reviewActivityLoggingEnabled(): boolean {
+  return configuration().get<boolean>("reviewActivityLogging", true);
+}
+
+function reviewHistoryKey(model: string, task: string): string {
+  return task + "\u0000" + model;
+}
+
+function updateReviewHistoryRecord(
+  history: Map<string, ReviewModelHistoryRecord>,
+  model: string,
+  task: string,
+  update: (record: ReviewModelHistoryRecord) => void,
+  timestamp: number,
+): void {
+  const key = reviewHistoryKey(model, task);
+  const record = history.get(key) ?? {
+    model,
+    task,
+    validatedReports: 0,
+    semanticFailures: 0,
+    lengthFailures: 0,
+    transportFailures: 0,
+    updatedAt: timestamp,
+  };
+  update(record);
+  record.updatedAt = Math.max(record.updatedAt, timestamp);
+  history.set(key, record);
+}
+
+async function migrateReviewModelHistoryFromTelemetry(
+  context: vscode.ExtensionContext,
+): Promise<ReviewModelHistoryRecord[]> {
+  let content: string;
+  try {
+    content = await readFile(reviewTelemetryPath(context), "utf8");
+  } catch {
+    return [];
+  }
+
+  const history = new Map<string, ReviewModelHistoryRecord>();
+  const pending = new Map<string, { task: string; model: string; timestamp: number }>();
+
+  const finalizePending = (sessionId: string) => {
+    const item = pending.get(sessionId);
+    if (!item) return;
+    updateReviewHistoryRecord(
+      history,
+      item.model,
+      item.task,
+      (record) => {
+        record.validatedReports += 1;
+        record.lastValidatedAt = Math.max(record.lastValidatedAt ?? 0, item.timestamp);
+      },
+      item.timestamp,
+    );
+    pending.delete(sessionId);
+  };
+
+  for (const line of content.split(/\r?\n/)) {
+    if (!line.trim()) continue;
+
+    let record: {
+      timestamp?: string;
+      sessionId?: string;
+      event?: {
+        type?: string;
+        phase?: string;
+        detail?: string;
+      };
+    };
+    try {
+      record = JSON.parse(line);
+    } catch {
+      continue;
+    }
+
+    const sessionId = record.sessionId?.trim();
+    const event = record.event;
+    if (!sessionId || !event) continue;
+    const timestamp = Date.parse(record.timestamp ?? "") || Date.now();
+
+    if (event.type === "session" && event.phase === "Model router" && event.detail) {
+      const success = event.detail.match(/^(review_[^ ]+) → (.+?) · success in /);
+      if (success) {
+        pending.set(sessionId, {
+          task: success[1]!,
+          model: success[2]!,
+          timestamp,
+        });
+        continue;
+      }
+
+      const failure = event.detail.match(/^(review_[^ ]+) → (.+?) · failed in .*? · (.+)$/);
+      if (failure) {
+        const task = failure[1]!;
+        const model = failure[2]!;
+        const reason = failure[3]!;
+        const previous = pending.get(sessionId);
+
+        updateReviewHistoryRecord(
+          history,
+          model,
+          task,
+          (item) => {
+            if (previous?.task === task && previous.model === model) {
+              item.semanticFailures += 1;
+              if (
+                /generation length limit reached without structured review content/i.test(reason)
+              ) {
+                item.lengthFailures += 1;
+              }
+            } else {
+              item.transportFailures += 1;
+            }
+          },
+          timestamp,
+        );
+
+        if (previous?.task === task && previous.model === model) {
+          pending.delete(sessionId);
+        }
+        continue;
+      }
+    }
+
+    if (
+      event.type === "lens-batch-start" ||
+      event.type === "lens-batch-failed" ||
+      event.type === "lens-complete" ||
+      event.type === "lens-failed" ||
+      event.type === "architecture-start" ||
+      event.type === "complete"
+    ) {
+      finalizePending(sessionId);
+    }
+  }
+
+  for (const sessionId of pending.keys()) {
+    finalizePending(sessionId);
+  }
+
+  return [...history.values()];
+}
+
+async function loadReviewModelHistory(
+  context: vscode.ExtensionContext,
+): Promise<ReviewModelHistoryRecord[]> {
+  const persisted = context.globalState.get<ReviewModelHistoryRecord[]>(
+    REVIEW_MODEL_HISTORY_STATE_KEY,
+    [],
+  );
+  if (persisted.length > 0) return persisted;
+
+  const migrated = await migrateReviewModelHistoryFromTelemetry(context);
+  if (migrated.length > 0) {
+    await context.globalState.update(REVIEW_MODEL_HISTORY_STATE_KEY, migrated);
+  }
+  return migrated;
+}
+
+async function storeReviewModelHistory(
+  context: vscode.ExtensionContext,
+  history: ReviewModelHistoryRecord[],
+): Promise<void> {
+  await context.globalState.update(REVIEW_MODEL_HISTORY_STATE_KEY, history);
+}
+
+function appendReviewActivity(
+  context: vscode.ExtensionContext,
+  reviewLog: vscode.OutputChannel,
+  sessionId: string,
+  reference: string,
+  startedAt: number,
+  event: ReviewActivityEvent | { type: "session"; phase: string; detail: string },
+): void {
+  if (!reviewActivityLoggingEnabled()) return;
+
+  const elapsedMs = Date.now() - startedAt;
+  const description =
+    event.type === "session"
+      ? { phase: event.phase, detail: event.detail }
+      : reviewActivityDescription(event);
+  const timestamp = new Date().toISOString();
+
+  reviewLog.appendLine(
+    "[" +
+      timestamp +
+      "] [+" +
+      formatElapsedDuration(elapsedMs) +
+      "] " +
+      description.phase +
+      " — " +
+      description.detail,
+  );
+
+  if (event.type === "model-raw-response") {
+    reviewLog.appendLine("[RAW MODEL RESPONSE BEGIN]");
+    reviewLog.appendLine(event.content ?? "[null assistant content]");
+    if (event.toolCalls.length > 0) {
+      reviewLog.appendLine("[RAW TOOL CALLS] " + JSON.stringify(event.toolCalls));
+    }
+    reviewLog.appendLine("[RAW MODEL RESPONSE END]");
+    reviewLog.appendLine("[RAW GATEWAY RESPONSE BEGIN]");
+    reviewLog.appendLine(event.rawResponseJson);
+    if (event.rawResponseTruncated) {
+      reviewLog.appendLine("[RAW GATEWAY RESPONSE TRUNCATED]");
+    }
+    reviewLog.appendLine("[RAW GATEWAY RESPONSE END]");
+  }
+
+  const record = {
+    timestamp,
+    sessionId,
+    reference,
+    elapsedMs,
+    event,
+  };
+  void appendFile(reviewTelemetryPath(context), JSON.stringify(record) + "\n", "utf8").catch(
+    (error) => {
+      reviewLog.appendLine(
+        "[WARN] Persistent review telemetry write failed: " +
+          (error instanceof Error ? error.message : String(error)),
+      );
+    },
+  );
+}
+
+function externalPullRequestInlineComments(
+  report: Awaited<ReturnType<typeof runExternalPullRequestReview>>,
+) {
+  return report.findings
+    .filter((finding) => finding.line !== undefined)
+    .map((finding) => ({
+      path: finding.path,
+      line: finding.line!,
+      side: finding.side,
+      body: [
+        "**" +
+          finding.severity.toUpperCase() +
+          " · " +
+          finding.basis.replaceAll("_", " ") +
+          "** — " +
+          finding.title,
+        "",
+        "Evidence: " + finding.evidence,
+        "",
+        "Required fix: " + finding.recommendation,
+        ...(finding.dodRef ? ["", "DoD/AC: " + finding.dodRef] : []),
+        ...(finding.ruleId ? ["", "Repository rule: `" + finding.ruleId + "`"] : []),
+      ].join("\n"),
+    }));
+}
+
+function externalPullRequestReviewDraft(
+  report: Awaited<ReturnType<typeof runExternalPullRequestReview>>,
+): string {
+  const inlineComments = externalPullRequestInlineComments(report);
+  const summaryFindings = report.findings.filter((finding) => finding.line === undefined);
+  const findingSummary =
+    report.findings.length === 0
+      ? report.reviewStatus === "complete"
+        ? ["No concrete DoD/acceptance violations or code defects were identified."]
+        : [
+            "No validated findings were produced by the completed review batches.",
+            "",
+            "**This is not a clean-review verdict.** The review is incomplete, so missing findings must not be interpreted as evidence that no defects exist.",
+          ]
+      : [
+          "Concrete findings: **" + report.findings.length + "**",
+          "Inline comments: **" + inlineComments.length + "**",
+          ...(summaryFindings.length > 0
+            ? [
+                "",
+                "### DoD / acceptance gaps without an inline target",
+                "",
+                ...summaryFindings.map(
+                  (finding) =>
+                    "- **" +
+                    finding.severity.toUpperCase() +
+                    "** " +
+                    finding.title +
+                    "\n  - DoD/AC: " +
+                    (finding.dodRef ?? "documented acceptance requirement") +
+                    "\n  - Evidence: " +
+                    finding.evidence +
+                    "\n  - Required fix: " +
+                    finding.recommendation,
+                ),
+              ]
+            : []),
+        ];
+
+  return [
+    "## LLMatic focused pull-request review",
+    "",
+    report.summary,
+    "",
+    "Reviewed head: `" + report.headRefOid + "`",
+    "Remote CI: **" + report.ciState + "**",
+    "Diff coverage: **" + report.coverage + "**",
+    "Review status: **" + report.reviewStatus + "**",
+    ...(report.lensFailures.length > 0
+      ? [
+          "Incomplete lenses: " +
+            report.lensFailures
+              .map((failure) => "`" + failure.lens + "` — " + failure.reason)
+              .join("; "),
+        ]
+      : []),
+    "Diff truncated: **" + String(report.diffTruncated) + "**",
+    ...(report.unreviewedFiles.length > 0
+      ? [
+          "Unreviewed changed files: " +
+            report.unreviewedFiles.map((path) => "`" + path + "`").join(", "),
+        ]
+      : []),
+    "",
+    ...findingSummary,
+    "",
+    "_Scope: documented DoD/acceptance, concrete defects, and explicit repository-rule violations only._",
+  ].join("\n");
+}
+
+async function reviewExternalPullRequestInUi(
+  context: vscode.ExtensionContext,
+  state: ExtensionState,
+  statusProvider: LlmaticStatusProvider,
+  output: vscode.OutputChannel,
+  reviewLog: vscode.OutputChannel,
+): Promise<void> {
+  const folder = firstWorkspaceFolder();
+  if (!folder) {
+    throw new Error("Open a repository workspace before reviewing an external pull request.");
+  }
+
+  if (!state.activeWorkspace) {
+    state.activeWorkspace = await attachWorkspace(context, folder);
+  }
+
+  const reference = await vscode.window.showInputBox({
+    title: "Review External Pull Request",
+    prompt: "Enter a pull request number, URL, or branch reference.",
+    placeHolder: "42",
+    ignoreFocusOut: true,
+    validateInput: (value) => (value.trim() ? undefined : "Pull request reference is required."),
+  });
+  if (!reference?.trim()) return;
+
+  const normalizedReference = reference.trim();
+  const startedAt = Date.now();
+  const sessionId = "manual-" + normalizedReference + "-" + String(startedAt);
+  const reviewStatus = statusProvider.beginExternalReview(normalizedReference);
+  let lockedPullRequestNumber: number | undefined;
+
+  appendReviewActivity(context, reviewLog, sessionId, normalizedReference, startedAt, {
+    type: "session",
+    phase: "Review started",
+    detail:
+      "Manual external PR review · telemetry " +
+      (reviewActivityLoggingEnabled() ? "ON" : "OFF") +
+      " · raw responses " +
+      (configuration().get<boolean>("reviewRawResponseLogging", false) ? "ON" : "OFF"),
+  });
+
+  if (reviewActivityLoggingEnabled()) {
+    reviewLog.appendLine("");
+    reviewLog.appendLine("=== LLMatic External PR Review " + normalizedReference + " ===");
+    reviewLog.appendLine("Telemetry: " + reviewTelemetryPath(context));
+    reviewLog.show(true);
+  }
+
+  try {
+    const model =
+      configuration().get<string>("agentModel", "kilo-auto/free").trim() || "kilo-auto/free";
+    const gatewayAccess = await gatewayAccessOrPrompt(context, model, state, statusProvider);
+    if (!gatewayAccess) {
+      reviewStatus.fail("Gateway access was not configured.", Date.now() - startedAt);
+      return;
+    }
+    if (!(await confirmAutoFreeDataHandling(context, model))) {
+      reviewStatus.fail("Review cancelled before model execution.", Date.now() - startedAt);
+      return;
+    }
+
+    const root = folder.uri.fsPath;
+    const config = await loadAgentConfig(root, {
+      LLMATIC_HOME: context.globalStorageUri.fsPath,
+    });
+    const reviewHistory = await loadReviewModelHistory(context);
+    const gateway = new AdaptiveFreeGatewayClient({
+      apiKey: gatewayAccess.apiKey,
+      maxRetries: 0,
+      maxModelAttempts: configuration().get<number>("reviewFreeModelFallbacks", 3),
+      requestTimeoutMs: configuration().get<number>("reviewRequestTimeoutMs", 60_000),
+      reviewHistory,
+      reviewExplorationSlots: 1,
+      onReviewHistoryChange: (history) => storeReviewModelHistory(context, history),
+      onRoute: (event) => {
+        const detail = adaptiveRouteDescription(event);
+        output.appendLine("[MODEL ROUTER] " + detail);
+        reviewStatus.update("Model router", detail);
+        appendReviewActivity(context, reviewLog, sessionId, normalizedReference, startedAt, {
+          type: "session",
+          phase: "Model router",
+          detail,
+        });
+      },
+    });
+
+    const report = await vscode.window.withProgress(
+      {
+        location: vscode.ProgressLocation.Notification,
+        title: "LLMatic is reviewing external pull request " + normalizedReference,
+        cancellable: false,
+      },
+      async (progress) => {
+        reviewStatus.update("Pull request context", "Reading metadata, checks, diff and threads…");
+        progress.report({ message: "Reading pull request context…" });
+        appendReviewActivity(context, reviewLog, sessionId, normalizedReference, startedAt, {
+          type: "session",
+          phase: "Pull request context",
+          detail: "Reading metadata, checks, diff and review threads…",
+        });
+
+        const contextStartedAt = Date.now();
+        const reviewContext = await getPullRequestReviewContext(root, normalizedReference);
+        const pullRequestNumber = reviewContext.status.pullRequest.number;
+        if (state.activeExternalReviewPrNumbers.has(pullRequestNumber)) {
+          throw new Error(
+            "Pull request #" +
+              pullRequestNumber +
+              " is already being reviewed. Wait for the active review to finish before starting another one.",
+          );
+        }
+        state.activeExternalReviewPrNumbers.add(pullRequestNumber);
+        lockedPullRequestNumber = pullRequestNumber;
+
+        appendReviewActivity(context, reviewLog, sessionId, normalizedReference, startedAt, {
+          type: "session",
+          phase: "Pull request context ready",
+          detail:
+            reviewContext.changedFiles.length +
+            " changed files · CI " +
+            reviewContext.status.ciState +
+            " · head " +
+            reviewContext.status.pullRequest.headRefOid.slice(0, 12) +
+            " · " +
+            formatElapsedDuration(Date.now() - contextStartedAt),
+        });
+
+        const fileCache = new Map<string, unknown>();
+        return runExternalPullRequestReview({
+          root,
+          config,
+          gateway,
+          readFile: (path, options) => {
+            const key =
+              path + ":" + String(options.startLine ?? "") + ":" + String(options.endLine ?? "");
+            const cached = fileCache.get(key);
+            if (cached) return cached;
+
+            const value = readPullRequestFileAtHead(
+              root,
+              reviewContext.status.pullRequest,
+              path,
+              options,
+            );
+            fileCache.set(key, value);
+            return value;
+          },
+          model,
+          maxSteps: configuration().get<number>("externalReviewMaxSteps", 3),
+          lenses: ["general", "bug_hunter", "security"],
+          captureRawResponses: configuration().get<boolean>("reviewRawResponseLogging", false),
+          onActivity: (event) => {
+            const description = reviewActivityDescription(event);
+            reviewStatus.update(description.phase, description.detail);
+            progress.report({ message: description.phase + " — " + description.detail });
+            appendReviewActivity(
+              context,
+              reviewLog,
+              sessionId,
+              normalizedReference,
+              startedAt,
+              event,
+            );
+          },
+          material: {
+            reference: normalizedReference,
+            headRefOid: reviewContext.status.pullRequest.headRefOid,
+            title: reviewContext.title,
+            body: reviewContext.body,
+            authorLogin: reviewContext.authorLogin,
+            ciState: reviewContext.status.ciState,
+            changedFiles: reviewContext.changedFiles.map((file) => file.path),
+            diff: reviewContext.diff,
+            diffTruncated: reviewContext.diffTruncated,
+            reviews: reviewContext.reviews,
+            comments: reviewContext.comments,
+            reviewThreads: reviewContext.reviewThreads,
+          },
+        });
+      },
+    );
+
+    const durationMs = Date.now() - startedAt;
+    reviewStatus.complete(durationMs);
+    appendReviewActivity(context, reviewLog, sessionId, normalizedReference, startedAt, {
+      type: "session",
+      phase: "Review finished",
+      detail:
+        report.blockingCount +
+        " blocking · " +
+        report.nonBlockingCount +
+        " non-blocking · " +
+        report.coverage +
+        " coverage · total " +
+        formatElapsedDuration(durationMs),
+    });
+
+    output.clear();
+    output.appendLine("LLMatic External Pull Request Review");
+    output.appendLine("PR: " + report.reference + " — " + report.title);
+    output.appendLine("Author: " + (report.authorLogin ?? "unknown"));
+    output.appendLine("Reviewed head: " + report.headRefOid);
+    output.appendLine("Remote CI: " + report.ciState);
+    output.appendLine("Diff coverage: " + report.coverage);
+    output.appendLine("Review status: " + report.reviewStatus);
+    if (report.lensFailures.length > 0) {
+      output.appendLine(
+        "Incomplete lenses: " +
+          report.lensFailures.map((failure) => failure.lens + " — " + failure.reason).join("; "),
+      );
+    }
+    output.appendLine("Review duration: " + formatElapsedDuration(durationMs));
+    output.appendLine("Diff truncated: " + String(report.diffTruncated));
+    if (report.unreviewedFiles.length > 0) {
+      output.appendLine("Unreviewed changed files: " + report.unreviewedFiles.join(", "));
+    }
+    output.appendLine("");
+    printReviewReport(output, report);
+    output.show(true);
+
+    const draft = externalPullRequestReviewDraft(report);
+    output.appendLine("");
+    output.appendLine("Review comment draft (exact text that can be published):");
+    output.appendLine("");
+    output.appendLine(draft);
+    const inlinePreview = externalPullRequestInlineComments(report);
+    if (inlinePreview.length > 0) {
+      output.appendLine("");
+      output.appendLine("Inline comments that can be published:");
+      for (const comment of inlinePreview) {
+        output.appendLine("");
+        output.appendLine(comment.path + ":" + comment.line + " [" + comment.side + "]");
+        output.appendLine(comment.body);
+      }
+    }
+    output.show(true);
+
+    const publishAction =
+      report.reviewStatus === "complete"
+        ? "Publish Review Comment"
+        : report.findings.length > 0
+          ? "Publish Partial Review"
+          : undefined;
+    const actions = publishAction
+      ? (["Copy Review Draft", publishAction] as const)
+      : (["Copy Review Draft"] as const);
+
+    const action = await vscode.window.showInformationMessage(
+      "LLMatic external PR review completed in " +
+        formatElapsedDuration(durationMs) +
+        " (" +
+        report.coverage +
+        " diff coverage) with " +
+        report.blockingCount +
+        " blocking / " +
+        report.nonBlockingCount +
+        " non-blocking finding(s)" +
+        (report.reviewStatus === "partial"
+          ? " · review incomplete; absence of findings is not a clean verdict"
+          : "") +
+        ".",
+      ...actions,
+    );
+
+    if (action === "Copy Review Draft") {
+      await vscode.env.clipboard.writeText(draft);
+      await vscode.window.showInformationMessage("LLMatic review draft copied to clipboard.");
+      return;
+    }
+
+    if (action === "Publish Review Comment" || action === "Publish Partial Review") {
+      const publishLabel = action;
+      const approval = await vscode.window.showWarningMessage(
+        (report.reviewStatus === "partial"
+          ? "This review is incomplete. Publish only the validated findings from completed batches to pull request "
+          : "Publish the focused review to pull request ") +
+          normalizedReference +
+          " with " +
+          externalPullRequestInlineComments(report).length +
+          " inline comment(s)? This changes GitHub but does not change Jira ownership or the active LLMatic workflow.",
+        { modal: true },
+        publishLabel,
+      );
+      if (approval !== publishLabel) return;
+
+      const inlineComments = externalPullRequestInlineComments(report);
+      await publishPullRequestReview(
+        root,
+        config,
+        normalizedReference,
+        {
+          body: draft,
+          expectedHeadOid: report.headRefOid,
+          inlineComments,
+        },
+        { approved: true },
+      );
+      await vscode.window.showInformationMessage(
+        "LLMatic review comment published to pull request " + normalizedReference + ".",
+      );
+    }
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    const durationMs = Date.now() - startedAt;
+    reviewStatus.fail(message, durationMs);
+    appendReviewActivity(context, reviewLog, sessionId, normalizedReference, startedAt, {
+      type: "session",
+      phase: "Review failed",
+      detail: message + " · after " + formatElapsedDuration(durationMs),
+    });
+    reviewLog.show(true);
+    throw error;
+  } finally {
+    if (lockedPullRequestNumber !== undefined) {
+      state.activeExternalReviewPrNumbers.delete(lockedPullRequestNumber);
+    }
+    reviewStatus.dispose();
+  }
+}
+
+async function runAutomaticExternalPullRequestReview(
+  context: vscode.ExtensionContext,
+  state: ExtensionState,
+  statusProvider: LlmaticStatusProvider,
+  output: vscode.OutputChannel,
+  pullRequest: OpenPullRequestSummary,
+): Promise<Awaited<ReturnType<typeof runExternalPullRequestReview>>> {
+  if (state.activeExternalReviewPrNumbers.has(pullRequest.number)) {
+    throw new Error("Pull request #" + pullRequest.number + " already has an active review.");
+  }
+  state.activeExternalReviewPrNumbers.add(pullRequest.number);
+
+  try {
+    const folder = firstWorkspaceFolder();
+    if (!folder) {
+      throw new Error("Open a repository workspace before running Auto Review Agent.");
+    }
+
+    if (!state.activeWorkspace) {
+      state.activeWorkspace = await attachWorkspace(context, folder);
+    }
+
+    const model =
+      configuration().get<string>("agentModel", "kilo-auto/free").trim() || "kilo-auto/free";
+    const gatewayAccess = await automaticGatewayAccess(context, model);
+    if (!gatewayAccess) {
+      throw new Error(
+        "Auto Review Agent needs an available Kilo Gateway model. Connect Kilo Gateway or accept Auto Free data handling first.",
+      );
+    }
+
+    const root = folder.uri.fsPath;
+    const config = await loadAgentConfig(root, {
+      LLMATIC_HOME: context.globalStorageUri.fsPath,
+    });
+    const reviewHistory = await loadReviewModelHistory(context);
+    const gateway = new AdaptiveFreeGatewayClient({
+      apiKey: gatewayAccess.apiKey,
+      maxRetries: 0,
+      maxModelAttempts: configuration().get<number>("reviewFreeModelFallbacks", 3),
+      requestTimeoutMs: configuration().get<number>("reviewRequestTimeoutMs", 60_000),
+      reviewHistory,
+      reviewExplorationSlots: 1,
+      onReviewHistoryChange: (history) => storeReviewModelHistory(context, history),
+      onRoute: (event) => {
+        output.appendLine("[AUTO REVIEW][MODEL] " + adaptiveRouteDescription(event));
+      },
+    });
+
+    const reviewContext = await getPullRequestReviewContext(root, pullRequest.number);
+    const fileCache = new Map<string, unknown>();
+    return runExternalPullRequestReview({
+      root,
+      config,
+      gateway,
+      readFile: (path, options) => {
+        const key =
+          path + ":" + String(options.startLine ?? "") + ":" + String(options.endLine ?? "");
+        const cached = fileCache.get(key);
+        if (cached) return cached;
+
+        const value = readPullRequestFileAtHead(
+          root,
+          reviewContext.status.pullRequest,
+          path,
+          options,
+        );
+        fileCache.set(key, value);
+        return value;
+      },
+      model,
+      maxSteps: configuration().get<number>("externalReviewMaxSteps", 3),
+      lenses: ["general", "bug_hunter", "security"],
+      material: {
+        reference: String(reviewContext.status.pullRequest.number),
+        headRefOid: reviewContext.status.pullRequest.headRefOid,
+        title: reviewContext.title,
+        body: reviewContext.body,
+        authorLogin: reviewContext.authorLogin,
+        ciState: reviewContext.status.ciState,
+        changedFiles: reviewContext.changedFiles.map((file) => file.path),
+        diff: reviewContext.diff,
+        diffTruncated: reviewContext.diffTruncated,
+        reviews: reviewContext.reviews,
+        comments: reviewContext.comments,
+        reviewThreads: reviewContext.reviewThreads,
+      },
+    });
+  } finally {
+    state.activeExternalReviewPrNumbers.delete(pullRequest.number);
+  }
+}
+
+async function runAutoReviewScan(
+  context: vscode.ExtensionContext,
+  state: ExtensionState,
+  statusProvider: LlmaticStatusProvider,
+  output: vscode.OutputChannel,
+  notifyWhenIdle = false,
+): Promise<void> {
+  let profile = autoReviewWorkspaceState(context);
+  if (!profile.enabled || state.autoReviewRunning) return;
+
+  const folder = firstWorkspaceFolder();
+  if (!folder) return;
+
+  state.autoReviewRunning = true;
+  const operation = statusProvider.beginOperation(
+    "Auto Review Agent",
+    "Checking for new or updated pull requests…",
+  );
+
+  try {
+    const root = folder.uri.fsPath;
+    const repository = getGitHubRepositoryName(root);
+
+    if (profile.repository && profile.repository.toLowerCase() !== repository.toLowerCase()) {
+      const mismatchMessage =
+        "Auto Review Agent was bound to " +
+        profile.repository +
+        " but this workspace now points to " +
+        repository +
+        ". Re-enable it for the new repository.";
+      profile = {
+        ...profile,
+        enabled: false,
+        lastError: mismatchMessage,
+      };
+      await storeAutoReviewWorkspaceState(context, statusProvider, profile);
+      await vscode.window.showWarningMessage(mismatchMessage);
+      return;
+    }
+
+    const pullRequests = listOpenPullRequests(root);
+    const seenFingerprints = { ...profile.seenFingerprints };
+    const retry = { ...(profile.retry ?? {}) };
+    const candidates: OpenPullRequestSummary[] = [];
+    const now = Date.now();
+
+    for (const pullRequest of pullRequests) {
+      const key = String(pullRequest.number);
+      const fingerprint = pullRequestWatchFingerprint(pullRequest);
+
+      if (pullRequest.isDraft) {
+        seenFingerprints[key] = fingerprint;
+        delete retry[key];
+        continue;
+      }
+
+      if (seenFingerprints[key] === fingerprint) {
+        delete retry[key];
+        continue;
+      }
+
+      const pendingRetry = retry[key];
+      if (pendingRetry?.fingerprint === fingerprint && pendingRetry.retryAfter > now) {
+        continue;
+      }
+
+      if (pendingRetry && pendingRetry.fingerprint !== fingerprint) {
+        delete retry[key];
+      }
+      candidates.push(pullRequest);
+    }
+
+    profile = {
+      ...profile,
+      repository,
+      seenFingerprints,
+      retry,
+      lastError: undefined,
+    };
+    await storeAutoReviewWorkspaceState(context, statusProvider, profile);
+
+    if (candidates.length === 0) {
+      operation.update("Auto Review Agent", "No new or updated review-ready PRs.");
+      if (notifyWhenIdle) {
+        await vscode.window.showInformationMessage(
+          "LLMatic Auto Review Agent found no new or updated review-ready pull requests.",
+        );
+      }
+      return;
+    }
+
+    for (const pullRequest of candidates) {
+      if (state.activeExternalReviewPrNumbers.has(pullRequest.number)) {
+        output.appendLine(
+          "[AUTO REVIEW] Skipping PR #" +
+            pullRequest.number +
+            " because another review is already active.",
+        );
+        continue;
+      }
+
+      operation.update(
+        "Auto Review Agent · PR #" + pullRequest.number,
+        "Running General, Bug Hunter and Security review…",
+      );
+
+      try {
+        const report = await runAutomaticExternalPullRequestReview(
+          context,
+          state,
+          statusProvider,
+          output,
+          pullRequest,
+        );
+
+        profile = autoReviewWorkspaceState(context);
+        const key = String(report.reference);
+        const fingerprint = report.headRefOid + ":ready";
+        const nextRetry = { ...(profile.retry ?? {}) };
+
+        if (report.reviewStatus === "complete") {
+          delete nextRetry[key];
+          profile = {
+            ...profile,
+            repository,
+            seenFingerprints: {
+              ...profile.seenFingerprints,
+              [key]: fingerprint,
+            },
+            retry: nextRetry,
+            lastReviewed: {
+              number: Number(report.reference),
+              headRefOid: report.headRefOid,
+              title: report.title,
+              reviewedAt: new Date().toISOString(),
+              blockingCount: report.blockingCount,
+              nonBlockingCount: report.nonBlockingCount,
+              coverage: report.coverage,
+              reviewStatus: report.reviewStatus,
+            },
+            lastError: undefined,
+          };
+        } else {
+          nextRetry[key] = {
+            fingerprint,
+            retryAfter: Date.now() + AUTO_REVIEW_RETRY_COOLDOWN_MS,
+          };
+          profile = {
+            ...profile,
+            repository,
+            retry: nextRetry,
+            lastReviewed: {
+              number: Number(report.reference),
+              headRefOid: report.headRefOid,
+              title: report.title,
+              reviewedAt: new Date().toISOString(),
+              blockingCount: report.blockingCount,
+              nonBlockingCount: report.nonBlockingCount,
+              coverage: report.coverage,
+              reviewStatus: report.reviewStatus,
+            },
+            lastError: undefined,
+          };
+        }
+        await storeAutoReviewWorkspaceState(context, statusProvider, profile);
+
+        output.appendLine("");
+        output.appendLine(
+          "[AUTO REVIEW] PR #" +
+            report.reference +
+            " — " +
+            report.title +
+            " · " +
+            report.coverage +
+            " coverage · " +
+            report.blockingCount +
+            " blocking / " +
+            report.nonBlockingCount +
+            " non-blocking",
+        );
+        output.appendLine(externalPullRequestReviewDraft(report));
+
+        const action = await vscode.window.showInformationMessage(
+          "LLMatic Auto Review Agent reviewed PR #" +
+            report.reference +
+            ": " +
+            report.blockingCount +
+            " blocking / " +
+            report.nonBlockingCount +
+            " non-blocking finding(s)" +
+            (report.reviewStatus === "partial"
+              ? " · incomplete; retry scheduled after cooldown"
+              : "") +
+            ".",
+          "Open Review Output",
+        );
+        if (action === "Open Review Output") output.show(true);
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        profile = autoReviewWorkspaceState(context);
+        const key = String(pullRequest.number);
+        profile = {
+          ...profile,
+          repository,
+          retry: {
+            ...(profile.retry ?? {}),
+            [key]: {
+              fingerprint: pullRequestWatchFingerprint(pullRequest),
+              retryAfter: Date.now() + AUTO_REVIEW_RETRY_COOLDOWN_MS,
+            },
+          },
+          lastError: "PR #" + pullRequest.number + ": " + message,
+        };
+        await storeAutoReviewWorkspaceState(context, statusProvider, profile);
+        output.appendLine("[AUTO REVIEW][WARN] " + profile.lastError);
+        await vscode.window.showWarningMessage("LLMatic Auto Review Agent: " + profile.lastError);
+      }
+    }
+  } finally {
+    operation.dispose();
+    state.autoReviewRunning = false;
+  }
+}
+
+async function configureAutoReviewInUi(
+  context: vscode.ExtensionContext,
+  state: ExtensionState,
+  statusProvider: LlmaticStatusProvider,
+  output: vscode.OutputChannel,
+): Promise<void> {
+  const folder = firstWorkspaceFolder();
+  if (!folder) {
+    throw new Error("Open a GitHub repository workspace before configuring Auto Review Agent.");
+  }
+
+  const root = folder.uri.fsPath;
+  const repository = getGitHubRepositoryName(root);
+  const current = autoReviewWorkspaceState(context);
+
+  if (current.enabled) {
+    const choice = await vscode.window.showQuickPick(
+      [
+        {
+          label: "$(play) Review open pull requests now",
+          description: "run once now and keep watching future updates",
+          action: "review_now" as const,
+        },
+        {
+          label: "$(debug-stop) Disable Auto Review Agent",
+          description: "stop watching this repository",
+          action: "disable" as const,
+        },
+      ],
+      {
+        title: "LLMatic Auto Review Agent — " + repository,
+        placeHolder: "Currently enabled for this repository",
+        ignoreFocusOut: true,
+      },
+    );
+    if (!choice) return;
+
+    if (choice.action === "disable") {
+      await storeAutoReviewWorkspaceState(context, statusProvider, {
+        ...current,
+        enabled: false,
+        lastError: undefined,
+      });
+      await vscode.window.showInformationMessage(
+        "LLMatic Auto Review Agent disabled for " + repository + ".",
+      );
+      return;
+    }
+
+    const pullRequests = listOpenPullRequests(root);
+    const seenFingerprints = { ...current.seenFingerprints };
+    for (const pullRequest of pullRequests) {
+      if (!pullRequest.isDraft) {
+        delete seenFingerprints[String(pullRequest.number)];
+      } else {
+        seenFingerprints[String(pullRequest.number)] = pullRequestWatchFingerprint(pullRequest);
+      }
+    }
+    await storeAutoReviewWorkspaceState(context, statusProvider, {
+      ...current,
+      repository,
+      seenFingerprints,
+      retry: {},
+      lastError: undefined,
+    });
+    await runAutoReviewScan(context, state, statusProvider, output, true);
+    return;
+  }
+
+  const model =
+    configuration().get<string>("agentModel", "kilo-auto/free").trim() || "kilo-auto/free";
+  const gatewayAccess = await gatewayAccessOrPrompt(context, model, state, statusProvider);
+  if (!gatewayAccess) return;
+  if (!(await confirmAutoFreeDataHandling(context, model))) return;
+
+  const choice = await vscode.window.showQuickPick(
+    [
+      {
+        label: "$(star-full) Enable for future new/updated PRs",
+        description: "recommended · existing open PRs become the baseline",
+        action: "future" as const,
+      },
+      {
+        label: "$(play) Enable and review current open PRs now",
+        description: "review all current non-draft PRs, then keep watching",
+        action: "current" as const,
+      },
+    ],
+    {
+      title: "Enable LLMatic Auto Review Agent — " + repository,
+      placeHolder: "Reviews run locally while this VS Code workspace is open",
+      ignoreFocusOut: true,
+    },
+  );
+  if (!choice) return;
+
+  const pullRequests = listOpenPullRequests(root);
+  const seenFingerprints: Record<string, string> = {};
+  for (const pullRequest of pullRequests) {
+    if (choice.action === "future" || pullRequest.isDraft) {
+      seenFingerprints[String(pullRequest.number)] = pullRequestWatchFingerprint(pullRequest);
+    }
+  }
+
+  await storeAutoReviewWorkspaceState(context, statusProvider, {
+    enabled: true,
+    repository,
+    seenFingerprints,
+    retry: {},
+    lastError: undefined,
+  });
+
+  await vscode.window.showInformationMessage(
+    "LLMatic Auto Review Agent enabled for " +
+      repository +
+      ". It reviews new or updated review-ready PRs while this VS Code workspace is open. Publishing remains manual.",
+  );
+
+  if (choice.action === "current") {
+    await runAutoReviewScan(context, state, statusProvider, output, true);
+  }
 }
 
 async function runAgentChatTurn(
@@ -3508,17 +4961,21 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     kiloConnected: false,
     kiloReloadRecommended: false,
     gatewayKeyConfigured: false,
+    activeExternalReviewPrNumbers: new Set<number>(),
   };
 
   let kiloPreviouslyInstalled = Boolean(vscode.extensions.getExtension(KILO_EXTENSION_ID));
 
   const output = vscode.window.createOutputChannel("LLMatic");
-  context.subscriptions.push(output);
+  const reviewLog = vscode.window.createOutputChannel("LLMatic Review Activity");
+  context.subscriptions.push(output, reviewLog);
 
   const statusBar = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 100);
   context.subscriptions.push(statusBar);
 
   const statusProvider = new LlmaticStatusProvider();
+  statusProvider.setAutoReviewStatus(autoReviewStatus(autoReviewWorkspaceState(context)));
+  statusProvider.setReviewLoggingEnabled(reviewActivityLoggingEnabled());
   const startupOperation = statusProvider.beginOperation(
     "Loading LLMatic workspace",
     "Checking runtime, tools and external connections…",
@@ -3825,6 +5282,55 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     vscode.commands.registerCommand("llmatic.agentChatProbe", async () => {
       return chatProvider.waitUntilClientReady(8_000);
     }),
+    vscode.commands.registerCommand(
+      "llmatic.reviewExternalPullRequest",
+      async (options?: { probe?: boolean }) => {
+        if (options?.probe) return true;
+        try {
+          await reviewExternalPullRequestInUi(context, state, statusProvider, output, reviewLog);
+        } catch (error) {
+          const message = error instanceof Error ? error.message : String(error);
+          await vscode.window.showErrorMessage("LLMatic external PR review: " + message);
+        }
+        return true;
+      },
+    ),
+    vscode.commands.registerCommand("llmatic.openReviewLog", async () => {
+      reviewLog.show(true);
+      return true;
+    }),
+    vscode.commands.registerCommand("llmatic.toggleReviewActivityLogging", async () => {
+      const current = reviewActivityLoggingEnabled();
+      const next = !current;
+      await configuration().update(
+        "reviewActivityLogging",
+        next,
+        firstWorkspaceFolder()
+          ? vscode.ConfigurationTarget.Workspace
+          : vscode.ConfigurationTarget.Global,
+      );
+      statusProvider.setReviewLoggingEnabled(next);
+      await vscode.window.showInformationMessage(
+        "LLMatic review activity logging " +
+          (next ? "enabled" : "disabled") +
+          "." +
+          (next ? " Sanitized telemetry is written to " + reviewTelemetryPath(context) + "." : ""),
+      );
+      return next;
+    }),
+    vscode.commands.registerCommand(
+      "llmatic.configureAutoReview",
+      async (options?: { probe?: boolean }) => {
+        if (options?.probe) return true;
+        try {
+          await configureAutoReviewInUi(context, state, statusProvider, output);
+        } catch (error) {
+          const message = error instanceof Error ? error.message : String(error);
+          await vscode.window.showErrorMessage("LLMatic Auto Review Agent: " + message);
+        }
+        return true;
+      },
+    ),
     vscode.commands.registerCommand("llmatic.generatePrDraft", async () => {
       try {
         await generatePrDraftInUi(context, state, statusProvider, chatProvider, output);
@@ -3928,11 +5434,36 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         );
       });
     }),
+    (() => {
+      let lastFocusRefreshAt = 0;
+      return vscode.window.onDidChangeWindowState(async (windowState) => {
+        if (!windowState.focused) return;
+
+        const now = Date.now();
+        if (now - lastFocusRefreshAt < WORKSPACE_RECOVERY_FOCUS_REFRESH_COOLDOWN_MS) return;
+        lastFocusRefreshAt = now;
+
+        await refreshWorkspaceRecovery(
+          context,
+          state,
+          statusProvider,
+          chatProvider,
+          output,
+          false,
+        ).catch((error) => {
+          output.appendLine(
+            "[WARN] Workspace recovery failed after VS Code regained focus: " +
+              (error instanceof Error ? error.message : String(error)),
+          );
+        });
+      });
+    })(),
     vscode.workspace.onDidChangeConfiguration(async (event) => {
       if (event.affectsConfiguration("llmatic")) {
         await refresh(context, statusBar, state);
         statusProvider.update(state.health, state.gatewayKeyConfigured, state.recovery);
         statusProvider.setGatewayAccess(state.gatewayKeyConfigured, anonymousKiloAccessAvailable());
+        statusProvider.setReviewLoggingEnabled(reviewActivityLoggingEnabled());
         await refreshJiraStatus(context, state, statusProvider);
         await refreshWorkspaceRecovery(
           context,
@@ -3950,6 +5481,18 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       }
     }),
   );
+
+  const autoReviewTimer = setInterval(() => {
+    void runAutoReviewScan(context, state, statusProvider, output).catch((error) => {
+      output.appendLine(
+        "[AUTO REVIEW][WARN] Background scan failed: " +
+          (error instanceof Error ? error.message : String(error)),
+      );
+    });
+  }, AUTO_REVIEW_POLL_INTERVAL_MS);
+  context.subscriptions.push({
+    dispose: () => clearInterval(autoReviewTimer),
+  });
 
   startupOperation.update(
     "Loading LLMatic workspace",
@@ -3972,6 +5515,13 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       );
     },
   );
+
+  void runAutoReviewScan(context, state, statusProvider, output).catch((error) => {
+    output.appendLine(
+      "[AUTO REVIEW][WARN] Initial scan failed: " +
+        (error instanceof Error ? error.message : String(error)),
+    );
+  });
 
   // Onboarding must never block extension activation. In headless Extension Host
   // acceptance there is no user available to answer the notification, and in

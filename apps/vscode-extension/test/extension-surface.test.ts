@@ -25,8 +25,16 @@ describe("VS Code extension activation surface", () => {
     expect(source).toContain('vscode.commands.registerCommand("llmatic.showRepositoryRules"');
     expect(source).toContain('vscode.commands.registerCommand("llmatic.reviewRuleProposals"');
     expect(source).toContain('vscode.commands.registerCommand("llmatic.generatePrDraft"');
+    expect(source).toContain('"llmatic.reviewExternalPullRequest"');
+    expect(source).toContain('"llmatic.configureAutoReview"');
+    expect(source).toContain('vscode.commands.registerCommand("llmatic.openReviewLog"');
+    expect(source).toContain(
+      'vscode.commands.registerCommand("llmatic.toggleReviewActivityLogging"',
+    );
     expect(source).toContain('vscode.commands.registerCommand("llmatic.checkForUpdates"');
     expect(source).toContain('vscode.commands.registerCommand("llmatic.installUpdate"');
+    expect(source).toContain("[RAW GATEWAY RESPONSE BEGIN]");
+    expect(source).toContain("reviewRawResponseLogging");
     expect(source).toContain("loadProjectChangeRequest");
     expect(source).toContain("changeRequest: pendingChangeRequest?.text");
     expect(source).toContain("vscode.extensions.onDidChange");
@@ -66,6 +74,11 @@ describe("VS Code extension activation surface", () => {
     expect(source).toContain('"Searching the repository…"');
     expect(source).toContain("Model provider temporarily unavailable — retrying");
     expect(source).toContain("[RETRY] Kilo Gateway");
+    expect(source).toContain("AdaptiveFreeGatewayClient");
+    expect(source).toContain("[MODEL ROUTER]");
+    expect(source).toContain("This is not a clean-review verdict");
+    expect(source).toContain("Publish Partial Review");
+    expect(source).toContain("Diff coverage");
     expect(source).not.toContain("chatProvider.appendActivity(line");
     expect(source).toContain("decideRepositoryRuleProposal");
     expect(source).toContain("buildPullRequestDraft");
@@ -99,6 +112,17 @@ describe("VS Code extension activation surface", () => {
     expect(source).toContain("connecting…");
     expect(source).toContain("beginOperation");
     expect(source).toContain("active-operation");
+    expect(source).toContain("External PR Review");
+    expect(source).toContain("activeExternalReviewId");
+    expect(source).toContain("activeExternalReviewTimer");
+    expect(source).toContain('finish("Stopped", Date.now() - startedAt)');
+    expect(source).toContain("Auto Review Agent");
+    expect(source).toContain("Review Activity Log");
+    expect(source).toContain("loading~spin");
+    expect(source).toContain("live + persistent telemetry");
+    expect(source).toContain("formatDuration");
+    expect(source).toContain('command: "llmatic.reviewExternalPullRequest"');
+    expect(source).toContain('command: "llmatic.configureAutoReview"');
     expect(source).toContain("LLMatic is working…");
   });
   it("contributes a persistent Agent Chat webview with repository recovery controls", async () => {
@@ -127,6 +151,31 @@ describe("VS Code extension activation surface", () => {
     );
     expect(packageJson.contributes.configuration.properties).toHaveProperty(
       "llmatic.allowAnonymousKiloFree",
+    );
+    expect(packageJson.contributes.configuration.properties).toHaveProperty(
+      "llmatic.reviewActivityLogging",
+    );
+    expect(packageJson.contributes.configuration.properties).toHaveProperty(
+      "llmatic.reviewRawResponseLogging",
+    );
+    expect(
+      (
+        packageJson.contributes.configuration.properties["llmatic.reviewRequestTimeoutMs"] as {
+          default?: number;
+        }
+      ).default,
+    ).toBe(60000);
+    expect(packageJson.contributes.configuration.properties).toHaveProperty(
+      "llmatic.reviewMaxSteps",
+    );
+    expect(packageJson.contributes.configuration.properties).toHaveProperty(
+      "llmatic.externalReviewMaxSteps",
+    );
+    expect(packageJson.contributes.configuration.properties).toHaveProperty(
+      "llmatic.reviewRequestTimeoutMs",
+    );
+    expect(packageJson.contributes.configuration.properties).toHaveProperty(
+      "llmatic.reviewFreeModelFallbacks",
     );
 
     const connectionSource = await readFile(
@@ -183,13 +232,17 @@ describe("VS Code extension activation surface", () => {
   });
   it("packages one fresh VSIX candidate under generic and versioned names", async () => {
     const source = await readFile(new URL("../scripts/package-vsix.mjs", import.meta.url), "utf8");
+    const workspaceBuildCall = 'runPnpm(["run", "build"], "VSIX workspace build", repositoryRoot)';
+    const vsixPackageCall = '["exec", "vsce", "package"';
 
+    expect(source).toContain(workspaceBuildCall);
     expect(source).toContain("rm(output, { force: true })");
     expect(source).toContain("rm(versionedOutput, { force: true })");
     expect(source).toContain("copyFile(output, versionedOutput)");
     expect(source).toContain("VSIX CANDIDATE PACKAGED");
     expect(source).toContain("VSIX SHA-256");
     expect(source).toContain('spawnSync("git", ["rev-parse", "HEAD"]');
+    expect(source.indexOf(workspaceBuildCall)).toBeLessThan(source.indexOf(vsixPackageCall));
   });
   it("keeps VS Code clean-install identity verification inside the Extension Host", async () => {
     const source = await readFile(

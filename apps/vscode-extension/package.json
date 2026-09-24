@@ -2,7 +2,7 @@
   "name": "llmatic-agent-runtime",
   "displayName": "LLMatic Agent Runtime",
   "description": "Deterministic local software-engineering runtime for AI coding agents, with Kilo Code integration, project discovery, planning, review and safe workflow automation.",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "publisher": "eventnexus",
   "type": "module",
   "engines": {
@@ -38,6 +38,7 @@
     "@llmatic/repository-constitution": "workspace:*",
     "@llmatic/pr-draft": "workspace:*",
     "@llmatic/jira-adapter": "workspace:*",
+    "@llmatic/github-adapter": "workspace:*",
     "@llmatic/external-connections": "workspace:*"
   },
   "devDependencies": {
@@ -188,6 +189,26 @@
         "category": "LLMatic"
       },
       {
+        "command": "llmatic.reviewExternalPullRequest",
+        "title": "Review External Pull Request",
+        "category": "LLMatic"
+      },
+      {
+        "command": "llmatic.configureAutoReview",
+        "title": "Configure Auto Review Agent",
+        "category": "LLMatic"
+      },
+      {
+        "command": "llmatic.openReviewLog",
+        "title": "Open Review Log",
+        "category": "LLMatic"
+      },
+      {
+        "command": "llmatic.toggleReviewActivityLogging",
+        "title": "Toggle Review Activity Logging",
+        "category": "LLMatic"
+      },
+      {
         "command": "llmatic.connectJiraWorkspace",
         "title": "Connect Jira Workspace",
         "category": "LLMatic"
@@ -243,6 +264,34 @@
           "maximum": 50,
           "description": "Maximum model/tool rounds for one direct LLMatic agent run."
         },
+        "llmatic.reviewMaxSteps": {
+          "type": "number",
+          "default": 8,
+          "minimum": 1,
+          "maximum": 30,
+          "description": "Maximum model/tool rounds for the ordinary local code-review lens."
+        },
+        "llmatic.externalReviewMaxSteps": {
+          "type": "number",
+          "default": 3,
+          "minimum": 1,
+          "maximum": 8,
+          "description": "Maximum model/repair rounds per bounded external PR review batch. External PR diff evidence is preloaded and the batch is tool-free."
+        },
+        "llmatic.reviewRequestTimeoutMs": {
+          "type": "number",
+          "default": 60000,
+          "minimum": 30000,
+          "maximum": 300000,
+          "description": "Hard timeout for one external PR review model candidate. Adaptive free-model routing may switch to another live free model after a transient timeout/provider failure."
+        },
+        "llmatic.reviewFreeModelFallbacks": {
+          "type": "number",
+          "default": 3,
+          "minimum": 1,
+          "maximum": 8,
+          "description": "Maximum live free-model candidates tried for one external PR review request when the selected model is Auto Free or another explicit free model. Kilo Auto Free is reserved as the final fallback when available."
+        },
         "llmatic.releaseRepository": {
           "type": "string",
           "default": "pikkst/llmatic-agent-runtime",
@@ -287,6 +336,16 @@
           "type": "boolean",
           "default": true,
           "description": "Allow direct LLMatic agent/review requests to use Kilo anonymous access when the selected model is kilo-auto/free or another explicit free model."
+        },
+        "llmatic.reviewActivityLogging": {
+          "type": "boolean",
+          "default": true,
+          "description": "Record sanitized live and persistent review activity telemetry (phases, model/tool steps and timings). Prompt text and source-code contents are never written unless raw-response debug logging is explicitly enabled."
+        },
+        "llmatic.reviewRawResponseLogging": {
+          "type": "boolean",
+          "default": false,
+          "description": "DEBUG ONLY: capture bounded raw assistant responses before JSON/schema filtering during manual external PR review. Raw output may contain changed source-code content and is written to the local review activity log."
         }
       }
     },

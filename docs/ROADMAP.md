@@ -242,7 +242,7 @@ The repository connector cannot create Git tags. Once main is green, the only ma
 
 ## M27 — Intelligent Workspace Recovery & Agent Chat
 
-Status: in progress.
+Status: completed in v0.2.0.
 
 Goal: make LLMatic resume engineering work automatically instead of presenting a manual command menu.
 
@@ -273,7 +273,7 @@ Direct Agent Chat must still not receive push, merge, deployment, arbitrary shel
 
 ## M28 — Repository Constitution & Review Policy
 
-Status: in progress.
+Status: completed in v0.2.0.
 
 Goal: make LLMatic adapt to each repository without allowing the model to silently invent or strengthen project policy.
 
@@ -305,8 +305,55 @@ PR drafts are generated from captured task/workflow/check/review/security/archit
 
 ## M29 — External Pull Request Review
 
-Status: planned after v0.2.0.
+Status: implementation complete for v0.3.0; local VS Code smoke pending.
 
 Goal: support reviewing pull requests authored by other engineers without conflating that workflow with the current task owner/recovery lifecycle.
 
 The review flow should be explicitly user-invoked, read the target PR/diff/checks/review threads, apply repository constitution + Bug Hunter + Security lenses, and produce review findings/comments without changing Jira task ownership or selecting the PR author's task as the user's active workflow.
+
+## M30 — Repository Auto Review Agent
+
+Status: in progress for v0.3.0.
+
+Goal: let one opened repository opt into automatic review of new or updated review-ready pull requests without changing Jira/task ownership.
+
+Local v0.3 scope:
+
+- explicit repository-bound enable/disable action
+- visible Auto Review Agent state in Runtime Status
+- baseline existing PRs when enabled
+- detect new PRs, new head SHAs and draft-to-ready transitions
+- poll while the VS Code workspace is open
+- run the same Repository Constitution + General + Bug Hunter + Security review
+- keep review publication manual by default
+- never mutate the active LLMatic workflow merely because a watched PR changes
+
+Always-on review while VS Code is closed requires a later GitHub App/Actions service mode; the local extension watcher must not pretend to provide cloud availability.
+
+## M31 — Adaptive Free Model Router
+
+Status: first production slice implemented for v0.3.0 external pull-request review.
+
+Goal: route free inference work by task and runtime health instead of repeatedly depending on one transient provider/model.
+
+Implemented external-review slice:
+
+- discover the live Kilo Gateway model catalog instead of hardcoding free-model names
+- consider explicit `:free` models and keep `kilo-auto/free` as the final fallback
+- use task hints for General, Bug Hunter and Security review workloads
+- rank candidates using task-local success/failure/latency evidence plus available model metadata
+- prefer provider diversity across fallback candidates
+- switch model on transient timeout, overload, rate-limit, context-window or capability failures
+- cool down failing explicit free models across subsequent review batches
+- avoid a model that returned malformed structured output when repairing that batch
+- expose model candidate, latency, failure reason and failover in Review Activity telemetry
+- keep external review tool-free so fallback models do not need agent tool-calling capability
+- preserve the free-model data-handling warning for all Auto Free / explicit free routing
+
+Future expansion:
+
+- persist model-quality statistics across sessions with bounded retention
+- capability-aware routing for coding-agent/tool-use workloads
+- separate task profiles for planning, implementation, testing and summarization
+- allow user policy to disable particular providers/models
+- evaluate cloud/always-on routing only after the local review path is stable

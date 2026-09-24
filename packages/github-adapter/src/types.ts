@@ -36,6 +36,11 @@ export interface PullRequestSummary {
   baseRefName: string;
 }
 
+export interface OpenPullRequestSummary extends PullRequestSummary {
+  title: string;
+  authorLogin?: string;
+}
+
 export interface PullRequestCheck {
   name: string;
   state: string;
@@ -50,6 +55,84 @@ export interface PullRequestStatus {
   pullRequest: PullRequestSummary;
   checks: PullRequestCheck[];
   ciState: RemoteCiState;
+}
+
+export interface PullRequestChangedFile {
+  path: string;
+  additions: number;
+  deletions: number;
+}
+
+export interface PullRequestReviewSnapshot {
+  authorLogin?: string;
+  state?: string;
+  body: string;
+  submittedAt?: string;
+}
+
+export interface PullRequestCommentSnapshot {
+  authorLogin?: string;
+  body: string;
+  createdAt?: string;
+  url?: string;
+}
+
+export interface PullRequestReviewThreadSnapshot {
+  path: string;
+  line?: number;
+  originalLine?: number;
+  resolved: boolean;
+  outdated: boolean;
+  comments: PullRequestCommentSnapshot[];
+}
+
+export type PullRequestReviewEvent = "COMMENT";
+
+export type PullRequestReviewSide = "RIGHT" | "LEFT";
+
+export interface PullRequestInlineCommentInput {
+  path: string;
+  line: number;
+  side: PullRequestReviewSide;
+  body: string;
+}
+
+export interface PublishPullRequestReviewInput {
+  body: string;
+  event?: PullRequestReviewEvent;
+  expectedHeadOid?: string;
+  inlineComments?: PullRequestInlineCommentInput[];
+}
+
+export interface PullRequestReviewMetadata {
+  status: PullRequestStatus;
+  title: string;
+  body: string;
+  authorLogin?: string;
+  changedFiles: PullRequestChangedFile[];
+  reviews: PullRequestReviewSnapshot[];
+  comments: PullRequestCommentSnapshot[];
+  reviewThreads: PullRequestReviewThreadSnapshot[];
+}
+
+export interface PullRequestReviewContext extends PullRequestReviewMetadata {
+  diff: string;
+  diffTruncated: boolean;
+}
+
+export interface PullRequestFileReadOptions {
+  startLine?: number;
+  endLine?: number;
+}
+
+export interface PullRequestFileReadResult {
+  path: string;
+  ref: string;
+  startLine: number;
+  endLine: number;
+  totalLines: number;
+  content: string;
+  truncated: boolean;
 }
 
 export type MergeMethod = "squash" | "merge" | "rebase";
