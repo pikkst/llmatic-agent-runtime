@@ -111,14 +111,16 @@ describe("VS Code extension activation surface", () => {
     const scanStart = source.indexOf("async function runAutoReviewScan(");
     const scanEnd = source.indexOf("async function configureAutoReviewInUi(", scanStart);
     const scanSource = source.slice(scanStart, scanEnd);
+    const candidateLoopStart = scanSource.indexOf("for (const pullRequest of candidates)");
+    const candidateLoopSource = scanSource.slice(candidateLoopStart);
 
     expect(scanStart).toBeGreaterThanOrEqual(0);
     expect(scanEnd).toBeGreaterThan(scanStart);
-    expect(scanSource).toContain("for (const pullRequest of candidates)");
-    expect(scanSource).toContain("void vscode.window");
-    expect(scanSource).toContain(".showInformationMessage(");
-    expect(scanSource).toContain(".then((action) => {");
-    expect(scanSource).not.toContain("await vscode.window.showInformationMessage(");
+    expect(candidateLoopStart).toBeGreaterThanOrEqual(0);
+    expect(candidateLoopSource).toContain("void vscode.window");
+    expect(candidateLoopSource).toContain(".showInformationMessage(");
+    expect(candidateLoopSource).toContain(".then((action) => {");
+    expect(candidateLoopSource).not.toContain("await vscode.window.showInformationMessage(");
   });
 
   it("surfaces secure Gateway key setup in the LLMatic Activity Bar", async () => {
