@@ -410,6 +410,7 @@ export interface PullRequestReviewMaterial {
   reviews?: unknown[];
   comments?: unknown[];
   reviewThreads?: unknown[];
+  documentedAcceptanceEvidence?: string[];
 }
 
 export interface ExternalPullRequestReviewOptions extends ReviewExecutionOptions {
@@ -918,6 +919,15 @@ function pullRequestAcceptanceEvidence(body: string): string[] {
   return [...new Set(evidence.filter(Boolean))].slice(0, 100);
 }
 
+function documentedAcceptanceEvidence(material: PullRequestReviewMaterial): string[] {
+  return [
+    ...new Set([
+      ...(material.documentedAcceptanceEvidence ?? []),
+      ...pullRequestAcceptanceEvidence(material.body),
+    ].map((item) => item.trim()).filter(Boolean)),
+  ].slice(0, 100);
+}
+
 function reviewLensInstructions(lens: ReviewLens): string[] {
   if (lens === "bug_hunter") {
     return [
@@ -1067,7 +1077,7 @@ function pruneImpossibleExternalDodFindings(
   value: unknown,
   material: PullRequestReviewMaterial | undefined,
 ): unknown {
-  if (!material || pullRequestAcceptanceEvidence(material.body).length > 0) return value;
+  if (!material || documentedAcceptanceEvidence(material).length > 0) return value;
   if (!value || typeof value !== "object" || Array.isArray(value)) return value;
 
   const report = value as Record<string, unknown>;
@@ -1483,7 +1493,7 @@ async function runReviewLens(
               authorLogin: material.authorLogin,
               ciState: material.ciState,
               diffTruncated: material.diffTruncated,
-              documentedAcceptanceEvidence: pullRequestAcceptanceEvidence(material.body),
+              documentedAcceptanceEvidence: documentedAcceptanceEvidence(material),
               reviews: material.reviews ?? [],
               comments: material.comments ?? [],
               reviewThreads: safePullRequestReviewThreads(material.reviewThreads),
@@ -1946,7 +1956,7 @@ export async function runExternalPullRequestReview(
     );
   }
 
-  const acceptanceEvidence = pullRequestAcceptanceEvidence(options.material.body);
+  const acceptanceEvidence = documentedAcceptanceEvidence(options.material);
   const strictFindings = strictExternalFindings(
     lensResults.flatMap(({ result }) => result.findings),
     options.material,
