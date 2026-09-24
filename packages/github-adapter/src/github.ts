@@ -763,7 +763,13 @@ export async function publishPullRequestReview(
     requireSuccess(run(root, inlineArgs, runner), inlineArgs);
   }
 
-  const args = ["pr", "review", target, "--comment", "--body", body];
+  const reviewFlag =
+    input.event === "APPROVE"
+      ? "--approve"
+      : input.event === "REQUEST_CHANGES"
+        ? "--request-changes"
+        : "--comment";
+  const args = ["pr", "review", target, reviewFlag, "--body", body];
   requireSuccess(run(root, args, runner), args);
 }
 
