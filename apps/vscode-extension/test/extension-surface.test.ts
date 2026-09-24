@@ -77,8 +77,10 @@ describe("VS Code extension activation surface", () => {
     expect(source).toContain("AdaptiveFreeGatewayClient");
     expect(source).toContain("[MODEL ROUTER]");
     expect(source).toContain('"local_only" | "comment_only" | "review_decision"');
-    expect(source).toContain('return report.blockingCount > 0 ? "REQUEST_CHANGES" : "APPROVE"');
-    expect(source).toContain('mode === "comment_only" || report.reviewStatus === "partial"');
+    expect(source).toContain('if (report.blockingCount > 0) return "REQUEST_CHANGES"');
+    expect(source).toContain('requiredCiState === "passing" || requiredCiState === "none"');
+    expect(source).toContain('if (mode === "comment_only") return "COMMENT"');
+    expect(source).toContain('report.reviewStatus === "partial" || report.coverage !== "complete"');
     expect(source).toContain("[AUTO REVIEW][PUBLISH]");
     expect(source).toContain("GitHub rejected that decision for a self-authored pull request");
     expect(source).toContain("Skipping duplicate ");
@@ -86,6 +88,9 @@ describe("VS Code extension activation surface", () => {
     expect(source).toContain('sessionId = "auto-" + reference');
     expect(source).toContain("=== LLMatic Auto Review PR #");
     expect(source).toContain("CI snapshot");
+    expect(source).toContain("pullRequestAcceptanceEvidenceFromJira");
+    expect(source).toContain("createJiraTaskProviderFromEnvironment");
+    expect(source).toContain("documentedAcceptanceEvidence: acceptanceEvidence.items");
     expect(source).toContain("reviewStatus = statusProvider.beginExternalReview(reference)");
     expect(source).toContain(
       "appendReviewActivity(context, reviewLog, sessionId, reference, startedAt, event)",
@@ -150,7 +155,8 @@ describe("VS Code extension activation surface", () => {
     expect(source).toContain('finish("Stopped", Date.now() - startedAt)');
     expect(source).toContain("Auto Review Agent");
     expect(source).toContain("publicationMode");
-    expect(source).toContain("Complete reviews publish APPROVE or REQUEST_CHANGES");
+    expect(source).toContain("required CI passes");
+    expect(source).toContain("advisory checks do not block");
     expect(source).toContain("Review Activity Log");
     expect(source).toContain("loading~spin");
     expect(source).toContain("live + persistent telemetry");
