@@ -330,6 +330,68 @@ describe("review engine", () => {
     expect(report.summary).toContain("0 concrete defect/rule violation(s)");
   });
 
+  it("drops impossible DoD findings without invoking report repair when acceptance evidence is absent", async () => {
+    const root = await repository();
+    const config = configFor(root);
+    const events: ReviewActivityEvent[] = [];
+    const gateway = new ScriptedGateway([
+      response(
+        JSON.stringify({
+          summary: "Reliability improvements reviewed.",
+          findings: [
+            {
+              severity: "non_blocking",
+              category: "reliability",
+              basis: "dod",
+              title: "Timeout increase improves resilience",
+              path: "src/value.ts",
+              evidence: "The timeout was increased.",
+              recommendation: "No action needed.",
+            },
+          ],
+        }),
+        undefined,
+        "liquid/lfm-2.5-2.6b:free",
+      ),
+    ]);
+
+    const report = await runExternalPullRequestReview({
+      root,
+      config,
+      gateway,
+      lenses: ["general"],
+      onActivity: (event) => events.push(event),
+      material: {
+        reference: "42",
+        headRefOid: "head-42",
+        title: "No documented acceptance evidence",
+        body: "",
+        ciState: "passing",
+        changedFiles: ["src/value.ts"],
+        diff: "diff --git a/src/value.ts b/src/value.ts\n--- a/src/value.ts\n+++ b/src/value.ts\n@@ -1 +1 @@\n-export const value = 1;\n+export const value = 2;\n",
+        diffTruncated: false,
+      },
+    });
+
+    expect(gateway.requests).toHaveLength(1);
+    expect(gateway.modelFailures).toEqual([]);
+    expect(gateway.modelSuccesses).toEqual([
+      {
+        model: "liquid/lfm-2.5-2.6b:free",
+        responseModel: "liquid/lfm-2.5-2.6b:free",
+        task: "review_general",
+      },
+    ]);
+    expect(events).not.toContainEqual(
+      expect.objectContaining({
+        type: "report-repair",
+      }),
+    );
+    expect(report.reviewStatus).toBe("complete");
+    expect(report.findings).toEqual([]);
+    expect(report.summary).toContain("0 documented DoD/acceptance violation(s)");
+  });
+
   it("keeps only DoD findings backed by documented PR acceptance evidence", async () => {
     const root = await repository();
     const config = configFor(root);
