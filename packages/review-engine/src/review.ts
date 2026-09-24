@@ -45,6 +45,16 @@ const MAX_EXTERNAL_REVIEW_BATCH_CHARS = 24000;
 const MAX_EXTERNAL_REVIEW_FILE_CHARS = 8000;
 const MAX_EXTERNAL_REVIEW_BATCH_FILES = 6;
 const MAX_RAW_DEBUG_RESPONSE_CHARS = 64_000;
+const EXTERNAL_DIFF_TRUNCATION_MARKER =
+  "[FILE DIFF TRUNCATED — omitted remainder is unavailable evidence; do not infer partial or broken source from this boundary.]";
+
+function boundedExternalReviewDiff(diff: string): string {
+  if (diff.length <= MAX_EXTERNAL_REVIEW_FILE_CHARS) return diff;
+
+  const lineBoundary = diff.lastIndexOf("\n", MAX_EXTERNAL_REVIEW_FILE_CHARS);
+  const safeEnd = lineBoundary > 0 ? lineBoundary : MAX_EXTERNAL_REVIEW_FILE_CHARS;
+  return diff.slice(0, safeEnd) + "\n" + EXTERNAL_DIFF_TRUNCATION_MARKER;
+}
 
 function latestReviewPath(root: string, config: AgentConfig): string {
   return resolve(root, config.runtime.cacheDirectory, "latest-review.json");
@@ -550,10 +560,7 @@ function externalReviewBatches(
       continue;
     }
 
-    const boundedDiff =
-      diff.length <= MAX_EXTERNAL_REVIEW_FILE_CHARS
-        ? diff
-        : diff.slice(0, MAX_EXTERNAL_REVIEW_FILE_CHARS) + "\n[FILE DIFF TRUNCATED]";
+    const boundedDiff = boundedExternalReviewDiff(diff);
     const section = "### " + path + "\n" + boundedDiff;
 
     if (
@@ -838,6 +845,7 @@ function reviewSystemPrompt(
           "The caller supplies a bounded authoritative changed-code packet directly in each external review batch. External review batches are tool-free: do not request more repository context; report only what the packet, documented acceptance evidence and Constitution prove.",
           "A bounded batch is not necessarily the entire pull request. Absence from the current packet is NOT evidence that a definition, import, handler, test, usage, file, validation step or implementation is absent from the pull request or repository.",
           "Never report an item as missing, unused, undefined or untested merely because its definition/reference/test is not visible in this batch. Omit absence-based findings unless the supplied evidence positively proves the absence.",
+          "Packet truncation markers are not source code. Never infer a defect from text ending at or adjacent to a truncation marker; omitted or incomplete context means the evidence is insufficient.",
           "For typed TypeScript code, do not report that a value/property may be null or undefined unless the supplied packet positively shows a nullable/optional type, unsafe any/unknown boundary, unchecked external value, or producer path that can return null/undefined. A required typed property plus passing typecheck is evidence against speculative nullability findings.",
           "Do not infer or change Jira ownership, active task selection or workflow state from the pull request author or content.",
         ]
@@ -1186,6 +1194,7 @@ async function runReviewLens(
                   "Use ONLY this packet plus documentedAcceptanceEvidence and repository Constitution to produce this batch report.",
                   "No model tools are available in external review batches. Do not ask for more context and do not speculate beyond the packet.",
                   "If the packet is insufficient to prove a defect, omit that finding.",
+                  "A FILE DIFF TRUNCATED marker means the remainder was intentionally omitted. It must never be treated as evidence that the source line itself is truncated, misspelled or incomplete.",
                   externalPacket,
                 ].join("\n")
               : "",
