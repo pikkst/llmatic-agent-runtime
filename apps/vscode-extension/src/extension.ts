@@ -46,9 +46,14 @@ import {
   publishPullRequestReview,
   readPullRequestFileAtHead,
   type OpenPullRequestSummary,
+  type PullRequestReviewContext,
   type PullRequestReviewEvent,
 } from "@llmatic/github-adapter";
-import { verifyJiraConnectionFromEnvironment, type JiraWorkMode } from "@llmatic/jira-adapter";
+import {
+  createJiraTaskProviderFromEnvironment,
+  verifyJiraConnectionFromEnvironment,
+  type JiraWorkMode,
+} from "@llmatic/jira-adapter";
 import {
   approveCurrentProjectPlan,
   initializeApprovedProject,
@@ -450,6 +455,117 @@ async function taskRecoveryEnvironment(
   }
 
   return environment;
+}
+
+interface PullRequestAcceptanceEvidence {
+  items: string[];
+  source?: string;
+  unavailableReason?: string;
+}
+
+function jiraIssueKeys(value: string | undefined, projectKey?: string): string[] {
+  if (!value) return [];
+  const matches = value.match(/\b[A-Z][A-Z0-9_]*-\d+\b/gi) ?? [];
+  const normalizedProjectKey = projectKey?.trim().toUpperCase();
+  return [
+    ...new Set(
+      matches
+        .map((match) => match.toUpperCase())
+        .filter(
+          (match) =>
+            !normalizedProjectKey ||
+            match.startsWith(normalizedProjectKey + "-"),
+        ),
+    ),
+  ];
+}
+
+function pullRequestJiraIssueKey(
+  reviewContext: PullRequestReviewContext,
+  projectKey?: string,
+): { key?: string; unavailableReason?: string } {
+  const titleKeys = jiraIssueKeys(reviewContext.title, projectKey);
+  const branchKeys = jiraIssueKeys(reviewContext.status.pullRequest.headRefName, projectKey);
+  const primaryKeys = [...new Set([...titleKeys, ...branchKeys])];
+
+  if (primaryKeys.length === 1) return { key: primaryKeys[0] };
+  if (primaryKeys.length > 1) {
+    return {
+      unavailableReason:
+        "multiple Jira task keys are present in the PR title/branch: " +
+        primaryKeys.join(", "),
+    };
+  }
+
+  const bodyKeys = jiraIssueKeys(reviewContext.body, projectKey);
+  if (bodyKeys.length === 1) return { key: bodyKeys[0] };
+  if (bodyKeys.length > 1) {
+    return {
+      unavailableReason:
+        "multiple Jira task keys are present in the PR body: " +
+        bodyKeys.join(", "),
+    };
+  }
+
+  return {};
+}
+
+async function pullRequestAcceptanceEvidenceFromJira(
+  context: vscode.ExtensionContext,
+  state: ExtensionState,
+  config: Awaited<ReturnType<typeof loadAgentConfig>>,
+  reviewContext: PullRequestReviewContext,
+): Promise<PullRequestAcceptanceEvidence> {
+  const environment = await taskRecoveryEnvironment(context, state);
+  const baseUrl = environment.LLMATIC_JIRA_BASE_URL?.trim();
+  const hasCredentials = Boolean(
+    environment.LLMATIC_JIRA_BEARER_TOKEN ||
+      (environment.LLMATIC_JIRA_EMAIL && environment.LLMATIC_JIRA_API_TOKEN),
+  );
+
+  if (!baseUrl || !hasCredentials) {
+    return { items: [] };
+  }
+
+  const resolved = pullRequestJiraIssueKey(
+    reviewContext,
+    environment.LLMATIC_JIRA_PROJECT_KEY,
+  );
+  if (resolved.unavailableReason) {
+    return {
+      items: [],
+      unavailableReason: resolved.unavailableReason,
+    };
+  }
+  if (!resolved.key) {
+    return { items: [] };
+  }
+
+  try {
+    const provider = createJiraTaskProviderFromEnvironment(config, environment);
+    const task = await provider.getTask(resolved.key);
+    return {
+      source: "Jira " + task.key,
+      items: [
+        ...task.acceptanceCriteria.map(
+          (item) => "[Jira " + task.key + " AC] " + item,
+        ),
+        ...task.definitionOfDone.map(
+          (item) => "[Jira " + task.key + " DoD] " + item,
+        ),
+      ],
+    };
+  } catch (error) {
+    return {
+      items: [],
+      source: "Jira " + resolved.key,
+      unavailableReason:
+        "could not load " +
+        resolved.key +
+        " acceptance criteria / Definition of Done: " +
+        (error instanceof Error ? error.message : String(error)),
+    };
+  }
 }
 
 async function workspaceJiraStatus(
