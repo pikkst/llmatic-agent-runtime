@@ -232,7 +232,7 @@ function autoFreeCircuitBreakerFailure(reason: string): boolean {
 function cooldownForFailure(reason: string, fallbackMs: number): number {
   if (/daily limit|limit_rpd|per day|rpd/i.test(reason)) return 24 * 60 * 60_000;
   if (/rate.?limit|too many requests|\b429\b/i.test(reason)) {
-    return Math.max(fallbackMs, 30 * 60_000);
+    return Math.max(30_000, Math.min(fallbackMs, 60_000));
   }
   return fallbackMs;
 }
@@ -650,12 +650,14 @@ export class AdaptiveFreeGatewayClient implements GatewayChatClient {
   }
 
   private excludeForTask(task: string, model: string, reason: string): void {
-    let excluded = this.taskExcludedModels.get(task);
-    if (!excluded) {
-      excluded = new Set<string>();
-      this.taskExcludedModels.set(task, excluded);
+    if (providerCompatibilityFailure(reason)) {
+      let excluded = this.taskExcludedModels.get(task);
+      if (!excluded) {
+        excluded = new Set<string>();
+        this.taskExcludedModels.set(task, excluded);
+      }
+      excluded.add(model);
     }
-    excluded.add(model);
 
     if (/daily limit|limit_rpd|per day|rpd/i.test(reason)) {
       this.globallyUnhealthyUntil.set(
