@@ -531,7 +531,7 @@ export class AdaptiveFreeGatewayClient implements GatewayChatClient {
       }
 
       const selectedModels = task.startsWith("review_")
-        ? [...trustedModels, ...mixedModels.slice(0, 1), ...explorationModels]
+        ? [...trustedModels, ...mixedModels, ...explorationModels]
         : orderedModels;
 
       for (const model of selectedModels) {
@@ -541,9 +541,14 @@ export class AdaptiveFreeGatewayClient implements GatewayChatClient {
       // Live discovery is an optimization. Preserve Auto Free only while its circuit is closed.
     }
 
+    const reviewTask = task.startsWith("review_");
     const autoFreeDisabled = this.autoFreeDisabledTasks.has(task);
     const autoFreeAllowed = !avoided.has("kilo-auto/free") && !autoFreeDisabled;
-    if (autoFreeAllowed && !candidates.includes("kilo-auto/free")) {
+    const explicitCandidateCount = candidates.filter((model) => model !== "kilo-auto/free").length;
+    const autoFreeNeeded =
+      autoFreeAllowed && (!reviewTask || explicitCandidateCount < this.maxModelAttempts);
+
+    if (autoFreeNeeded && !candidates.includes("kilo-auto/free")) {
       candidates.push("kilo-auto/free");
     }
 
@@ -557,6 +562,10 @@ export class AdaptiveFreeGatewayClient implements GatewayChatClient {
 
     if (this.maxModelAttempts === 1) {
       return [candidates[0]!];
+    }
+
+    if (reviewTask) {
+      return candidates.slice(0, this.maxModelAttempts);
     }
 
     if (autoFreeAllowed && candidates.includes("kilo-auto/free")) {
