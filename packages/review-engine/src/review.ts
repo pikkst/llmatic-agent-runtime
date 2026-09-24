@@ -1063,6 +1063,30 @@ function extractJson(content: string): unknown {
     : new Error("Review model response did not contain valid JSON.");
 }
 
+function pruneImpossibleExternalDodFindings(
+  value: unknown,
+  material: PullRequestReviewMaterial | undefined,
+): unknown {
+  if (!material || pullRequestAcceptanceEvidence(material.body).length > 0) return value;
+  if (!value || typeof value !== "object" || Array.isArray(value)) return value;
+
+  const report = value as Record<string, unknown>;
+  if (!Array.isArray(report.findings)) return value;
+
+  return {
+    ...report,
+    findings: report.findings.filter(
+      (finding) =>
+        !(
+          finding &&
+          typeof finding === "object" &&
+          !Array.isArray(finding) &&
+          (finding as Record<string, unknown>).basis === "dod"
+        ),
+    ),
+  };
+}
+
 function normalizeReviewFinding(
   raw: RawReviewFinding,
   lens: ReviewLens,
@@ -1499,7 +1523,10 @@ async function runReviewLens(
     }
 
     try {
-      const extracted = extractJson(assistant.content);
+      const extracted = pruneImpossibleExternalDodFindings(
+        extractJson(assistant.content),
+        material,
+      );
       const parsed = rawReviewSchema.parse(extracted);
       await reportValidatedModelSuccess(options.gateway, response, lens);
       return {
