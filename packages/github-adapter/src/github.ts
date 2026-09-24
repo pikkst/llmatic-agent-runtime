@@ -301,6 +301,33 @@ export async function getPullRequestStatus(
   };
 }
 
+export async function getPullRequestRequiredStatus(
+  root: string,
+  ref?: string | number,
+  runner: GitHubProcessRunner = defaultRunner,
+): Promise<PullRequestStatus> {
+  const pullRequest = await getPullRequestSummary(root, ref, runner);
+  const args = [
+    ...prArgs("checks", ref ?? pullRequest.number),
+    "--required",
+    "--json",
+    PR_CHECK_FIELDS,
+  ];
+  const result = run(root, args, runner);
+
+  if (![0, 1, 8].includes(result.exitCode)) {
+    requireSuccess(result, args);
+  }
+
+  const checks = result.stdout.trim() ? parseJson<PullRequestCheck[]>(result, args) : [];
+
+  return {
+    pullRequest,
+    checks,
+    ciState: ciStateFor(checks),
+  };
+}
+
 function boundedPullRequestText(value: unknown): string {
   const text = typeof value === "string" ? value : "";
   return text.length <= MAX_PULL_REQUEST_TEXT_CHARS
