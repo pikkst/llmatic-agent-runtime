@@ -706,6 +706,90 @@ describe("review engine", () => {
     expect(report.lensFailures).toEqual([]);
   });
 
+  it("preserves successful split-recovery findings when a sibling split still fails", async () => {
+    const root = await repository();
+    const config = configFor(root);
+    let request = 0;
+    const gateway: GatewayChatClient = {
+      async createChatCompletion() {
+        request += 1;
+
+        if (request === 1 || request === 3) {
+          throw new Error("simulated provider timeout");
+        }
+
+        return response(
+          JSON.stringify({
+            summary: "Recovered first split.",
+            findings: [
+              {
+                severity: "blocking",
+                category: "correctness",
+                basis: "defect",
+                title: "Recovered split defect",
+                path: "src/file-1.ts",
+                line: 1,
+                side: "RIGHT",
+                evidence: "The recovered split proves the changed line is incorrect.",
+                recommendation: "Return the required value.",
+              },
+            ],
+          }),
+        );
+      },
+    };
+
+    const changedFiles = ["src/file-1.ts", "src/file-2.ts"];
+    const diff = changedFiles
+      .map(
+        (path, index) =>
+          "diff --git a/" +
+          path +
+          " b/" +
+          path +
+          "\n--- a/" +
+          path +
+          "\n+++ b/" +
+          path +
+          "\n@@ -1 +1 @@\n-export const value = " +
+          index +
+          ";\n+export const value = " +
+          (index + 1) +
+          ";\n",
+      )
+      .join("");
+
+    const report = await runExternalPullRequestReview({
+      root,
+      config,
+      gateway,
+      lenses: ["general"],
+      material: {
+        reference: "42",
+        headRefOid: "head-42",
+        title: "Partial split recovery",
+        body: "",
+        ciState: "passing",
+        changedFiles,
+        diff,
+        diffTruncated: false,
+      },
+    });
+
+    expect(request).toBe(3);
+    expect(report.reviewStatus).toBe("partial");
+    expect(report.findings).toEqual([
+      expect.objectContaining({
+        title: "Recovered split defect",
+        path: "src/file-1.ts",
+      }),
+    ]);
+    expect(report.lensFailures).toHaveLength(1);
+    expect(report.lensFailures[0]?.reason).toContain("split recovery incomplete");
+    expect(report.lensFailures[0]?.reason).toContain("src/file-2.ts");
+    expect(report.lensFailures[0]?.reason).toContain("simulated provider timeout");
+  });
+
   it("surfaces an external review failure only after the recovery retry is exhausted", async () => {
     const root = await repository();
     const config = configFor(root);
