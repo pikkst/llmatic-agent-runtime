@@ -278,7 +278,7 @@ describe("VS Code extension activation surface", () => {
     expect(source).toContain('spawnSync("git", ["rev-parse", "HEAD"]');
     expect(source.indexOf(workspaceBuildCall)).toBeLessThan(source.indexOf(vsixPackageCall));
   });
-  it("keeps the v0.3.1 release pipeline deterministic with a manual Marketplace handoff", async () => {
+  it("keeps the v0.3.2 release pipeline deterministic with a manual Marketplace handoff", async () => {
     const [rootPackageRaw, extensionPackageRaw, workflow, marketplaceDocs] = await Promise.all([
       readFile(new URL("../../../package.json", import.meta.url), "utf8"),
       readFile(new URL("../package.json", import.meta.url), "utf8"),
@@ -289,7 +289,7 @@ describe("VS Code extension activation surface", () => {
     const rootPackage = JSON.parse(rootPackageRaw) as { version: string };
     const extensionPackage = JSON.parse(extensionPackageRaw) as { version: string };
 
-    expect(rootPackage.version).toBe("0.3.1");
+    expect(rootPackage.version).toBe("0.3.2");
     expect(extensionPackage.version).toBe(rootPackage.version);
 
     expect(workflow).toContain("pnpm install --frozen-lockfile");
