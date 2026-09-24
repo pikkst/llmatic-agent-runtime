@@ -235,6 +235,144 @@ function adfText(value: unknown): string | undefined {
   return text || undefined;
 }
 
+function requirementKind(value: string): "acceptance" | "dod" | undefined {
+  const normalized = value
+    .replace(/^#{1,6}\s+/, "")
+    .replace(/[:：]\s*$/, "")
+    .trim()
+    .toLowerCase();
+
+  if (
+    [
+      "acceptance criteria",
+      "acceptance criterion",
+      "acceptance",
+      "ac",
+      "vastuvõtukriteeriumid",
+      "vastuvõtu kriteeriumid",
+    ].includes(normalized)
+  ) {
+    return "acceptance";
+  }
+
+  if (
+    [
+      "definition of done",
+      "done criteria",
+      "dod",
+      "valmisoleku kriteeriumid",
+      "valmis kriteeriumid",
+    ].includes(normalized)
+  ) {
+    return "dod";
+  }
+
+  return undefined;
+}
+
+function requirementItem(value: string): string {
+  return value
+    .trim()
+    .replace(/^[-*+]\s+/, "")
+    .replace(/^\d+[.)]\s+/, "")
+    .replace(/^\[[ xX]\]\s*/, "")
+    .trim();
+}
+
+function likelySectionHeading(value: string): boolean {
+  const normalized = value.trim().replace(/[:：]\s*$/, "").toLowerCase();
+  return [
+    "objective",
+    "purpose",
+    "scope",
+    "user story",
+    "implementation",
+    "technical notes",
+    "dependencies",
+    "tests",
+    "testing",
+    "documentation",
+    "docs",
+    "notes",
+    "out of scope",
+    "guardrails",
+  ].includes(normalized);
+}
+
+function requirementsFromDescription(description: string | undefined): {
+  acceptanceCriteria: string[];
+  definitionOfDone: string[];
+} {
+  const acceptanceCriteria: string[] = [];
+  const definitionOfDone: string[] = [];
+  let active: "acceptance" | "dod" | undefined;
+
+  for (const rawLine of description?.split(/\r?\n/) ?? []) {
+    const line = rawLine.trim();
+    if (!line) continue;
+
+    const kind = requirementKind(line);
+    if (kind) {
+      active = kind;
+      continue;
+    }
+    if (likelySectionHeading(line)) {
+      active = undefined;
+      continue;
+    }
+    if (!active) continue;
+
+    const item = requirementItem(line);
+    if (!item) continue;
+    (active === "acceptance" ? acceptanceCriteria : definitionOfDone).push(item);
+  }
+
+  return {
+    acceptanceCriteria: [...new Set(acceptanceCriteria)].slice(0, 100),
+    definitionOfDone: [...new Set(definitionOfDone)].slice(0, 100),
+  };
+}
+
+function jiraFieldText(value: unknown): string | undefined {
+  if (typeof value === "string") return value.trim() || undefined;
+  if (Array.isArray(value)) {
+    const parts = value.map((item) => jiraFieldText(item)).filter((item): item is string => Boolean(item));
+    return parts.length > 0 ? parts.join("\n") : undefined;
+  }
+  return adfText(value);
+}
+
+function requirementsFromNamedFields(
+  fields: Record<string, unknown>,
+  names: Record<string, unknown>,
+): {
+  acceptanceCriteria: string[];
+  definitionOfDone: string[];
+} {
+  const acceptanceCriteria: string[] = [];
+  const definitionOfDone: string[] = [];
+
+  for (const [fieldId, rawName] of Object.entries(names)) {
+    if (typeof rawName !== "string") continue;
+    const kind = requirementKind(rawName);
+    if (!kind) continue;
+
+    const text = jiraFieldText(fields[fieldId]);
+    if (!text) continue;
+    const items = text
+      .split(/\r?\n/)
+      .map(requirementItem)
+      .filter(Boolean);
+
+    (kind === "acceptance" ? acceptanceCriteria : definitionOfDone).push(...items);
+  }
+
+  return {
+    acceptanceCriteria: [...new Set(acceptanceCriteria)].slice(0, 100),
+    definitionOfDone: [...new Set(definitionOfDone)].slice(0, 100),
+  };
+}
+
 function commentDocument(text: string) {
   const paragraphs = text
     .replace(/\r\n/g, "\n")
@@ -282,6 +420,7 @@ function linkedDependencies(fields: Record<string, unknown>): string[] {
 
 function taskFromIssue(connection: JiraConnectionConfig, raw: Record<string, unknown>): TaskRecord {
   const fields = (raw.fields ?? {}) as Record<string, unknown>;
+  const names = (raw.names ?? {}) as Record<string, unknown>;
   const status = (fields.status ?? {}) as Record<string, unknown>;
   const statusCategory = (status.statusCategory ?? {}) as Record<string, unknown>;
   const issueType = (fields.issuetype ?? {}) as Record<string, unknown>;
@@ -299,13 +438,16 @@ function taskFromIssue(connection: JiraConnectionConfig, raw: Record<string, unk
   const siteUrl =
     connection.siteUrl ??
     (connection.baseUrl.includes(".atlassian.net") ? connection.baseUrl : undefined);
+  const description = adfText(fields.description);
+  const descriptionRequirements = requirementsFromDescription(description);
+  const namedFieldRequirements = requirementsFromNamedFields(fields, names);
 
   return {
     provider: "jira",
     id,
     key,
     summary,
-    description: adfText(fields.description),
+    description,
     status: {
       id: String(status.id ?? ""),
       name: statusName,
@@ -323,8 +465,18 @@ function taskFromIssue(connection: JiraConnectionConfig, raw: Record<string, unk
       : [],
     updatedAt: typeof fields.updated === "string" ? fields.updated : undefined,
     webUrl: siteUrl ? siteUrl + "/browse/" + encodeURIComponent(key) : undefined,
-    acceptanceCriteria: [],
-    definitionOfDone: [],
+    acceptanceCriteria: [
+      ...new Set([
+        ...namedFieldRequirements.acceptanceCriteria,
+        ...descriptionRequirements.acceptanceCriteria,
+      ]),
+    ].slice(0, 100),
+    definitionOfDone: [
+      ...new Set([
+        ...namedFieldRequirements.definitionOfDone,
+        ...descriptionRequirements.definitionOfDone,
+      ]),
+    ].slice(0, 100),
     dependencies: linkedDependencies(fields),
     source: {
       type: "jira",
@@ -436,7 +588,7 @@ export class JiraTaskProvider implements TaskProvider {
       "GET",
       "/rest/api/3/issue/" +
         pathFor(reference) +
-        "?fields=summary,description,status,issuetype,priority,assignee,labels,updated,issuelinks",
+        "?fields=*all&expand=names",
     );
 
     return taskFromIssue(this.connection, issue);
