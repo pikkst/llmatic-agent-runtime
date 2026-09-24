@@ -265,7 +265,7 @@ async function chooseAutoReviewPublicationMode(
       {
         label: "$(git-pull-request) Review decision",
         description:
-          "complete + no blockers → approve; complete + blockers → request changes; partial → comment",
+          "complete + no blockers + fresh passing CI → approve; blockers → request changes; otherwise → comment",
         mode: "review_decision" as const,
       },
     ],
