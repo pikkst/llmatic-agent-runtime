@@ -3929,6 +3929,13 @@ async function configureAutoReviewInUi(
           action: "review_now" as const,
         },
         {
+          label:
+            "$(git-pull-request) Publication: " +
+            autoReviewPublicationModeLabel(autoReviewPublicationMode(current)),
+          description: "choose local-only, comment-only or GitHub review decisions",
+          action: "publication" as const,
+        },
+        {
           label: "$(debug-stop) Disable Auto Review Agent",
           description: "stop watching this repository",
           action: "disable" as const,
@@ -3950,6 +3957,26 @@ async function configureAutoReviewInUi(
       });
       await vscode.window.showInformationMessage(
         "LLMatic Auto Review Agent disabled for " + repository + ".",
+      );
+      return;
+    }
+
+    if (choice.action === "publication") {
+      const publicationMode = await chooseAutoReviewPublicationMode(
+        autoReviewPublicationMode(current),
+      );
+      if (!publicationMode) return;
+
+      await storeAutoReviewWorkspaceState(context, statusProvider, {
+        ...current,
+        repository,
+        publicationMode,
+        lastError: undefined,
+      });
+      await vscode.window.showInformationMessage(
+        "LLMatic Auto Review publication mode: " +
+          autoReviewPublicationModeLabel(publicationMode) +
+          ".",
       );
       return;
     }
@@ -4001,6 +4028,9 @@ async function configureAutoReviewInUi(
   );
   if (!choice) return;
 
+  const publicationMode = await chooseAutoReviewPublicationMode("local_only");
+  if (!publicationMode) return;
+
   const pullRequests = listOpenPullRequests(root);
   const seenFingerprints: Record<string, string> = {};
   for (const pullRequest of pullRequests) {
@@ -4013,6 +4043,7 @@ async function configureAutoReviewInUi(
     enabled: true,
     repository,
     seenFingerprints,
+    publicationMode,
     retry: {},
     lastError: undefined,
   });
@@ -4020,7 +4051,9 @@ async function configureAutoReviewInUi(
   await vscode.window.showInformationMessage(
     "LLMatic Auto Review Agent enabled for " +
       repository +
-      ". It reviews new or updated review-ready PRs while this VS Code workspace is open. Publishing remains manual.",
+      ". It reviews new or updated review-ready PRs while this VS Code workspace is open. Publication mode: " +
+      autoReviewPublicationModeLabel(publicationMode) +
+      ".",
   );
 
   if (choice.action === "current") {
