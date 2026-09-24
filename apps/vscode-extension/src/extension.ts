@@ -3737,6 +3737,59 @@ async function runAutoReviewScan(
         const key = String(report.reference);
         const fingerprint = report.headRefOid + ":ready";
         const nextRetry = { ...(profile.retry ?? {}) };
+        const publicationMode = autoReviewPublicationMode(profile);
+        const intendedEvent = autoReviewPublicationEvent(publicationMode, report);
+        const duplicatePublication =
+          intendedEvent !== undefined &&
+          profile.lastPublished?.number === Number(report.reference) &&
+          profile.lastPublished.headRefOid === report.headRefOid &&
+          profile.lastPublished.intendedEvent === intendedEvent;
+
+        const publication = duplicatePublication
+          ? {
+              intendedEvent,
+              publishedEvent: profile.lastPublished?.publishedEvent,
+              fallback: profile.lastPublished?.fallback ?? false,
+              skipped: true,
+            }
+          : {
+              ...(await publishAutomaticReviewResult(
+                context,
+                root,
+                report,
+                publicationMode,
+                output,
+                reviewLog,
+              )),
+              skipped: false,
+            };
+
+        if (duplicatePublication && intendedEvent) {
+          output.appendLine(
+            "[AUTO REVIEW][PUBLISH] Skipping duplicate " +
+              intendedEvent +
+              " for unchanged PR #" +
+              report.reference +
+              " head " +
+              report.headRefOid.slice(0, 12) +
+              ".",
+          );
+        }
+
+        const publicationError = publication.error
+          ? "PR #" + report.reference + " publication: " + publication.error
+          : undefined;
+        const publishedState =
+          publication.publishedEvent && publication.intendedEvent
+            ? {
+                number: Number(report.reference),
+                headRefOid: report.headRefOid,
+                intendedEvent: publication.intendedEvent,
+                publishedEvent: publication.publishedEvent,
+                publishedAt: new Date().toISOString(),
+                fallback: publication.fallback,
+              }
+            : profile.lastPublished;
 
         if (report.reviewStatus === "complete") {
           delete nextRetry[key];
@@ -3758,7 +3811,8 @@ async function runAutoReviewScan(
               coverage: report.coverage,
               reviewStatus: report.reviewStatus,
             },
-            lastError: undefined,
+            lastPublished: publishedState,
+            lastError: publicationError,
           };
         } else {
           nextRetry[key] = {
@@ -3779,7 +3833,8 @@ async function runAutoReviewScan(
               coverage: report.coverage,
               reviewStatus: report.reviewStatus,
             },
-            lastError: undefined,
+            lastPublished: publishedState,
+            lastError: publicationError,
           };
         }
         await storeAutoReviewWorkspaceState(context, statusProvider, profile);
@@ -3811,6 +3866,13 @@ async function runAutoReviewScan(
             (report.reviewStatus === "partial"
               ? " · incomplete; retry scheduled after cooldown"
               : "") +
+            (publicationError
+              ? " · GitHub publication failed"
+              : publication.skipped
+                ? " · publication already up to date"
+                : publication.publishedEvent
+                  ? " · published " + publication.publishedEvent
+                  : " · local only") +
             ".",
           "Open Review Output",
         );
