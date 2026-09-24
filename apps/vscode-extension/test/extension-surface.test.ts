@@ -244,6 +244,40 @@ describe("VS Code extension activation surface", () => {
     expect(source).toContain('spawnSync("git", ["rev-parse", "HEAD"]');
     expect(source.indexOf(workspaceBuildCall)).toBeLessThan(source.indexOf(vsixPackageCall));
   });
+  it("keeps the v0.3.1 release pipeline deterministic with a manual Marketplace handoff", async () => {
+    const [rootPackageRaw, extensionPackageRaw, workflow, marketplaceDocs] = await Promise.all([
+      readFile(new URL("../../../package.json", import.meta.url), "utf8"),
+      readFile(new URL("../package.json", import.meta.url), "utf8"),
+      readFile(new URL("../../../.github/workflows/release.yml", import.meta.url), "utf8"),
+      readFile(new URL("../../../docs/marketplace-publishing.md", import.meta.url), "utf8"),
+    ]);
+
+    const rootPackage = JSON.parse(rootPackageRaw) as { version: string };
+    const extensionPackage = JSON.parse(extensionPackageRaw) as { version: string };
+
+    expect(rootPackage.version).toBe("0.3.1");
+    expect(extensionPackage.version).toBe(rootPackage.version);
+
+    expect(workflow).toContain("pnpm install --frozen-lockfile");
+    expect(workflow).toContain("group: release-${{ github.ref }}");
+    expect(workflow).toContain("cancel-in-progress: false");
+    expect(workflow).toContain("permissions:\n  contents: read");
+    expect(workflow).toContain("permissions:\n      contents: write");
+    expect(workflow).toContain("Marketplace publication is intentionally manual.");
+    expect(workflow).not.toContain("marketplace_publish:");
+    expect(workflow).not.toContain("--oidc");
+    expect(workflow).not.toContain("--azure-credential");
+    expect(workflow).not.toContain("VSCODE_MARKETPLACE_");
+    expect(workflow).not.toContain("marketplace-production");
+
+    expect(marketplaceDocs).toContain("manual Visual Studio Marketplace upload");
+    expect(marketplaceDocs).toContain(
+      "Do not rebuild the extension locally for Marketplace publication",
+    );
+    expect(marketplaceDocs).toContain("VSCODE_MARKETPLACE_PUBLISH");
+    expect(marketplaceDocs).toContain("can be deleted after this cleanup is merged");
+  });
+
   it("keeps VS Code clean-install identity verification inside the Extension Host", async () => {
     const source = await readFile(
       new URL("../../../scripts/vscode-clean-install-acceptance.mjs", import.meta.url),
