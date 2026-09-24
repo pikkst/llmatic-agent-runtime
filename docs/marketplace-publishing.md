@@ -1,8 +1,16 @@
 # VS Code Marketplace Publishing
 
-LLMatic publishes GitHub release artifacts through the tag-driven release workflow. Marketplace publication is a separate gated job that uses Microsoft Entra ID authentication through GitHub Actions OIDC and `vsce publish --azure-credential`.
+LLMatic uses a split release model:
 
-No Visual Studio Marketplace PAT or Entra client secret is stored in the repository.
+```text
+semantic-version tag
+  -> deterministic GitHub Actions release pipeline
+  -> accepted versioned VSIX + release manifest
+  -> GitHub Release
+  -> manual Visual Studio Marketplace upload of that exact accepted VSIX
+```
+
+Marketplace publication is intentionally manual in v0.3.1. The repository does not depend on a Marketplace PAT, Microsoft Entra application, GitHub OIDC Marketplace policy, or hidden publisher credentials.
 
 ## Extension identity
 
@@ -11,222 +19,139 @@ Publisher: eventnexus
 Extension name: llmatic-agent-runtime
 Extension ID: eventnexus.llmatic-agent-runtime
 Release workflow: .github/workflows/release.yml
-Identity setup workflow: .github/workflows/marketplace-identity.yml
-GitHub environment: marketplace-production
 ```
 
-The first public Marketplace release, v0.1.1, was uploaded manually from the accepted GitHub Release VSIX. Future releases can use Entra ID automation after the one-time identity setup below is complete.
+## Canonical release flow
 
-## Authentication model
-
-The Marketplace publish job uses this chain:
+For a release such as `v0.3.1`:
 
 ```text
-GitHub Actions
-  -> GitHub OIDC token
-  -> Microsoft Entra federated credential
-  -> azure/login
-  -> Azure CLI credential
-  -> vsce --azure-credential
-  -> Visual Studio Marketplace publisher eventnexus
-```
-
-The release-build job does not receive an Entra OIDC token. Marketplace publishing runs in its own job with only:
-
-```text
-contents: read
-id-token: write
-```
-
-## One-time Microsoft Entra setup
-
-### 1. Create an Entra app registration
-
-In Microsoft Entra admin center:
-
-1. Open **App registrations**.
-2. Create a new registration, for example:
-   ```text
-   LLMatic Marketplace Publisher
-   ```
-3. Record:
-   - **Application (client) ID**
-   - **Directory (tenant) ID**
-
-A client secret is not required.
-
-### 2. Create the GitHub environment
-
-In GitHub:
-
-```text
-pikkst/llmatic-agent-runtime
-  -> Settings
-  -> Environments
-  -> New environment
-  -> marketplace-production
-```
-
-Optional but recommended: add required reviewers to this environment so a Marketplace publish requires explicit approval.
-
-### 3. Add an Entra federated credential
-
-On the Entra app registration:
-
-```text
-Certificates & secrets
-  -> Federated credentials
-  -> Add credential
-  -> GitHub Actions deploying Azure resources
-```
-
-Use:
-
-```text
-GitHub organization/owner: pikkst
-Repository: llmatic-agent-runtime
-Entity type: Environment
-Environment: marketplace-production
-Audience: api://AzureADTokenExchange
-```
-
-This produces the GitHub OIDC subject:
-
-```text
-repo:pikkst/llmatic-agent-runtime:environment:marketplace-production
-```
-
-### 4. Add GitHub environment secrets
-
-Add these secrets to the `marketplace-production` GitHub environment:
-
-```text
-VSCODE_MARKETPLACE_AZURE_CLIENT_ID=<Application client ID>
-VSCODE_MARKETPLACE_AZURE_TENANT_ID=<Directory tenant ID>
-```
-
-No Azure subscription ID is required by this workflow because `azure/login` is configured with `allow-no-subscriptions: true`.
-
-### 5. Resolve the Marketplace identity resource ID
-
-Run this GitHub Actions workflow manually:
-
-```text
-Actions
-  -> Marketplace Entra Identity
-  -> Run workflow
-```
-
-The workflow authenticates with the federated Entra identity and calls the Azure DevOps profile endpoint for resource:
-
-```text
-499b84ac-1321-427f-aa17-267ca6975798
-```
-
-The run summary prints:
-
-```text
-Marketplace identity resource ID: <GUID>
-```
-
-### 6. Authorize the identity in Visual Studio Marketplace
-
-Open the publisher management page for `eventnexus`, then:
-
-```text
-Members
-  -> Add
-  -> <Marketplace identity resource ID>
-  -> Contributor
-```
-
-The exact Marketplace UI wording may vary, but the Entra identity must be a member of publisher `eventnexus` with Contributor publishing rights.
-
-### 7. Verify authorization
-
-Do not enable automatic publishing yet.
-
-After the Marketplace member is added, the next release publish job performs this preflight before publishing:
-
-```text
-vsce verify-pat eventnexus --azure-credential
-```
-
-Despite the historical command name `verify-pat`, current `vsce` supports Entra authentication for this verification when `--azure-credential` is supplied.
-
-### 8. Enable Marketplace publication
-
-Only after the Entra identity is authorized, create or set this GitHub Actions repository variable:
-
-```text
-VSCODE_MARKETPLACE_PUBLISH=true
-```
-
-Until the value is exactly `true`, semantic-version tag releases still build, validate, run clean-install acceptance, publish the accepted GitHub Release, and skip Marketplace automation.
-
-## Release flow
-
-For a future release such as `v0.1.2`:
-
-```text
-tag push
-  -> release job
-       -> verify root + extension versions match tag
+update root + extension versions
+  -> merge green release PR
+  -> tag v0.3.1
+  -> push tag
+  -> release workflow
+       -> frozen-lockfile dependency install
+       -> verify tag/version contract
        -> full CI
        -> package VSIX
        -> release acceptance
-       -> real VS Code clean-install acceptance
-       -> verify release files
-       -> upload accepted candidate artifact
+       -> VS Code clean-install acceptance
+       -> verify hashes/files
+       -> upload accepted Actions artifact
        -> publish GitHub Release
-  -> marketplace_publish job (only when enabled)
-       -> download exact accepted candidate
-       -> GitHub OIDC -> Entra login
-       -> verify publisher authorization
-       -> vsce publish --azure-credential
+       -> print Marketplace handoff summary
+  -> publisher manually uploads the exact GitHub Release VSIX
 ```
 
-Marketplace publishing always consumes the exact accepted versioned VSIX produced by the release job.
+The Marketplace upload must use the exact versioned VSIX attached to the GitHub Release:
 
-## Disabling publication
+```text
+llmatic-agent-runtime-<version>.vsix
+```
 
-Set `VSCODE_MARKETPLACE_PUBLISH` to `false` or delete the variable.
+Do not rebuild the extension locally for Marketplace publication after the GitHub Release succeeds. Rebuilding would produce a different artifact than the release candidate that passed acceptance.
 
-This does not affect GitHub Release publication.
+## Manual Marketplace publication
 
-## Manual Marketplace fallback
+1. Open the matching GitHub Release.
+2. Download:
+   ```text
+   llmatic-agent-runtime-<version>.vsix
+   ```
+3. Open the Visual Studio Marketplace publisher management page for `eventnexus`.
+4. Select **LLMatic Agent Runtime**.
+5. Upload/update the extension with the downloaded VSIX.
+6. Confirm that the Marketplace shows the expected version and public availability.
 
-If Entra automation is not configured or is temporarily unavailable:
+The release manifest remains attached to the GitHub Release for integrity/provenance verification.
 
-1. Keep `VSCODE_MARKETPLACE_PUBLISH` disabled.
-2. Let the release workflow complete successfully.
-3. Download the versioned accepted VSIX from the GitHub Release.
-4. Upload that exact VSIX through the Visual Studio Marketplace publisher management page.
+## Why Marketplace publishing is manual
 
-Do not add a long-lived Marketplace PAT or Entra client secret to the repository as a workaround.
+The Marketplace publisher UI currently used by this project does not expose a trusted-publishing policy that can be bound to the repository workflow. The earlier Entra/OIDC automation scaffolding was therefore removed instead of keeping a release path that could not be exercised end to end.
 
-## Local packaging
+Automation may be reintroduced later only when the Marketplace supports a documented, testable authentication path for this publisher.
 
-Package a VSIX without publishing:
+## GitHub Actions permissions
+
+The workflow-level default is read-only:
+
+```yaml
+permissions:
+  contents: read
+```
+
+Only the release job receives:
+
+```yaml
+permissions:
+  contents: write
+```
+
+That write permission is used to create the GitHub Release.
+
+## Deterministic dependency install
+
+Tagged releases install dependencies with:
 
 ```bash
-pnpm install
-pnpm run ci
-pnpm run package:vsix
+pnpm install --frozen-lockfile
 ```
 
-The generated candidate is written under `artifacts/`.
+A release fails instead of silently mutating dependency resolution when the lockfile and package manifests disagree.
+
+## Release concurrency
+
+The release workflow serializes work per tag:
+
+```yaml
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+```
+
+A second invocation for the same tag cannot cancel an in-flight accepted release.
 
 ## Version contract
 
-The release tag, root `package.json` version, and `apps/vscode-extension/package.json` version must match.
-
-Example:
+These values must match exactly:
 
 ```text
-tag: v0.1.2
-root package: 0.1.2
-extension package: 0.1.2
+tag: v0.3.1
+root package.json: 0.3.1
+apps/vscode-extension/package.json: 0.3.1
 ```
 
-The release workflow rejects mismatches before publication.
+The release workflow verifies the contract before publication.
+
+## Local verification
+
+Before merging a release PR:
+
+```bash
+pnpm install
+pnpm run ci:local
+```
+
+For release-specific validation:
+
+```bash
+pnpm run package:vsix
+node scripts/release-acceptance.mjs v0.3.1 <commit-sha>
+```
+
+The tag-driven workflow repeats the full validation and clean-install acceptance on the tagged commit.
+
+## Credentials and repository settings
+
+v0.3.1 does **not** use:
+
+```text
+VSCODE_MARKETPLACE_PUBLISH
+VSCODE_MARKETPLACE_AZURE_CLIENT_ID
+VSCODE_MARKETPLACE_AZURE_TENANT_ID
+marketplace-production environment
+Marketplace PAT
+```
+
+Any leftover GitHub variable/environment secret from the experimental automation can be deleted after this cleanup is merged.
