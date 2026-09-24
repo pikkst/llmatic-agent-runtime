@@ -77,12 +77,8 @@ describe("VS Code extension activation surface", () => {
     expect(source).toContain("AdaptiveFreeGatewayClient");
     expect(source).toContain("[MODEL ROUTER]");
     expect(source).toContain('"local_only" | "comment_only" | "review_decision"');
-    expect(source).toContain(
-      'return report.blockingCount > 0 ? "REQUEST_CHANGES" : "APPROVE"',
-    );
-    expect(source).toContain(
-      'mode === "comment_only" || report.reviewStatus === "partial"',
-    );
+    expect(source).toContain('return report.blockingCount > 0 ? "REQUEST_CHANGES" : "APPROVE"');
+    expect(source).toContain('mode === "comment_only" || report.reviewStatus === "partial"');
     expect(source).toContain("[AUTO REVIEW][PUBLISH]");
     expect(source).toContain("GitHub rejected that decision for a self-authored pull request");
     expect(source).toContain("Skipping duplicate ");
