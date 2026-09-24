@@ -16,6 +16,7 @@ import {
   getGitHubRepositoryName,
   getPullRequestReviewContext,
   getPullRequestReviewMetadata,
+  getPullRequestRequiredStatus,
   getPullRequestStatus,
   mergePullRequest,
   listOpenPullRequests,
@@ -422,6 +423,37 @@ describe("github adapter", () => {
 
     expect(status.ciState).toBe("pending");
     expect(status.checks).toHaveLength(1);
+  });
+
+  it("reads only required checks for merge-gating review decisions", async () => {
+    const calls: string[][] = [];
+    const runner: GitHubProcessRunner = (_executable, args) => {
+      calls.push(args);
+      if (args[1] === "view") {
+        return { exitCode: 0, stdout: pullRequestJson(), stderr: "" };
+      }
+
+      expect(args).toContain("--required");
+      return {
+        exitCode: 0,
+        stdout: JSON.stringify([
+          {
+            name: "CI Self Hosted",
+            state: "SUCCESS",
+            bucket: "pass",
+            workflow: "CI Self Hosted",
+            link: "https://example.test/required",
+          },
+        ]),
+        stderr: "",
+      };
+    };
+
+    const status = await getPullRequestRequiredStatus("/repo", "7", runner);
+
+    expect(status.ciState).toBe("passing");
+    expect(status.checks.map((check) => check.name)).toEqual(["CI Self Hosted"]);
+    expect(calls.some((args) => args.includes("--required"))).toBe(true);
   });
 
   it("reads external pull-request review context without mutations", async () => {
