@@ -411,6 +411,8 @@ export interface PullRequestReviewMaterial {
   comments?: unknown[];
   reviewThreads?: unknown[];
   documentedAcceptanceEvidence?: string[];
+  acceptanceEvidenceSource?: string;
+  acceptanceEvidenceUnavailableReason?: string;
 }
 
 export interface ExternalPullRequestReviewOptions extends ReviewExecutionOptions {
@@ -1494,6 +1496,8 @@ async function runReviewLens(
               ciState: material.ciState,
               diffTruncated: material.diffTruncated,
               documentedAcceptanceEvidence: documentedAcceptanceEvidence(material),
+              acceptanceEvidenceSource: material.acceptanceEvidenceSource,
+              acceptanceEvidenceUnavailableReason: material.acceptanceEvidenceUnavailableReason,
               reviews: material.reviews ?? [],
               comments: material.comments ?? [],
               reviewThreads: safePullRequestReviewThreads(material.reviewThreads),
@@ -1978,12 +1982,17 @@ export async function runExternalPullRequestReview(
   const defectFindingCount = findings.filter(
     (finding) => finding.basis === "defect" || finding.basis === "repository_rule",
   ).length;
-  const reviewSummary =
-    "Focused review: " +
-    dodFindingCount +
-    " documented DoD/acceptance violation(s), " +
-    defectFindingCount +
-    " concrete defect/rule violation(s).";
+  const reviewSummary = options.material.acceptanceEvidenceUnavailableReason
+    ? "Focused review: DoD/acceptance verification unavailable (" +
+      options.material.acceptanceEvidenceUnavailableReason +
+      "); " +
+      defectFindingCount +
+      " concrete defect/rule violation(s)."
+    : "Focused review: " +
+      dodFindingCount +
+      " documented DoD/acceptance violation(s), " +
+      defectFindingCount +
+      " concrete defect/rule violation(s).";
   const failedLensSummary =
     lensFailures.length > 0
       ? " Incomplete lenses: " +
@@ -2006,7 +2015,10 @@ export async function runExternalPullRequestReview(
     ciState: options.material.ciState,
     diffTruncated: options.material.diffTruncated,
     coverage,
-    reviewStatus: lensFailures.length === 0 ? "complete" : "partial",
+    reviewStatus:
+      lensFailures.length === 0 && !options.material.acceptanceEvidenceUnavailableReason
+        ? "complete"
+        : "partial",
     lensFailures,
     unreviewedFiles,
     summary:
