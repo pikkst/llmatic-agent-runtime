@@ -922,7 +922,7 @@ function reviewLensInstructions(lens: ReviewLens): string[] {
   if (lens === "bug_hunter") {
     return [
       "Act as the Bug Hunter lens.",
-      "Search specifically for edge-case defects: null/undefined handling, state-machine errors, race conditions, pagination, idempotency, transaction boundaries, retries, time/date ordering, stale state, resource leaks, migration/backfill hazards, and missing regression coverage.",
+      "Search specifically for edge-case defects: null/undefined handling, state-machine errors, race conditions, pagination, idempotency, transaction boundaries, retries, time/date ordering, stale state, resource leaks, migration/backfill hazards, and missing regression coverage. When the change claims deterministic, canonical, reproducible, hash-stable, or byte-stable behavior, also inspect locale-sensitive sorting, unstable iteration order, randomness, and time-dependent ordering.",
       "Do not report hypothetical possibilities without concrete changed-code evidence.",
     ];
   }
@@ -1319,6 +1319,11 @@ async function runReviewLens(
             }).slice(0, MAX_TOOL_RESULT_CHARS),
             "Changed non-secret files in this bounded batch:",
             changedFiles.map((path) => "- " + path).join("\n"),
+            "All changed non-secret files in the pull request:",
+            material.changedFiles
+              .filter((path) => !isWorkspacePathSensitive(path))
+              .map((path) => "- " + path)
+              .join("\n"),
             "This batch contains " +
               String(changedFiles.length) +
               " of " +
