@@ -496,6 +496,173 @@ describe("review engine", () => {
     expect(report.summary).toContain("0 documented DoD/acceptance violation(s)");
   });
 
+  it("suppresses a cross-batch typed-member absence claim contradicted by the exact PR head", async () => {
+    const root = await repository();
+    const config = configFor(root);
+    const gateway = new ScriptedGateway([
+      response(
+        JSON.stringify({
+          summary: "First bounded batch review.",
+          findings: [
+            {
+              severity: "blocking",
+              category: "correctness",
+              basis: "defect",
+              title: "Trust boundary references a non-existent finding summary field",
+              path: "src/a-geminiServer.ts",
+              line: 1,
+              side: "RIGHT",
+              evidence:
+                "ExplanationFindingInput type does not have a summary field, so evidence.findings[].summary is invalid.",
+              recommendation: "Remove evidence.findings[].summary from the trust boundary.",
+            },
+          ],
+        }),
+      ),
+      response(
+        JSON.stringify({
+          summary: "Second bounded batch review.",
+          findings: [],
+        }),
+      ),
+    ]);
+    const changedFiles = [
+      "src/a-geminiServer.ts",
+      "src/b.ts",
+      "src/c.ts",
+      "src/d.ts",
+      "src/e.ts",
+      "src/f.ts",
+      "src/z-types.ts",
+    ];
+    const diff =
+      "diff --git a/src/a-geminiServer.ts b/src/a-geminiServer.ts\n" +
+      "--- a/src/a-geminiServer.ts\n" +
+      "+++ b/src/a-geminiServer.ts\n" +
+      "@@ -1 +1 @@\n" +
+      "-export const trustBoundary = [];\n" +
+      '+export const trustBoundary = ["evidence.findings[].summary"];\n' +
+      ["src/b.ts", "src/c.ts", "src/d.ts", "src/e.ts", "src/f.ts"]
+        .map(
+          (path) =>
+            "diff --git a/" +
+            path +
+            " b/" +
+            path +
+            "\n--- a/" +
+            path +
+            "\n+++ b/" +
+            path +
+            "\n@@ -1 +1 @@\n-export const value = 1;\n+export const value = 2;\n",
+        )
+        .join("") +
+      "diff --git a/src/z-types.ts b/src/z-types.ts\n" +
+      "--- a/src/z-types.ts\n" +
+      "+++ b/src/z-types.ts\n" +
+      "@@ -1,4 +1,5 @@\n" +
+      " export interface ExplanationFindingInput {\n" +
+      "+  readonly findingId: string;\n" +
+      "   readonly code: string;\n" +
+      "   readonly summary?: string;\n" +
+      " }\n";
+    const reads: string[] = [];
+
+    const report = await runExternalPullRequestReview({
+      root,
+      config,
+      gateway,
+      readFile: async (path) => {
+        reads.push(path);
+        return {
+          path,
+          content:
+            path === "src/z-types.ts"
+              ? "export interface ExplanationFindingInput {\n  readonly findingId: string;\n  readonly code: string;\n  readonly summary?: string;\n}\n"
+              : "",
+        };
+      },
+      lenses: ["general"],
+      material: {
+        reference: "210",
+        headRefOid: "head-210",
+        title: "Grounded explanation input",
+        body: "",
+        ciState: "pending",
+        changedFiles,
+        diff,
+        diffTruncated: false,
+      },
+    });
+
+    expect(gateway.requests).toHaveLength(2);
+    expect(reads).toContain("src/z-types.ts");
+    expect(report.reviewStatus).toBe("complete");
+    expect(report.findings).toEqual([]);
+    expect(report.summary).toContain("0 concrete defect/rule violation(s)");
+  });
+
+  it("keeps a typed-member absence finding when the diff positively removes that member", async () => {
+    const root = await repository();
+    const config = configFor(root);
+    const gateway = new ScriptedGateway([
+      response(
+        JSON.stringify({
+          summary: "Contract regression.",
+          findings: [
+            {
+              severity: "blocking",
+              category: "correctness",
+              basis: "defect",
+              title: "ExplanationFindingInput lost the summary field",
+              path: "src/use.ts",
+              line: 1,
+              side: "RIGHT",
+              evidence:
+                "ExplanationFindingInput type does not have a summary field after this patch, while the changed consumer still references it.",
+              recommendation: "Restore the summary field or update the consumer contract.",
+            },
+          ],
+        }),
+      ),
+    ]);
+    const diff =
+      "diff --git a/src/use.ts b/src/use.ts\n" +
+      "--- a/src/use.ts\n" +
+      "+++ b/src/use.ts\n" +
+      "@@ -1 +1 @@\n" +
+      "-export const path = \"evidence.findings\";\n" +
+      '+export const path = "evidence.findings[].summary";\n' +
+      "diff --git a/src/types.ts b/src/types.ts\n" +
+      "--- a/src/types.ts\n" +
+      "+++ b/src/types.ts\n" +
+      "@@ -1,4 +1,3 @@\n" +
+      " export interface ExplanationFindingInput {\n" +
+      "-  readonly summary?: string;\n" +
+      "   readonly code: string;\n" +
+      " }\n";
+
+    const report = await runExternalPullRequestReview({
+      root,
+      config,
+      gateway,
+      lenses: ["general"],
+      material: {
+        reference: "43",
+        headRefOid: "head-43",
+        title: "Remove summary contract",
+        body: "",
+        ciState: "pending",
+        changedFiles: ["src/use.ts", "src/types.ts"],
+        diff,
+        diffTruncated: false,
+      },
+    });
+
+    expect(report.findings).toHaveLength(1);
+    expect(report.findings[0]?.title).toBe("ExplanationFindingInput lost the summary field");
+    expect(report.blockingCount).toBe(1);
+  });
+
   it("rejects speculative TypeScript nullability findings without positive nullable evidence", async () => {
     const root = await repository();
     const config = configFor(root);
