@@ -3437,6 +3437,25 @@ async function reviewExternalPullRequestInUi(
             formatElapsedDuration(Date.now() - contextStartedAt),
         });
 
+        const acceptanceEvidence = await pullRequestAcceptanceEvidenceFromJira(
+          context,
+          state,
+          config,
+          reviewContext,
+        );
+        appendReviewActivity(context, reviewLog, sessionId, normalizedReference, startedAt, {
+          type: "session",
+          phase: "Acceptance evidence",
+          detail: acceptanceEvidence.unavailableReason
+            ? "Unavailable · " + acceptanceEvidence.unavailableReason
+            : acceptanceEvidence.source
+              ? acceptanceEvidence.source +
+                " · " +
+                String(acceptanceEvidence.items.length) +
+                " AC/DoD item(s)"
+              : "No Jira task evidence resolved; PR body acceptance evidence only.",
+        });
+
         const fileCache = new Map<string, unknown>();
         return runExternalPullRequestReview({
           root,
@@ -3487,6 +3506,9 @@ async function reviewExternalPullRequestInUi(
             reviews: reviewContext.reviews,
             comments: reviewContext.comments,
             reviewThreads: reviewContext.reviewThreads,
+            documentedAcceptanceEvidence: acceptanceEvidence.items,
+            acceptanceEvidenceSource: acceptanceEvidence.source,
+            acceptanceEvidenceUnavailableReason: acceptanceEvidence.unavailableReason,
           },
         });
       },
@@ -3731,6 +3753,25 @@ async function runAutomaticExternalPullRequestReview(
         formatElapsedDuration(Date.now() - contextStartedAt),
     });
 
+    const acceptanceEvidence = await pullRequestAcceptanceEvidenceFromJira(
+      context,
+      state,
+      config,
+      reviewContext,
+    );
+    appendReviewActivity(context, reviewLog, sessionId, reference, startedAt, {
+      type: "session",
+      phase: "Acceptance evidence",
+      detail: acceptanceEvidence.unavailableReason
+        ? "Unavailable · " + acceptanceEvidence.unavailableReason
+        : acceptanceEvidence.source
+          ? acceptanceEvidence.source +
+            " · " +
+            String(acceptanceEvidence.items.length) +
+            " AC/DoD item(s)"
+          : "No Jira task evidence resolved; PR body acceptance evidence only.",
+    });
+
     const fileCache = new Map<string, unknown>();
     const report = await runExternalPullRequestReview({
       root,
@@ -3773,6 +3814,9 @@ async function runAutomaticExternalPullRequestReview(
         reviews: reviewContext.reviews,
         comments: reviewContext.comments,
         reviewThreads: reviewContext.reviewThreads,
+        documentedAcceptanceEvidence: acceptanceEvidence.items,
+        acceptanceEvidenceSource: acceptanceEvidence.source,
+        acceptanceEvidenceUnavailableReason: acceptanceEvidence.unavailableReason,
       },
     });
 
