@@ -6,11 +6,17 @@ on:
       - "v*.*.*"
 
 permissions:
-  contents: write
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
 
 jobs:
   release:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
 
     steps:
       - name: Checkout tagged commit
@@ -24,8 +30,8 @@ jobs:
       - name: Enable Corepack
         run: corepack enable
 
-      - name: Install dependencies
-        run: pnpm install --no-frozen-lockfile
+      - name: Install locked dependencies
+        run: pnpm install --frozen-lockfile
 
       - name: Build release contract packages
         run: pnpm exec tsc -b packages/release-metadata packages/update-installer
@@ -72,46 +78,15 @@ jobs:
           VERSION="${GITHUB_REF_NAME#v}"
           gh release create "$GITHUB_REF_NAME"             "artifacts/llmatic-agent-runtime-$VERSION.vsix"             "artifacts/release-manifest.json"             --repo "$GITHUB_REPOSITORY"             --verify-tag             --generate-notes             --title "LLMatic Agent Runtime $GITHUB_REF_NAME"
 
-  marketplace_publish:
-    name: Publish VS Code Marketplace
-    if: ${{ vars.VSCODE_MARKETPLACE_PUBLISH == 'true' }}
-    needs: release
-    runs-on: ubuntu-latest
-    environment: marketplace-production
-    permissions:
-      contents: read
-      id-token: write
-
-    steps:
-      - name: Checkout tagged commit
-        uses: actions/checkout@v4
-
-      - name: Set up Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: 22
-
-      - name: Enable Corepack
-        run: corepack enable
-
-      - name: Install dependencies
-        run: pnpm install --no-frozen-lockfile
-
-      - name: Download accepted release candidate
-        uses: actions/download-artifact@v4
-        with:
-          name: llmatic-agent-runtime-${{ github.ref_name }}-accepted
-          path: artifacts
-
-      - name: Verify accepted Marketplace candidate
+      - name: Marketplace handoff summary
+        shell: bash
         run: |
           VERSION="${GITHUB_REF_NAME#v}"
-          test -f "artifacts/llmatic-agent-runtime-$VERSION.vsix"
-          test -f "artifacts/release-manifest.json"
-          sha256sum "artifacts/llmatic-agent-runtime-$VERSION.vsix"
-
-      - name: Publish accepted VSIX to VS Code Marketplace
-        working-directory: apps/vscode-extension
-        run: |
-          VERSION="${GITHUB_REF_NAME#v}"
-          pnpm exec vsce publish --oidc --skip-duplicate --packagePath "../../artifacts/llmatic-agent-runtime-$VERSION.vsix"
+          {
+            echo "### Visual Studio Marketplace handoff"
+            echo ""
+            echo "Marketplace publication is intentionally manual."
+            echo "Upload the exact accepted asset from this GitHub Release:"
+            echo ""
+            echo "`llmatic-agent-runtime-$VERSION.vsix`"
+          } >> "$GITHUB_STEP_SUMMARY"
