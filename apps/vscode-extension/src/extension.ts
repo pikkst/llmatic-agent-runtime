@@ -45,6 +45,7 @@ import {
   publishPullRequestReview,
   readPullRequestFileAtHead,
   type OpenPullRequestSummary,
+  type PullRequestReviewEvent,
 } from "@llmatic/github-adapter";
 import { verifyJiraConnectionFromEnvironment, type JiraWorkMode } from "@llmatic/jira-adapter";
 import {
@@ -159,10 +160,13 @@ interface AutoReviewRetryState {
   retryAfter: number;
 }
 
+type AutoReviewPublicationMode = "local_only" | "comment_only" | "review_decision";
+
 interface AutoReviewWorkspaceState {
   enabled: boolean;
   repository?: string;
   seenFingerprints: Record<string, string>;
+  publicationMode?: AutoReviewPublicationMode;
   retry?: Record<string, AutoReviewRetryState>;
   lastReviewed?: AutoReviewLastResult;
   lastError?: string;
@@ -212,14 +216,62 @@ function autoReviewWorkspaceState(context: vscode.ExtensionContext): AutoReviewW
     context.workspaceState.get<AutoReviewWorkspaceState>(AUTO_REVIEW_STATE_KEY) ?? {
       enabled: false,
       seenFingerprints: {},
+      publicationMode: "local_only",
     }
   );
+}
+
+function autoReviewPublicationMode(profile: AutoReviewWorkspaceState): AutoReviewPublicationMode {
+  return profile.publicationMode ?? "local_only";
+}
+
+function autoReviewPublicationModeLabel(mode: AutoReviewPublicationMode): string {
+  switch (mode) {
+    case "comment_only":
+      return "Comment only";
+    case "review_decision":
+      return "Review decision";
+    default:
+      return "Local only";
+  }
+}
+
+async function chooseAutoReviewPublicationMode(
+  current: AutoReviewPublicationMode,
+): Promise<AutoReviewPublicationMode | undefined> {
+  const choice = await vscode.window.showQuickPick(
+    [
+      {
+        label: "$(device-desktop) Local only",
+        description: "analyze and log locally; do not mutate GitHub",
+        mode: "local_only" as const,
+      },
+      {
+        label: "$(comment-discussion) Comment only",
+        description: "publish validated review comments, never approve/request changes",
+        mode: "comment_only" as const,
+      },
+      {
+        label: "$(git-pull-request) Review decision",
+        description:
+          "complete + no blockers → approve; complete + blockers → request changes; partial → comment",
+        mode: "review_decision" as const,
+      },
+    ],
+    {
+      title: "Auto Review publication mode",
+      placeHolder: "Current: " + autoReviewPublicationModeLabel(current),
+      ignoreFocusOut: true,
+    },
+  );
+  return choice?.mode;
 }
 
 function autoReviewStatus(profile: AutoReviewWorkspaceState): AutoReviewStatus {
   return {
     enabled: profile.enabled,
     repository: profile.repository,
+    publicationMode: autoReviewPublicationMode(profile),
     lastReviewedPr: profile.lastReviewed?.number,
     lastReviewedAt: profile.lastReviewed?.reviewedAt,
     lastReviewStatus: profile.lastReviewed?.reviewStatus,
