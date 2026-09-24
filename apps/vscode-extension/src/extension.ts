@@ -41,6 +41,7 @@ import {
 import {
   getGitHubRepositoryName,
   getPullRequestReviewContext,
+  getPullRequestStatus,
   listOpenPullRequests,
   publishPullRequestReview,
   readPullRequestFileAtHead,
@@ -2991,13 +2992,81 @@ function externalPullRequestReviewDraft(
   ].join("\n");
 }
 
+interface AutoReviewPublicationDecision {
+  intendedEvent?: PullRequestReviewEvent;
+  ciState: Awaited<ReturnType<typeof getPullRequestStatus>>["ciState"];
+  note?: string;
+}
+
 function autoReviewPublicationEvent(
   mode: AutoReviewPublicationMode,
   report: Awaited<ReturnType<typeof runExternalPullRequestReview>>,
+  ciState: Awaited<ReturnType<typeof getPullRequestStatus>>["ciState"] = report.ciState,
 ): PullRequestReviewEvent | undefined {
   if (mode === "local_only") return undefined;
-  if (mode === "comment_only" || report.reviewStatus === "partial") return "COMMENT";
-  return report.blockingCount > 0 ? "REQUEST_CHANGES" : "APPROVE";
+  if (mode === "comment_only") return "COMMENT";
+  if (report.reviewStatus === "partial" || report.coverage !== "complete") return "COMMENT";
+  if (report.blockingCount > 0) return "REQUEST_CHANGES";
+  return ciState === "passing" ? "APPROVE" : "COMMENT";
+}
+
+async function resolveAutoReviewPublicationDecision(
+  root: string,
+  report: Awaited<ReturnType<typeof runExternalPullRequestReview>>,
+  mode: AutoReviewPublicationMode,
+): Promise<AutoReviewPublicationDecision> {
+  if (mode === "local_only") {
+    return { ciState: report.ciState };
+  }
+
+  try {
+    const latest = await getPullRequestStatus(root, report.reference);
+    if (latest.pullRequest.headRefOid !== report.headRefOid) {
+      throw new Error(
+        "Pull-request head changed after review. Expected " +
+          report.headRefOid +
+          " but found " +
+          latest.pullRequest.headRefOid +
+          ".",
+      );
+    }
+
+    const intendedEvent = autoReviewPublicationEvent(mode, report, latest.ciState);
+    const note =
+      mode === "review_decision" &&
+      intendedEvent === "COMMENT" &&
+      report.reviewStatus === "complete" &&
+      report.coverage === "complete" &&
+      report.blockingCount === 0 &&
+      latest.ciState !== "passing"
+        ? "LLMatic did not issue APPROVE because fresh remote CI is **" +
+          latest.ciState +
+          "**. Re-evaluate after CI passes."
+        : undefined;
+
+    return {
+      intendedEvent,
+      ciState: latest.ciState,
+      note,
+    };
+  } catch (error) {
+    if (report.blockingCount > 0 && mode === "review_decision") {
+      return {
+        intendedEvent: "REQUEST_CHANGES",
+        ciState: report.ciState,
+        note:
+          "Fresh CI status could not be verified before publication, but concrete blocking findings were validated.",
+      };
+    }
+
+    return {
+      intendedEvent: "COMMENT",
+      ciState: report.ciState,
+      note:
+        "LLMatic did not issue APPROVE because fresh remote CI status could not be verified: " +
+        (error instanceof Error ? error.message : String(error)),
+    };
+  }
 }
 
 function selfReviewDecisionError(message: string): boolean {
@@ -3013,13 +3082,16 @@ async function publishAutomaticReviewResult(
   mode: AutoReviewPublicationMode,
   output: vscode.OutputChannel,
   reviewLog: vscode.OutputChannel,
+  decision?: AutoReviewPublicationDecision,
 ): Promise<{
   intendedEvent?: PullRequestReviewEvent;
   publishedEvent?: PullRequestReviewEvent;
   fallback: boolean;
   error?: string;
 }> {
-  const intendedEvent = autoReviewPublicationEvent(mode, report);
+  const publicationDecision =
+    decision ?? (await resolveAutoReviewPublicationDecision(root, report, mode));
+  const intendedEvent = publicationDecision.intendedEvent;
   if (!intendedEvent) return { fallback: false };
 
   const startedAt = Date.now();
@@ -3027,7 +3099,13 @@ async function publishAutomaticReviewResult(
   const config = await loadAgentConfig(root, {
     LLMATIC_HOME: context.globalStorageUri.fsPath,
   });
-  const body = externalPullRequestReviewDraft(report);
+  const publicationReport = {
+    ...report,
+    ciState: publicationDecision.ciState,
+  };
+  const body =
+    externalPullRequestReviewDraft(publicationReport) +
+    (publicationDecision.note ? "\n\n> " + publicationDecision.note : "");
   const inlineComments = externalPullRequestInlineComments(report);
 
   const logPublication = (detail: string) => {
@@ -3738,7 +3816,12 @@ async function runAutoReviewScan(
         const fingerprint = report.headRefOid + ":ready";
         const nextRetry = { ...(profile.retry ?? {}) };
         const publicationMode = autoReviewPublicationMode(profile);
-        const intendedEvent = autoReviewPublicationEvent(publicationMode, report);
+        const publicationDecision = await resolveAutoReviewPublicationDecision(
+          root,
+          report,
+          publicationMode,
+        );
+        const intendedEvent = publicationDecision.intendedEvent;
         const duplicatePublication =
           intendedEvent !== undefined &&
           profile.lastPublished?.number === Number(report.reference) &&
@@ -3766,6 +3849,7 @@ async function runAutoReviewScan(
                 publicationMode,
                 output,
                 reviewLog,
+                publicationDecision,
               )),
               skipped: false,
             };
