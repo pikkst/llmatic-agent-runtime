@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.3.1 — Unreleased
+
+- Simplified the tag-driven release pipeline to one deterministic GitHub Release job with least-privilege permissions, per-tag concurrency, frozen-lockfile dependency installation, full CI, release acceptance and VS Code clean-install acceptance.
+- Removed the experimental Visual Studio Marketplace OIDC/Entra publish job and obsolete Marketplace identity workflow because the publisher UI does not expose the required trusted-publishing policy for this project.
+- Made Visual Studio Marketplace publication an explicit manual handoff using the exact versioned VSIX attached to the accepted GitHub Release; the workflow now prints that handoff in the run summary.
+- Updated Marketplace publishing documentation to remove unused `VSCODE_MARKETPLACE_PUBLISH`, Entra client/tenant secrets and the `marketplace-production` environment from the v0.3.1 release contract.
+
 ## 0.3.0 — 2026-09-24
 
 - Started the v0.3.0 development line after the accepted v0.2.0 release.
