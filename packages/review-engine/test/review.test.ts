@@ -258,7 +258,7 @@ describe("review engine", () => {
 
     const prefix =
       "diff --git a/src/value.ts b/src/value.ts\n--- a/src/value.ts\n+++ b/src/value.ts\n@@ -1 +1,3 @@\n-export const value = 1;\n";
-    const padding = "+" + "x".repeat(7_850) + "\n";
+    const padding = "+" + "x".repeat(9_000) + "\n";
     const dangerousLine = "+return fallbackMs;\n";
 
     await runExternalPullRequestReview({
