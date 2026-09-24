@@ -1223,6 +1223,186 @@ function strictExternalFindings(
   });
 }
 
+
+interface TypedMemberAbsenceClaim {
+  owner: string;
+  member: string;
+}
+
+function typedMemberAbsenceClaim(finding: ReviewFinding): TypedMemberAbsenceClaim | undefined {
+  if (finding.basis !== "defect") return undefined;
+
+  const text = [finding.title, finding.evidence, finding.recommendation].join(" ");
+  if (
+    !/(?:does not have|doesn't have|lacks|missing|non[- ]?existent|not defined|undefined|no such)/i.test(
+      text,
+    )
+  ) {
+    return undefined;
+  }
+  if (!/\b(?:type|interface|class|field|property|member|method)\b/i.test(text)) {
+    return undefined;
+  }
+
+  const owner =
+    /\b([A-Z][A-Za-z0-9_$]*)\s+(?:type|interface|class)\b/.exec(text)?.[1] ??
+    /\b(?:type|interface|class)\s+([A-Z][A-Za-z0-9_$]*)\b/.exec(text)?.[1];
+  const member =
+    /\[\]\s*\.\s*([A-Za-z_$][A-Za-z0-9_$]*)\b/.exec(text)?.[1] ??
+    /\b([A-Za-z_$][A-Za-z0-9_$]*)\s+(?:field|property|member|method)\b/i.exec(text)?.[1];
+
+  return owner && member ? { owner, member } : undefined;
+}
+
+function readFileContent(value: unknown): string | undefined {
+  if (typeof value === "string") return value;
+  if (!value || typeof value !== "object" || Array.isArray(value)) return undefined;
+  const content = (value as Record<string, unknown>).content;
+  return typeof content === "string" ? content : undefined;
+}
+
+function namedTypeDeclarationBlocks(content: string, owner: string): string[] {
+  const declaration = new RegExp(
+    "\\b(?:export\\s+)?(?:declare\\s+)?(?:interface|class|type)\\s+" +
+      owner +
+      "\\b",
+    "g",
+  );
+  const blocks: string[] = [];
+
+  for (const match of content.matchAll(declaration)) {
+    const start = match.index ?? 0;
+    const braceStart = content.indexOf("{", start);
+    if (braceStart < 0) {
+      blocks.push(content.slice(start, Math.min(content.length, start + 2000)));
+      continue;
+    }
+
+    let depth = 0;
+    let end = Math.min(content.length, braceStart + 12000);
+    for (let index = braceStart; index < content.length && index < braceStart + 12000; index += 1) {
+      const character = content[index]!;
+      if (character === "{") depth += 1;
+      if (character === "}") {
+        depth -= 1;
+        if (depth === 0) {
+          end = index + 1;
+          break;
+        }
+      }
+    }
+    blocks.push(content.slice(start, end));
+  }
+
+  return blocks;
+}
+
+function declarationHasMember(block: string, member: string): boolean {
+  return new RegExp(
+    "(?:^|[\\n;,{])\\s*(?:readonly\\s+)?[\\\"']?" +
+      member +
+      "[\\\"']?\\s*(?:\\?|!)?\\s*(?::|\\()",
+    "m",
+  ).test(block);
+}
+
+function diffPositivelyProvesMemberRemoval(
+  material: PullRequestReviewMaterial,
+  claim: TypedMemberAbsenceClaim,
+): boolean {
+  const ownerPattern = new RegExp(
+    "\\b(?:interface|class|type)\\s+" + claim.owner + "\\b",
+  );
+  const removedMemberPattern = new RegExp(
+    "^-\\s*(?:readonly\\s+)?[\\\"']?" +
+      claim.member +
+      "[\\\"']?\\s*(?:\\?|!)?\\s*(?::|\\()",
+    "m",
+  );
+
+  for (const path of material.changedFiles) {
+    let block: string;
+    try {
+      block = pullRequestDiffForPath(material.diff, path);
+    } catch {
+      continue;
+    }
+    if (ownerPattern.test(block) && removedMemberPattern.test(block)) {
+      return true;
+    }
+  }
+  return false;
+}
+
+function exactHeadVerificationPaths(
+  material: PullRequestReviewMaterial,
+  claim: TypedMemberAbsenceClaim,
+): string[] {
+  const matching: string[] = [];
+  for (const path of material.changedFiles) {
+    if (isWorkspacePathSensitive(path) || !reviewableCodePath(path)) continue;
+    try {
+      const block = pullRequestDiffForPath(material.diff, path);
+      if (block.includes(claim.owner)) matching.push(path);
+    } catch {
+      continue;
+    }
+  }
+  return [...new Set(matching)].slice(0, 8);
+}
+
+async function typedMemberAbsenceFindingIsVerified(
+  finding: ReviewFinding,
+  options: ExternalPullRequestReviewOptions,
+): Promise<boolean> {
+  const claim = typedMemberAbsenceClaim(finding);
+  if (!claim) return true;
+
+  if (diffPositivelyProvesMemberRemoval(options.material, claim)) {
+    return true;
+  }
+  if (!options.readFile) {
+    return false;
+  }
+
+  const paths = exactHeadVerificationPaths(options.material, claim);
+  if (paths.length === 0) {
+    return false;
+  }
+
+  for (const path of paths) {
+    try {
+      const content = readFileContent(await options.readFile(path, {}));
+      if (!content) continue;
+
+      const blocks = namedTypeDeclarationBlocks(content, claim.owner);
+      if (blocks.some((block) => declarationHasMember(block, claim.member))) {
+        return false;
+      }
+    } catch {
+      continue;
+    }
+  }
+
+  // A type/member absence claim needs positive repository evidence. Seeing one
+  // declaration without a member is not repository-wide proof because types
+  // can be augmented or declared elsewhere. Suppress when proof is incomplete.
+  return false;
+}
+
+async function verifyExternalFindings(
+  findings: ReviewFinding[],
+  options: ExternalPullRequestReviewOptions,
+): Promise<ReviewFinding[]> {
+  const verified: ReviewFinding[] = [];
+  for (const finding of findings) {
+    if (await typedMemberAbsenceFindingIsVerified(finding, options)) {
+      verified.push(finding);
+    }
+  }
+  return verified;
+}
+
 function deduplicateFindings(findings: ReviewFinding[]): ReviewFinding[] {
   const byKey = new Map<string, ReviewFinding>();
 
@@ -1772,13 +1952,12 @@ export async function runExternalPullRequestReview(
   }
 
   const acceptanceEvidence = pullRequestAcceptanceEvidence(options.material.body);
-  const findings = deduplicateFindings(
-    strictExternalFindings(
-      lensResults.flatMap(({ result }) => result.findings),
-      options.material,
-      acceptanceEvidence,
-    ),
+  const strictFindings = strictExternalFindings(
+    lensResults.flatMap(({ result }) => result.findings),
+    options.material,
+    acceptanceEvidence,
   );
+  const findings = deduplicateFindings(await verifyExternalFindings(strictFindings, options));
   const codeBlockingCount = findings.filter((finding) => finding.severity === "blocking").length;
   options.onActivity?.({ type: "architecture-start" });
   const architectureStartedAt = Date.now();
