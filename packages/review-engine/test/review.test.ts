@@ -569,7 +569,7 @@ describe("review engine", () => {
     expect(report.findings).toEqual([]);
   });
 
-  it("keeps successful lenses when one external review lens fails", async () => {
+  it("recovers a transient external review lens failure before marking the review partial", async () => {
     const root = await repository();
     const config = configFor(root);
     const events: ReviewActivityEvent[] = [];
@@ -609,18 +609,14 @@ describe("review engine", () => {
       },
     });
 
-    expect(report.reviewStatus).toBe("partial");
-    expect(report.lensFailures).toEqual([
-      {
-        lens: "bug_hunter",
-        reason: "batch 1/1: simulated bug-hunter timeout",
-      },
-    ]);
+    expect(call).toBe(4);
+    expect(report.reviewStatus).toBe("complete");
+    expect(report.lensFailures).toEqual([]);
     expect(report.summary).toContain(
       "Focused review: 0 documented DoD/acceptance violation(s), 0 concrete defect/rule violation(s).",
     );
-    expect(report.summary).toContain("Incomplete lenses: bug_hunter");
-    expect(events).toContainEqual(
+    expect(report.summary).not.toContain("Incomplete lenses:");
+    expect(events).not.toContainEqual(
       expect.objectContaining({
         type: "lens-failed",
         lens: "bug_hunter",
@@ -628,7 +624,7 @@ describe("review engine", () => {
     );
   });
 
-  it("keeps successful external review batches when another batch times out", async () => {
+  it("recovers a transient external review batch timeout without losing successful findings", async () => {
     const root = await repository();
     const config = configFor(root);
     let request = 0;
@@ -699,16 +695,48 @@ describe("review engine", () => {
       },
     });
 
-    expect(request).toBe(2);
-    expect(report.reviewStatus).toBe("partial");
+    expect(request).toBe(3);
+    expect(report.reviewStatus).toBe("complete");
     expect(report.findings).toEqual([
       expect.objectContaining({
         title: "First batch defect",
         path: "src/file-1.ts",
       }),
     ]);
-    expect(report.lensFailures[0]?.lens).toBe("general");
-    expect(report.lensFailures[0]?.reason).toContain("1/2 review batch(es) incomplete");
+    expect(report.lensFailures).toEqual([]);
+  });
+
+  it("surfaces an external review failure only after the recovery retry is exhausted", async () => {
+    const root = await repository();
+    const config = configFor(root);
+    let requests = 0;
+    const gateway: GatewayChatClient = {
+      async createChatCompletion() {
+        requests += 1;
+        throw new Error("simulated provider timeout");
+      },
+    };
+
+    await expect(
+      runExternalPullRequestReview({
+        root,
+        config,
+        gateway,
+        lenses: ["general"],
+        material: {
+          reference: "42",
+          headRefOid: "head-42",
+          title: "Recovery exhaustion",
+          body: "",
+          ciState: "passing",
+          changedFiles: ["src/value.ts"],
+          diff: "diff --git a/src/value.ts b/src/value.ts\n--- a/src/value.ts\n+++ b/src/value.ts\n@@ -1 +1 @@\n-export const value = 1;\n+export const value = 2;\n",
+          diffTruncated: false,
+        },
+      }),
+    ).rejects.toThrow(/Recovery retry failed.*simulated provider timeout/);
+
+    expect(requests).toBe(2);
   });
 
   it("reports empty structured output as a semantic model failure and repairs with another model", async () => {
