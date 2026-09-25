@@ -1011,8 +1011,7 @@ describe("review engine", () => {
         if (path === "src/server/explanation/operations.ts") {
           return {
             path,
-            content:
-              'await client.rpc("record_kt270_explanation_event", { p_event: event });\n',
+            content: 'await client.rpc("record_kt270_explanation_event", { p_event: event });\n',
           };
         }
         throw new Error("Unexpected read " + path);

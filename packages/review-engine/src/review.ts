@@ -1565,8 +1565,7 @@ function missingDirectTableGrantClaim(
   }
   if (!/\binsert\b/i.test(text)) return undefined;
 
-  const role =
-    /\b(service_role|authenticated|anon|public)\b/i.exec(text)?.[1]?.toLowerCase();
+  const role = /\b(service_role|authenticated|anon|public)\b/i.exec(text)?.[1]?.toLowerCase();
   const table =
     /\b(?:table|on)\s+([a-z_][a-z0-9_]*\.[a-z_][a-z0-9_]*)\b/i.exec(text)?.[1] ??
     /\b([a-z_][a-z0-9_]*\.[a-z_][a-z0-9_]*)\s+table\b/i.exec(text)?.[1];

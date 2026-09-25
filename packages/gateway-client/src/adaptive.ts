@@ -509,8 +509,8 @@ export class AdaptiveFreeGatewayClient implements GatewayChatClient {
         .sort(
           (left, right) =>
             this.score(task, right) +
-              reviewStructuredOutputScore(right, request, task) -
-              (this.score(task, left) + reviewStructuredOutputScore(left, request, task)),
+            reviewStructuredOutputScore(right, request, task) -
+            (this.score(task, left) + reviewStructuredOutputScore(left, request, task)),
         );
 
       const usedProviders = new Set<string>();
