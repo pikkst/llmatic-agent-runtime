@@ -66,6 +66,9 @@
       "path": "../../packages/jira-adapter"
     },
     {
+      "path": "../../packages/task-router"
+    },
+    {
       "path": "../../packages/github-adapter"
     },
     {
