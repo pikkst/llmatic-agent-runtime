@@ -258,7 +258,7 @@ Implemented or already proven:
 
 ### Phase R1 — Review Contract
 
-Status: in progress on `feat/reviewer-review-contract`.
+Status: in progress. Review Contract + generic task resolution are merged; live-smoke precision hardening is in progress on `fix/reviewer-r1-smoke-hardening`.
 
 - [x] introduce normalized ReviewContract type
 - [x] merge Jira/Markdown/GitHub Issue/PR acceptance evidence with provenance
@@ -268,7 +268,10 @@ Status: in progress on `feat/reviewer-review-contract`.
 - [x] fail closed when authoritative linked task evidence is expected but unavailable
 - [x] fail closed when one task reference resolves in multiple providers
 - [x] route reference syntax only to compatible providers
-- [ ] live smoke confirms the resolved provider/task and Review Contract telemetry on a real PR
+- [x] live smoke confirms the resolved provider/task and Review Contract telemetry on a real PR
+- [ ] re-smoke confirms PR #214 false-positive regression is suppressed while the real truncated-history defect remains publishable
+- [ ] re-smoke confirms rule selection stays below the relevance caps without unrelated subsystem rules
+- [ ] re-smoke confirms failed review models are not recycled during the same long-running lens
 
 Acceptance gate:
 
@@ -406,6 +409,27 @@ Observed failure:
 Expected permanent regression:
 
 - candidate is rejected by semantic/exact-head verification
+
+### Krunditark PR #214
+
+Observed live-smoke result:
+
+- Jira KT-124 resolved correctly
+- 16 AC/DoD requirements loaded into a complete Review Contract
+- Review Contract hit the old maximum of 80 rules / 40 invariants, showing relevance filtering was still too broad
+- one real blocking defect was found: history `truncated` metadata became true merely because turns moved outside the six-turn recent window, even when no content was actually clipped/dropped
+- one false blocking defect was published: a source-string test was claimed to fail because only an optional-chaining occurrence was noticed, while the exact target file also contained the directly-accessed string the test expected
+- prior Kilo review commentary visibly anchored critic reasoning
+- failed/limited models were recycled later in the long-running review because cooldowns were shorter than the review duration
+
+Expected permanent regressions:
+
+- prior review comments are not critic evidence
+- exact-head test-literal verification rejects a missing-string claim when the literal exists in the real target file
+- the real `truncated` correctness defect remains publishable
+- one lens shares semantic failed-model avoidance across sibling batches
+- review model failures use a review-window cooldown
+- rule selection requires actual scope overlap or repository scope and uses lower caps
 
 ### Krunditark PR #213
 
