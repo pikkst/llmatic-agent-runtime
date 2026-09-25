@@ -357,3 +357,40 @@ Future expansion:
 - separate task profiles for planning, implementation, testing and summarization
 - allow user policy to disable particular providers/models
 - evaluate cloud/always-on routing only after the local review path is stable
+
+
+## M32 — Verified Semantic Reviewer
+
+Status: in progress.
+
+Goal: evolve external/automatic pull-request review from an LLM-only diff critic into an evidence-gated engineering review system that understands task intent, code semantics, cross-file impact and exact-head verification.
+
+Canonical design:
+
+    Review Contract
+      -> Semantic Code Intelligence
+      -> Impact Graph / Impact Packets
+      -> AI Critics
+      -> Candidate Findings
+      -> Evidence Verifiers
+      -> VERIFIED | REJECTED | INCONCLUSIVE
+      -> Coverage Matrix
+      -> exact-head publication
+
+Key requirements:
+
+- connected Jira/other task sources provide authoritative AC/DoD evidence with provenance
+- relevant repository rules are selected instead of sending the full Constitution indiscriminately
+- TypeScript/JavaScript review uses compiler-level symbol/type evidence
+- cross-file changes are reviewed as semantic impact packets rather than arbitrary file batches
+- model findings are candidate hypotheses until verified
+- only VERIFIED findings may be published to GitHub
+- positive observations never become findings
+- provider/model failures are separated from actual semantic coverage gaps
+- APPROVE is gated by required CI, not advisory review bots
+- exact-head checks remain mandatory before publication
+- reviewer quality is release-gated by a real-PR + mutation benchmark
+
+Detailed implementation plan and tracking checklist:
+
+    docs/verified-semantic-reviewer.md
