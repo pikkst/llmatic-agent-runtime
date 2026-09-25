@@ -377,3 +377,66 @@ export function buildReviewContract(input: BuildReviewContractInput): ReviewCont
 export function reviewContractAcceptanceEvidence(contract: ReviewContract): string[] {
   return contract.requirements.map((item) => item.referenceText);
 }
+
+export function reviewContractPolicyContext(contract: ReviewContract): string {
+  const lines = [
+    "Review Contract (authoritative normalized review evidence):",
+    "- Exact head: " + contract.headRefOid,
+    "- Completeness: " + contract.completeness,
+    "- Scopes: " + contract.scopes.join(", "),
+    "- Required evidence: " + contract.requiredEvidence.join(", "),
+    contract.task
+      ? "- Task: " +
+        contract.task.provider +
+        " " +
+        contract.task.key +
+        (contract.task.summary ? " — " + contract.task.summary : "")
+      : "- Task: none resolved",
+    "- Requirements: " + String(contract.requirements.length),
+    ...contract.requirements.map(
+      (item) =>
+        "  - " +
+        item.id +
+        " [" +
+        item.kind +
+        "] " +
+        item.referenceText +
+        " (source " +
+        item.source.label +
+        ")",
+    ),
+    "- Relevant repository rules: " + String(contract.rules.length),
+    ...contract.rules.map(
+      (rule) =>
+        "  - " +
+        rule.id +
+        " [" +
+        rule.strength +
+        "] " +
+        rule.text +
+        " (source " +
+        rule.source.path +
+        (rule.source.line ? ":" + rule.source.line : "") +
+        "; scopes " +
+        rule.scopes.join(",") +
+        ")",
+    ),
+    "- Applicable invariants: " + String(contract.invariants.length),
+    ...contract.invariants.map(
+      (invariant) =>
+        "  - " +
+        invariant.id +
+        " [" +
+        invariant.kind +
+        "] " +
+        invariant.text +
+        " (source " +
+        invariant.source.path +
+        (invariant.source.line ? ":" + invariant.source.line : "") +
+        ")",
+    ),
+    ...contract.warnings.map((warning) => "- WARNING: " + warning),
+  ];
+
+  return lines.join("\n");
+}
