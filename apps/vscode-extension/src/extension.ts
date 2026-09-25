@@ -41,13 +41,19 @@ import {
 import {
   getGitHubRepositoryName,
   getPullRequestReviewContext,
+  getPullRequestRequiredStatus,
   listOpenPullRequests,
   publishPullRequestReview,
   readPullRequestFileAtHead,
   type OpenPullRequestSummary,
+  type PullRequestReviewContext,
   type PullRequestReviewEvent,
 } from "@llmatic/github-adapter";
-import { verifyJiraConnectionFromEnvironment, type JiraWorkMode } from "@llmatic/jira-adapter";
+import {
+  createJiraTaskProviderFromEnvironment,
+  verifyJiraConnectionFromEnvironment,
+  type JiraWorkMode,
+} from "@llmatic/jira-adapter";
 import {
   approveCurrentProjectPlan,
   initializeApprovedProject,
@@ -264,7 +270,7 @@ async function chooseAutoReviewPublicationMode(
       {
         label: "$(git-pull-request) Review decision",
         description:
-          "complete + no blockers → approve; complete + blockers → request changes; partial → comment",
+          "complete + no blockers + required CI passing → approve; blockers → request changes; advisory checks do not block",
         mode: "review_decision" as const,
       },
     ],
@@ -449,6 +455,104 @@ async function taskRecoveryEnvironment(
   }
 
   return environment;
+}
+
+interface PullRequestAcceptanceEvidence {
+  items: string[];
+  source?: string;
+  unavailableReason?: string;
+}
+
+function jiraIssueKeys(value: string | undefined, projectKey?: string): string[] {
+  if (!value) return [];
+  const matches = value.match(/\b[A-Z][A-Z0-9_]*-\d+\b/gi) ?? [];
+  const normalizedProjectKey = projectKey?.trim().toUpperCase();
+  return [
+    ...new Set(
+      matches
+        .map((match) => match.toUpperCase())
+        .filter((match) => !normalizedProjectKey || match.startsWith(normalizedProjectKey + "-")),
+    ),
+  ];
+}
+
+function pullRequestJiraIssueKey(
+  reviewContext: PullRequestReviewContext,
+  projectKey?: string,
+): { key?: string; unavailableReason?: string } {
+  const titleKeys = jiraIssueKeys(reviewContext.title, projectKey);
+  const branchKeys = jiraIssueKeys(reviewContext.status.pullRequest.headRefName, projectKey);
+  const primaryKeys = [...new Set([...titleKeys, ...branchKeys])];
+
+  if (primaryKeys.length === 1) return { key: primaryKeys[0] };
+  if (primaryKeys.length > 1) {
+    return {
+      unavailableReason:
+        "multiple Jira task keys are present in the PR title/branch: " + primaryKeys.join(", "),
+    };
+  }
+
+  const bodyKeys = jiraIssueKeys(reviewContext.body, projectKey);
+  if (bodyKeys.length === 1) return { key: bodyKeys[0] };
+  if (bodyKeys.length > 1) {
+    return {
+      unavailableReason:
+        "multiple Jira task keys are present in the PR body: " + bodyKeys.join(", "),
+    };
+  }
+
+  return {};
+}
+
+async function pullRequestAcceptanceEvidenceFromJira(
+  context: vscode.ExtensionContext,
+  state: ExtensionState,
+  config: Awaited<ReturnType<typeof loadAgentConfig>>,
+  reviewContext: PullRequestReviewContext,
+): Promise<PullRequestAcceptanceEvidence> {
+  const environment = await taskRecoveryEnvironment(context, state);
+  const baseUrl = environment.LLMATIC_JIRA_BASE_URL?.trim();
+  const hasCredentials = Boolean(
+    environment.LLMATIC_JIRA_BEARER_TOKEN ||
+    (environment.LLMATIC_JIRA_EMAIL && environment.LLMATIC_JIRA_API_TOKEN),
+  );
+
+  if (!baseUrl || !hasCredentials) {
+    return { items: [] };
+  }
+
+  const resolved = pullRequestJiraIssueKey(reviewContext, environment.LLMATIC_JIRA_PROJECT_KEY);
+  if (resolved.unavailableReason) {
+    return {
+      items: [],
+      unavailableReason: resolved.unavailableReason,
+    };
+  }
+  if (!resolved.key) {
+    return { items: [] };
+  }
+
+  try {
+    const provider = createJiraTaskProviderFromEnvironment(config, environment);
+    const task = await provider.getTask(resolved.key);
+    return {
+      source: "Jira " + task.key,
+      items: [
+        ...task.acceptanceCriteria.map((item) => "[Jira " + task.key + " AC] " + item),
+        ...task.definitionOfDone.map((item) => "[Jira " + task.key + " DoD] " + item),
+      ],
+    };
+  } catch (error) {
+    return {
+      items: [],
+      source: "Jira " + resolved.key,
+      unavailableReason:
+        "could not load " +
+        resolved.key +
+        " acceptance criteria / Definition of Done: " +
+        (error instanceof Error ? error.message : String(error)),
+    };
+  }
 }
 
 async function workspaceJiraStatus(
@@ -2991,13 +3095,82 @@ function externalPullRequestReviewDraft(
   ].join("\n");
 }
 
+interface AutoReviewPublicationDecision {
+  intendedEvent?: PullRequestReviewEvent;
+  requiredCiState?: Awaited<ReturnType<typeof getPullRequestRequiredStatus>>["ciState"];
+  note?: string;
+}
+
 function autoReviewPublicationEvent(
   mode: AutoReviewPublicationMode,
   report: Awaited<ReturnType<typeof runExternalPullRequestReview>>,
+  requiredCiState: Awaited<ReturnType<typeof getPullRequestRequiredStatus>>["ciState"],
 ): PullRequestReviewEvent | undefined {
   if (mode === "local_only") return undefined;
-  if (mode === "comment_only" || report.reviewStatus === "partial") return "COMMENT";
-  return report.blockingCount > 0 ? "REQUEST_CHANGES" : "APPROVE";
+  if (mode === "comment_only") return "COMMENT";
+  if (report.reviewStatus === "partial" || report.coverage !== "complete") return "COMMENT";
+  if (report.blockingCount > 0) return "REQUEST_CHANGES";
+  return requiredCiState === "passing" || requiredCiState === "none" ? "APPROVE" : "COMMENT";
+}
+
+async function resolveAutoReviewPublicationDecision(
+  root: string,
+  report: Awaited<ReturnType<typeof runExternalPullRequestReview>>,
+  mode: AutoReviewPublicationMode,
+): Promise<AutoReviewPublicationDecision> {
+  if (mode === "local_only") return {};
+
+  try {
+    const requiredStatus = await getPullRequestRequiredStatus(root, report.reference);
+    if (requiredStatus.pullRequest.headRefOid !== report.headRefOid) {
+      throw new Error(
+        "Pull-request head changed after review. Expected " +
+          report.headRefOid +
+          " but found " +
+          requiredStatus.pullRequest.headRefOid +
+          ".",
+      );
+    }
+
+    const intendedEvent = autoReviewPublicationEvent(mode, report, requiredStatus.ciState);
+    const note =
+      mode === "review_decision" &&
+      intendedEvent === "COMMENT" &&
+      report.reviewStatus === "complete" &&
+      report.coverage === "complete" &&
+      report.blockingCount === 0
+        ? "LLMatic did not issue APPROVE because required remote CI is **" +
+          requiredStatus.ciState +
+          "**. Non-required review bots/checks do not block this decision."
+        : mode === "review_decision" &&
+            intendedEvent === "APPROVE" &&
+            report.ciState !== "passing" &&
+            (requiredStatus.ciState === "passing" || requiredStatus.ciState === "none")
+          ? "Required CI is **" +
+            requiredStatus.ciState +
+            "**; non-required checks may still be pending or failing and are advisory for this review decision."
+          : undefined;
+
+    return {
+      intendedEvent,
+      requiredCiState: requiredStatus.ciState,
+      note,
+    };
+  } catch (error) {
+    if (report.blockingCount > 0 && mode === "review_decision") {
+      return {
+        intendedEvent: "REQUEST_CHANGES",
+        note: "Required CI status could not be verified before publication, but concrete blocking findings were validated.",
+      };
+    }
+
+    return {
+      intendedEvent: "COMMENT",
+      note:
+        "LLMatic did not issue APPROVE because required remote CI status could not be verified: " +
+        (error instanceof Error ? error.message : String(error)),
+    };
+  }
 }
 
 function selfReviewDecisionError(message: string): boolean {
@@ -3013,13 +3186,16 @@ async function publishAutomaticReviewResult(
   mode: AutoReviewPublicationMode,
   output: vscode.OutputChannel,
   reviewLog: vscode.OutputChannel,
+  decision?: AutoReviewPublicationDecision,
 ): Promise<{
   intendedEvent?: PullRequestReviewEvent;
   publishedEvent?: PullRequestReviewEvent;
   fallback: boolean;
   error?: string;
 }> {
-  const intendedEvent = autoReviewPublicationEvent(mode, report);
+  const publicationDecision =
+    decision ?? (await resolveAutoReviewPublicationDecision(root, report, mode));
+  const intendedEvent = publicationDecision.intendedEvent;
   if (!intendedEvent) return { fallback: false };
 
   const startedAt = Date.now();
@@ -3027,7 +3203,9 @@ async function publishAutomaticReviewResult(
   const config = await loadAgentConfig(root, {
     LLMATIC_HOME: context.globalStorageUri.fsPath,
   });
-  const body = externalPullRequestReviewDraft(report);
+  const body =
+    externalPullRequestReviewDraft(report) +
+    (publicationDecision.note ? "\n\n> " + publicationDecision.note : "");
   const inlineComments = externalPullRequestInlineComments(report);
 
   const logPublication = (detail: string) => {
@@ -3243,6 +3421,25 @@ async function reviewExternalPullRequestInUi(
             formatElapsedDuration(Date.now() - contextStartedAt),
         });
 
+        const acceptanceEvidence = await pullRequestAcceptanceEvidenceFromJira(
+          context,
+          state,
+          config,
+          reviewContext,
+        );
+        appendReviewActivity(context, reviewLog, sessionId, normalizedReference, startedAt, {
+          type: "session",
+          phase: "Acceptance evidence",
+          detail: acceptanceEvidence.unavailableReason
+            ? "Unavailable · " + acceptanceEvidence.unavailableReason
+            : acceptanceEvidence.source
+              ? acceptanceEvidence.source +
+                " · " +
+                String(acceptanceEvidence.items.length) +
+                " AC/DoD item(s)"
+              : "No Jira task evidence resolved; PR body acceptance evidence only.",
+        });
+
         const fileCache = new Map<string, unknown>();
         return runExternalPullRequestReview({
           root,
@@ -3293,6 +3490,9 @@ async function reviewExternalPullRequestInUi(
             reviews: reviewContext.reviews,
             comments: reviewContext.comments,
             reviewThreads: reviewContext.reviewThreads,
+            documentedAcceptanceEvidence: acceptanceEvidence.items,
+            acceptanceEvidenceSource: acceptanceEvidence.source,
+            acceptanceEvidenceUnavailableReason: acceptanceEvidence.unavailableReason,
           },
         });
       },
@@ -3537,6 +3737,25 @@ async function runAutomaticExternalPullRequestReview(
         formatElapsedDuration(Date.now() - contextStartedAt),
     });
 
+    const acceptanceEvidence = await pullRequestAcceptanceEvidenceFromJira(
+      context,
+      state,
+      config,
+      reviewContext,
+    );
+    appendReviewActivity(context, reviewLog, sessionId, reference, startedAt, {
+      type: "session",
+      phase: "Acceptance evidence",
+      detail: acceptanceEvidence.unavailableReason
+        ? "Unavailable · " + acceptanceEvidence.unavailableReason
+        : acceptanceEvidence.source
+          ? acceptanceEvidence.source +
+            " · " +
+            String(acceptanceEvidence.items.length) +
+            " AC/DoD item(s)"
+          : "No Jira task evidence resolved; PR body acceptance evidence only.",
+    });
+
     const fileCache = new Map<string, unknown>();
     const report = await runExternalPullRequestReview({
       root,
@@ -3579,6 +3798,9 @@ async function runAutomaticExternalPullRequestReview(
         reviews: reviewContext.reviews,
         comments: reviewContext.comments,
         reviewThreads: reviewContext.reviewThreads,
+        documentedAcceptanceEvidence: acceptanceEvidence.items,
+        acceptanceEvidenceSource: acceptanceEvidence.source,
+        acceptanceEvidenceUnavailableReason: acceptanceEvidence.unavailableReason,
       },
     });
 
@@ -3738,7 +3960,12 @@ async function runAutoReviewScan(
         const fingerprint = report.headRefOid + ":ready";
         const nextRetry = { ...(profile.retry ?? {}) };
         const publicationMode = autoReviewPublicationMode(profile);
-        const intendedEvent = autoReviewPublicationEvent(publicationMode, report);
+        const publicationDecision = await resolveAutoReviewPublicationDecision(
+          root,
+          report,
+          publicationMode,
+        );
+        const intendedEvent = publicationDecision.intendedEvent;
         const duplicatePublication =
           intendedEvent !== undefined &&
           profile.lastPublished?.number === Number(report.reference) &&
@@ -3766,6 +3993,7 @@ async function runAutoReviewScan(
                 publicationMode,
                 output,
                 reviewLog,
+                publicationDecision,
               )),
               skipped: false,
             };

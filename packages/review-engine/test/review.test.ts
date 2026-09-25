@@ -392,6 +392,150 @@ describe("review engine", () => {
     expect(report.summary).toContain("0 documented DoD/acceptance violation(s)");
   });
 
+  it("drops positive DoD observations before schema repair even when Jira evidence exists", async () => {
+    const root = await repository();
+    const config = configFor(root);
+    const events: ReviewActivityEvent[] = [];
+    const gateway = new ScriptedGateway([
+      response(
+        JSON.stringify({
+          summary: "The acceptance requirement is covered.",
+          findings: [
+            {
+              severity: "blocking",
+              category: "correctness",
+              basis: "dod",
+              title: "Deterministic adversarial regression suite implemented",
+              path: "src/value.ts",
+              evidence: "The changed test satisfies the linked Jira acceptance criterion.",
+              recommendation: "No modification needed.",
+            },
+          ],
+        }),
+        undefined,
+        "liquid/lfm-2.5-2.6b:free",
+      ),
+    ]);
+
+    const report = await runExternalPullRequestReview({
+      root,
+      config,
+      gateway,
+      lenses: ["general"],
+      onActivity: (event) => events.push(event),
+      material: {
+        reference: "213",
+        headRefOid: "head-213",
+        title: "KT-123: adversarial regression suite",
+        body: "",
+        ciState: "passing",
+        changedFiles: ["src/value.ts"],
+        diff: "diff --git a/src/value.ts b/src/value.ts\n--- a/src/value.ts\n+++ b/src/value.ts\n@@ -1 +1 @@\n-export const value = 1;\n+export const value = 2;\n",
+        diffTruncated: false,
+        documentedAcceptanceEvidence: [
+          "[Jira KT-123 AC] Adversarial suite runs deterministically in CI",
+        ],
+        acceptanceEvidenceSource: "Jira KT-123",
+      },
+    });
+
+    expect(gateway.requests).toHaveLength(1);
+    expect(events).not.toContainEqual(expect.objectContaining({ type: "report-repair" }));
+    expect(report.findings).toEqual([]);
+    expect(report.blockingCount).toBe(0);
+    expect(report.reviewStatus).toBe("complete");
+  });
+
+  it("accepts Jira-backed DoD evidence even when the PR body has no acceptance section", async () => {
+    const root = await repository();
+    const config = configFor(root);
+    const dodRef = "[Jira KT-121 AC] Strict output rejects unknown references";
+    const gateway = new ScriptedGateway([
+      response(
+        JSON.stringify({
+          summary: "Jira acceptance gap.",
+          findings: [
+            {
+              severity: "blocking",
+              category: "correctness",
+              basis: "dod",
+              title: "Unknown references are still accepted",
+              path: "src/value.ts",
+              evidence: "The changed validator accepts an unknown source identifier.",
+              recommendation:
+                "Reject source identifiers that are not present in the grounded input.",
+              dod_ref: dodRef,
+            },
+          ],
+        }),
+      ),
+    ]);
+
+    const report = await runExternalPullRequestReview({
+      root,
+      config,
+      gateway,
+      lenses: ["general"],
+      material: {
+        reference: "211",
+        headRefOid: "head-211",
+        title: "KT-121: strict output firewall",
+        body: "",
+        ciState: "passing",
+        changedFiles: ["src/value.ts"],
+        diff: "diff --git a/src/value.ts b/src/value.ts\n--- a/src/value.ts\n+++ b/src/value.ts\n@@ -1 +1 @@\n-export const acceptsUnknown = false;\n+export const acceptsUnknown = true;\n",
+        diffTruncated: false,
+        documentedAcceptanceEvidence: [dodRef],
+        acceptanceEvidenceSource: "Jira KT-121",
+      },
+    });
+
+    expect(report.reviewStatus).toBe("complete");
+    expect(report.findings).toHaveLength(1);
+    expect(report.findings[0]).toMatchObject({
+      basis: "dod",
+      dodRef,
+      severity: "blocking",
+    });
+  });
+
+  it("marks the review partial instead of claiming DoD coverage when Jira evidence cannot be loaded", async () => {
+    const root = await repository();
+    const config = configFor(root);
+    const gateway = new ScriptedGateway([
+      response(
+        JSON.stringify({
+          summary: "Code review completed without a concrete defect.",
+          findings: [],
+        }),
+      ),
+    ]);
+
+    const report = await runExternalPullRequestReview({
+      root,
+      config,
+      gateway,
+      lenses: ["general"],
+      material: {
+        reference: "211",
+        headRefOid: "head-211",
+        title: "KT-121: strict output firewall",
+        body: "",
+        ciState: "pending",
+        changedFiles: ["src/value.ts"],
+        diff: "diff --git a/src/value.ts b/src/value.ts\n--- a/src/value.ts\n+++ b/src/value.ts\n@@ -1 +1 @@\n-export const value = 1;\n+export const value = 2;\n",
+        diffTruncated: false,
+        acceptanceEvidenceSource: "Jira KT-121",
+        acceptanceEvidenceUnavailableReason: "could not load KT-121 acceptance criteria",
+      },
+    });
+
+    expect(report.reviewStatus).toBe("partial");
+    expect(report.findings).toEqual([]);
+    expect(report.summary).toContain("DoD/acceptance verification unavailable");
+    expect(report.summary).not.toContain("0 documented DoD/acceptance violation(s)");
+  });
+
   it("keeps only DoD findings backed by documented PR acceptance evidence", async () => {
     const root = await repository();
     const config = configFor(root);
@@ -494,6 +638,236 @@ describe("review engine", () => {
     expect(report.coverage).toBe("partial");
     expect(report.findings).toEqual([]);
     expect(report.summary).toContain("0 documented DoD/acceptance violation(s)");
+  });
+
+  it("suppresses a cross-batch typed-member absence claim contradicted by the exact PR head", async () => {
+    const root = await repository();
+    const config = configFor(root);
+    const gateway = new ScriptedGateway([
+      response(
+        JSON.stringify({
+          summary: "First bounded batch review.",
+          findings: [
+            {
+              severity: "blocking",
+              category: "correctness",
+              basis: "defect",
+              title: "Trust boundary references a non-existent finding summary field",
+              path: "src/a-geminiServer.ts",
+              line: 1,
+              side: "RIGHT",
+              evidence:
+                "ExplanationFindingInput type does not have a summary field, so evidence.findings[].summary is invalid.",
+              recommendation: "Remove evidence.findings[].summary from the trust boundary.",
+            },
+          ],
+        }),
+      ),
+      response(
+        JSON.stringify({
+          summary: "Second bounded batch review.",
+          findings: [],
+        }),
+      ),
+    ]);
+    const changedFiles = [
+      "src/a-geminiServer.ts",
+      "src/b.ts",
+      "src/c.ts",
+      "src/d.ts",
+      "src/e.ts",
+      "src/f.ts",
+      "src/z-types.ts",
+    ];
+    const diff =
+      "diff --git a/src/a-geminiServer.ts b/src/a-geminiServer.ts\n" +
+      "--- a/src/a-geminiServer.ts\n" +
+      "+++ b/src/a-geminiServer.ts\n" +
+      "@@ -1 +1 @@\n" +
+      "-export const trustBoundary = [];\n" +
+      '+export const trustBoundary = ["evidence.findings[].summary"];\n' +
+      ["src/b.ts", "src/c.ts", "src/d.ts", "src/e.ts", "src/f.ts"]
+        .map(
+          (path) =>
+            "diff --git a/" +
+            path +
+            " b/" +
+            path +
+            "\n--- a/" +
+            path +
+            "\n+++ b/" +
+            path +
+            "\n@@ -1 +1 @@\n-export const value = 1;\n+export const value = 2;\n",
+        )
+        .join("") +
+      "diff --git a/src/z-types.ts b/src/z-types.ts\n" +
+      "--- a/src/z-types.ts\n" +
+      "+++ b/src/z-types.ts\n" +
+      "@@ -1,4 +1,5 @@\n" +
+      " export interface ExplanationFindingInput {\n" +
+      "+  readonly findingId: string;\n" +
+      "   readonly code: string;\n" +
+      "   readonly summary?: string;\n" +
+      " }\n";
+    const reads: string[] = [];
+
+    const report = await runExternalPullRequestReview({
+      root,
+      config,
+      gateway,
+      readFile: async (path) => {
+        reads.push(path);
+        return {
+          path,
+          content:
+            path === "src/z-types.ts"
+              ? "export interface ExplanationFindingInput {\n  readonly findingId: string;\n  readonly code: string;\n  readonly summary?: string;\n}\n"
+              : "",
+        };
+      },
+      lenses: ["general"],
+      material: {
+        reference: "210",
+        headRefOid: "head-210",
+        title: "Grounded explanation input",
+        body: "",
+        ciState: "pending",
+        changedFiles,
+        diff,
+        diffTruncated: false,
+      },
+    });
+
+    expect(gateway.requests).toHaveLength(2);
+    expect(reads).toContain("src/z-types.ts");
+    expect(report.reviewStatus).toBe("complete");
+    expect(report.findings).toEqual([]);
+    expect(report.summary).toContain("0 concrete defect/rule violation(s)");
+  });
+
+  it("keeps a typed-member absence finding when the diff positively removes that member", async () => {
+    const root = await repository();
+    const config = configFor(root);
+    const gateway = new ScriptedGateway([
+      response(
+        JSON.stringify({
+          summary: "Contract regression.",
+          findings: [
+            {
+              severity: "blocking",
+              category: "correctness",
+              basis: "defect",
+              title: "ExplanationFindingInput lost the summary field",
+              path: "src/use.ts",
+              line: 1,
+              side: "RIGHT",
+              evidence:
+                "ExplanationFindingInput type does not have a summary field after this patch, while the changed consumer still references it.",
+              recommendation: "Restore the summary field or update the consumer contract.",
+            },
+          ],
+        }),
+      ),
+    ]);
+    const diff =
+      "diff --git a/src/use.ts b/src/use.ts\n" +
+      "--- a/src/use.ts\n" +
+      "+++ b/src/use.ts\n" +
+      "@@ -1 +1 @@\n" +
+      '-export const path = "evidence.findings";\n' +
+      '+export const path = "evidence.findings[].summary";\n' +
+      "diff --git a/src/types.ts b/src/types.ts\n" +
+      "--- a/src/types.ts\n" +
+      "+++ b/src/types.ts\n" +
+      "@@ -1,4 +1,3 @@\n" +
+      " export interface ExplanationFindingInput {\n" +
+      "-  readonly summary?: string;\n" +
+      "   readonly code: string;\n" +
+      " }\n";
+
+    const report = await runExternalPullRequestReview({
+      root,
+      config,
+      gateway,
+      lenses: ["general"],
+      material: {
+        reference: "43",
+        headRefOid: "head-43",
+        title: "Remove summary contract",
+        body: "",
+        ciState: "pending",
+        changedFiles: ["src/use.ts", "src/types.ts"],
+        diff,
+        diffTruncated: false,
+      },
+    });
+
+    expect(report.findings).toHaveLength(1);
+    expect(report.findings[0]?.title).toBe("ExplanationFindingInput lost the summary field");
+    expect(report.blockingCount).toBe(1);
+  });
+
+  it("suppresses a duplicate union-member claim contradicted by the exact PR head", async () => {
+    const root = await repository();
+    const config = configFor(root);
+    const gateway = new ScriptedGateway([
+      response(
+        JSON.stringify({
+          summary: "Potential duplicate union member.",
+          findings: [
+            {
+              severity: "non_blocking",
+              category: "correctness",
+              basis: "defect",
+              title: "Duplicate entry in ExplanationOutputValidationReason union type",
+              path: "src/outputValidation.ts",
+              line: 2,
+              side: "RIGHT",
+              evidence:
+                'The ExplanationOutputValidationReason union type contains "UNSUPPORTED_SEMANTIC_CLAIM" twice.',
+              recommendation: "Remove the duplicate union member.",
+            },
+          ],
+        }),
+      ),
+    ]);
+    const reads: string[] = [];
+
+    const report = await runExternalPullRequestReview({
+      root,
+      config,
+      gateway,
+      readFile: async (path) => {
+        reads.push(path);
+        return {
+          path,
+          content:
+            'export type ExplanationOutputValidationReason =\n  | "UNSUPPORTED_SEMANTIC_CLAIM"\n  | "UNSUPPORTED_CURRENT_FACT_CLAIM";\n',
+        };
+      },
+      lenses: ["bug_hunter"],
+      material: {
+        reference: "213",
+        headRefOid: "head-213",
+        title: "KT-123: adversarial regression suite",
+        body: "",
+        ciState: "passing",
+        changedFiles: ["src/outputValidation.ts"],
+        diff:
+          "diff --git a/src/outputValidation.ts b/src/outputValidation.ts\n" +
+          "--- a/src/outputValidation.ts\n" +
+          "+++ b/src/outputValidation.ts\n" +
+          "@@ -1,2 +1,3 @@\n" +
+          " export type ExplanationOutputValidationReason =\n" +
+          '+  | "UNSUPPORTED_SEMANTIC_CLAIM"\n' +
+          '+  | "UNSUPPORTED_CURRENT_FACT_CLAIM";\n',
+        diffTruncated: false,
+      },
+    });
+
+    expect(reads).toEqual(["src/outputValidation.ts"]);
+    expect(report.findings).toEqual([]);
+    expect(report.reviewStatus).toBe("complete");
   });
 
   it("rejects speculative TypeScript nullability findings without positive nullable evidence", async () => {
@@ -850,6 +1224,73 @@ describe("review engine", () => {
     expect(report.lensFailures[0]?.reason).toContain("split recovery incomplete");
     expect(report.lensFailures[0]?.reason).toContain("src/file-2.ts");
     expect(report.lensFailures[0]?.reason).toContain("simulated provider timeout");
+  });
+
+  it("carries semantic failed-model avoidance into split recovery child batches", async () => {
+    const root = await repository();
+    const config = configFor(root);
+    const gateway = new ScriptedGateway([
+      response(null, undefined, "liquid/lfm-2.5-2.6b:free"),
+      response(
+        JSON.stringify({
+          summary: "First split recovered.",
+          findings: [],
+        }),
+        undefined,
+        "nvidia/nemotron-3-super-120b-a12b:free",
+      ),
+      response(
+        JSON.stringify({
+          summary: "Second split recovered.",
+          findings: [],
+        }),
+        undefined,
+        "nvidia/nemotron-3.5-lightning:free",
+      ),
+    ]);
+    const changedFiles = ["src/file-1.ts", "src/file-2.ts"];
+    const diff = changedFiles
+      .map(
+        (path, index) =>
+          "diff --git a/" +
+          path +
+          " b/" +
+          path +
+          "\n--- a/" +
+          path +
+          "\n+++ b/" +
+          path +
+          "\n@@ -1 +1 @@\n-export const value = " +
+          index +
+          ";\n+export const value = " +
+          (index + 1) +
+          ";\n",
+      )
+      .join("");
+
+    const report = await runExternalPullRequestReview({
+      root,
+      config,
+      gateway,
+      lenses: ["bug_hunter"],
+      maxSteps: 1,
+      material: {
+        reference: "213",
+        headRefOid: "head-213",
+        title: "Recovery routing",
+        body: "",
+        ciState: "passing",
+        changedFiles,
+        diff,
+        diffTruncated: false,
+      },
+    });
+
+    expect(gateway.requests).toHaveLength(3);
+    expect(gateway.requests[1]?.routing?.avoidModels).toContain("liquid/lfm-2.5-2.6b:free");
+    expect(gateway.requests[2]?.routing?.avoidModels).toContain("liquid/lfm-2.5-2.6b:free");
+    expect(report.reviewStatus).toBe("complete");
+    expect(report.lensFailures).toEqual([]);
   });
 
   it("surfaces an external review failure only after the recovery retry is exhausted", async () => {

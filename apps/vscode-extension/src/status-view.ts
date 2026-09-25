@@ -462,7 +462,7 @@ export class LlmaticStatusProvider implements vscode.TreeDataProvider<vscode.Tre
       (this.autoReviewStatus?.enabled
         ? "LLMatic watches this repository for new or updated pull requests and runs structured review automatically. " +
           (this.autoReviewStatus.publicationMode === "review_decision"
-            ? "Complete reviews publish APPROVE or REQUEST_CHANGES; partial reviews publish COMMENT."
+            ? "Complete clean reviews publish APPROVE when required CI passes (or no required checks are configured); blocking findings publish REQUEST_CHANGES; advisory checks do not block the decision."
             : this.autoReviewStatus.publicationMode === "comment_only"
               ? "Validated results are published as COMMENT reviews only."
               : "Review results remain local and do not mutate GitHub.")

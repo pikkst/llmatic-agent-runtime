@@ -410,6 +410,9 @@ export interface PullRequestReviewMaterial {
   reviews?: unknown[];
   comments?: unknown[];
   reviewThreads?: unknown[];
+  documentedAcceptanceEvidence?: string[];
+  acceptanceEvidenceSource?: string;
+  acceptanceEvidenceUnavailableReason?: string;
 }
 
 export interface ExternalPullRequestReviewOptions extends ReviewExecutionOptions {
@@ -543,6 +546,7 @@ async function runExternalReviewBatchWithRecovery(
   lens: ReviewLens,
   batch: ExternalReviewBatch,
 ): Promise<ExternalReviewBatchResult> {
+  const recoveryAvoidedModels = new Set<string>();
   try {
     const result = await runReviewLens(
       options,
@@ -551,6 +555,7 @@ async function runExternalReviewBatchWithRecovery(
       lens,
       options.material,
       batch.packet,
+      recoveryAvoidedModels,
     );
     return { ...result, recoveryFailures: [] };
   } catch (initialError) {
@@ -568,6 +573,7 @@ async function runExternalReviewBatchWithRecovery(
           lens,
           options.material,
           batch.packet,
+          recoveryAvoidedModels,
         );
         return { ...result, recoveryFailures: [] };
       } catch (recoveryError) {
@@ -598,6 +604,7 @@ async function runExternalReviewBatchWithRecovery(
             lens,
             options.material,
             recoveryBatch.packet,
+            recoveryAvoidedModels,
           ),
         );
       } catch (recoveryError) {
@@ -918,11 +925,24 @@ function pullRequestAcceptanceEvidence(body: string): string[] {
   return [...new Set(evidence.filter(Boolean))].slice(0, 100);
 }
 
+function documentedAcceptanceEvidence(material: PullRequestReviewMaterial): string[] {
+  return [
+    ...new Set(
+      [
+        ...(material.documentedAcceptanceEvidence ?? []),
+        ...pullRequestAcceptanceEvidence(material.body),
+      ]
+        .map((item) => item.trim())
+        .filter(Boolean),
+    ),
+  ].slice(0, 100);
+}
+
 function reviewLensInstructions(lens: ReviewLens): string[] {
   if (lens === "bug_hunter") {
     return [
       "Act as the Bug Hunter lens.",
-      "Search specifically for edge-case defects: null/undefined handling, state-machine errors, race conditions, pagination, idempotency, transaction boundaries, retries, time/date ordering, stale state, resource leaks, migration/backfill hazards, and missing regression coverage.",
+      "Search specifically for edge-case defects: null/undefined handling, state-machine errors, race conditions, pagination, idempotency, transaction boundaries, retries, time/date ordering, stale state, resource leaks, migration/backfill hazards, and missing regression coverage. When the change claims deterministic, canonical, reproducible, hash-stable, or byte-stable behavior, also inspect locale-sensitive sorting, unstable iteration order, randomness, and time-dependent ordering.",
       "Do not report hypothetical possibilities without concrete changed-code evidence.",
     ];
   }
@@ -1063,27 +1083,41 @@ function extractJson(content: string): unknown {
     : new Error("Review model response did not contain valid JSON.");
 }
 
+function positiveDodObservation(value: unknown): boolean {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+  const finding = value as Record<string, unknown>;
+  if (finding.basis !== "dod") return false;
+
+  const recommendation =
+    typeof finding.recommendation === "string" ? finding.recommendation.trim().toLowerCase() : "";
+  return (
+    /\bno\s+(?:modification|change|changes|action|fix|work)\s+(?:is\s+)?(?:needed|required|recommended)\b/.test(
+      recommendation,
+    ) ||
+    /\bno\s+changes?\s+recommended\b/.test(recommendation) ||
+    /\b(?:is|are)\s+(?:appropriate|consistent)\s+and\s+aligns?\s+with\b/.test(recommendation)
+  );
+}
+
 function pruneImpossibleExternalDodFindings(
   value: unknown,
   material: PullRequestReviewMaterial | undefined,
 ): unknown {
-  if (!material || pullRequestAcceptanceEvidence(material.body).length > 0) return value;
-  if (!value || typeof value !== "object" || Array.isArray(value)) return value;
+  if (!material || !value || typeof value !== "object" || Array.isArray(value)) return value;
 
   const report = value as Record<string, unknown>;
   if (!Array.isArray(report.findings)) return value;
+  const hasAcceptanceEvidence = documentedAcceptanceEvidence(material).length > 0;
 
   return {
     ...report,
-    findings: report.findings.filter(
-      (finding) =>
-        !(
-          finding &&
-          typeof finding === "object" &&
-          !Array.isArray(finding) &&
-          (finding as Record<string, unknown>).basis === "dod"
-        ),
-    ),
+    findings: report.findings.filter((finding) => {
+      if (!finding || typeof finding !== "object" || Array.isArray(finding)) return true;
+      const record = finding as Record<string, unknown>;
+      if (record.basis !== "dod") return true;
+      if (!hasAcceptanceEvidence) return false;
+      return !positiveDodObservation(record);
+    }),
   };
 }
 
@@ -1223,6 +1257,227 @@ function strictExternalFindings(
   });
 }
 
+interface TypedMemberAbsenceClaim {
+  owner: string;
+  member: string;
+}
+
+function typedMemberAbsenceClaim(finding: ReviewFinding): TypedMemberAbsenceClaim | undefined {
+  if (finding.basis !== "defect") return undefined;
+
+  const text = [finding.title, finding.evidence, finding.recommendation].join(" ");
+  if (
+    !/(?:does not have|doesn't have|lacks|missing|non[- ]?existent|not defined|undefined|no such)/i.test(
+      text,
+    )
+  ) {
+    return undefined;
+  }
+  if (!/\b(?:type|interface|class|field|property|member|method)\b/i.test(text)) {
+    return undefined;
+  }
+
+  const owner =
+    /\b([A-Z][A-Za-z0-9_$]*)\s+(?:type|interface|class)\b/.exec(text)?.[1] ??
+    /\b(?:type|interface|class)\s+([A-Z][A-Za-z0-9_$]*)\b/.exec(text)?.[1];
+  const member =
+    /\[\]\s*\.\s*([A-Za-z_$][A-Za-z0-9_$]*)\b/.exec(text)?.[1] ??
+    /\b([A-Za-z_$][A-Za-z0-9_$]*)\s+(?:field|property|member|method)\b/i.exec(text)?.[1];
+
+  return owner && member ? { owner, member } : undefined;
+}
+
+function readFileContent(value: unknown): string | undefined {
+  if (typeof value === "string") return value;
+  if (!value || typeof value !== "object" || Array.isArray(value)) return undefined;
+  const content = (value as Record<string, unknown>).content;
+  return typeof content === "string" ? content : undefined;
+}
+
+function namedTypeDeclarationBlocks(content: string, owner: string): string[] {
+  const declaration = new RegExp(
+    "\\b(?:export\\s+)?(?:declare\\s+)?(?:interface|class|type)\\s+" + owner + "\\b",
+    "g",
+  );
+  const blocks: string[] = [];
+
+  for (const match of content.matchAll(declaration)) {
+    const start = match.index ?? 0;
+    const braceStart = content.indexOf("{", start);
+    if (braceStart < 0) {
+      blocks.push(content.slice(start, Math.min(content.length, start + 2000)));
+      continue;
+    }
+
+    let depth = 0;
+    let end = Math.min(content.length, braceStart + 12000);
+    for (let index = braceStart; index < content.length && index < braceStart + 12000; index += 1) {
+      const character = content[index]!;
+      if (character === "{") depth += 1;
+      if (character === "}") {
+        depth -= 1;
+        if (depth === 0) {
+          end = index + 1;
+          break;
+        }
+      }
+    }
+    blocks.push(content.slice(start, end));
+  }
+
+  return blocks;
+}
+
+function declarationHasMember(block: string, member: string): boolean {
+  return new RegExp(
+    "(?:^|[\\n;,{])\\s*(?:readonly\\s+)?[\\\"']?" + member + "[\\\"']?\\s*(?:\\?|!)?\\s*(?::|\\()",
+    "m",
+  ).test(block);
+}
+
+function diffPositivelyProvesMemberRemoval(
+  material: PullRequestReviewMaterial,
+  claim: TypedMemberAbsenceClaim,
+): boolean {
+  const ownerPattern = new RegExp("\\b(?:interface|class|type)\\s+" + claim.owner + "\\b");
+  const removedMemberPattern = new RegExp(
+    "^-\\s*(?:readonly\\s+)?[\\\"']?" + claim.member + "[\\\"']?\\s*(?:\\?|!)?\\s*(?::|\\()",
+    "m",
+  );
+
+  for (const path of material.changedFiles) {
+    let block: string;
+    try {
+      block = pullRequestDiffForPath(material.diff, path);
+    } catch {
+      continue;
+    }
+    if (ownerPattern.test(block) && removedMemberPattern.test(block)) {
+      return true;
+    }
+  }
+  return false;
+}
+
+function exactHeadVerificationPaths(
+  material: PullRequestReviewMaterial,
+  claim: TypedMemberAbsenceClaim,
+): string[] {
+  const matching: string[] = [];
+  for (const path of material.changedFiles) {
+    if (isWorkspacePathSensitive(path) || !reviewableCodePath(path)) continue;
+    try {
+      const block = pullRequestDiffForPath(material.diff, path);
+      if (block.includes(claim.owner)) matching.push(path);
+    } catch {
+      continue;
+    }
+  }
+  return [...new Set(matching)].slice(0, 8);
+}
+
+async function typedMemberAbsenceFindingIsVerified(
+  finding: ReviewFinding,
+  options: ExternalPullRequestReviewOptions,
+): Promise<boolean> {
+  const claim = typedMemberAbsenceClaim(finding);
+  if (!claim) return true;
+
+  if (diffPositivelyProvesMemberRemoval(options.material, claim)) {
+    return true;
+  }
+  if (!options.readFile) {
+    return false;
+  }
+
+  const paths = exactHeadVerificationPaths(options.material, claim);
+  if (paths.length === 0) {
+    return false;
+  }
+
+  for (const path of paths) {
+    try {
+      const content = readFileContent(await options.readFile(path, {}));
+      if (!content) continue;
+
+      const blocks = namedTypeDeclarationBlocks(content, claim.owner);
+      if (blocks.some((block) => declarationHasMember(block, claim.member))) {
+        return false;
+      }
+    } catch {
+      continue;
+    }
+  }
+
+  // A type/member absence claim needs positive repository evidence. Seeing one
+  // declaration without a member is not repository-wide proof because types
+  // can be augmented or declared elsewhere. Suppress when proof is incomplete.
+  return false;
+}
+
+interface DuplicateUnionLiteralClaim {
+  owner: string;
+  literal: string;
+}
+
+function duplicateUnionLiteralClaim(
+  finding: ReviewFinding,
+): DuplicateUnionLiteralClaim | undefined {
+  if (finding.basis !== "defect") return undefined;
+  const text = [finding.title, finding.evidence, finding.recommendation].join(" ");
+  if (!/\bduplicate\b/i.test(text) || !/\bunion\s+type\b/i.test(text)) return undefined;
+
+  const owner =
+    /\b(?:in|inside)\s+(?:the\s+)?([A-Za-z_$][A-Za-z0-9_$]*)\s+union\s+type\b/i.exec(text)?.[1] ??
+    /\b([A-Za-z_$][A-Za-z0-9_$]*)\s+union\s+type\b/i.exec(text)?.[1];
+  const literal =
+    /["'`]([A-Z][A-Z0-9_]{2,})["'`]/.exec(text)?.[1] ??
+    /\b([A-Z][A-Z0-9_]{2,})\b(?=\s+(?:entry|member|literal))/i.exec(text)?.[1];
+
+  return owner && literal ? { owner, literal } : undefined;
+}
+
+function typeAliasUnionBlock(content: string, owner: string): string | undefined {
+  const declaration = new RegExp(
+    "\\b(?:export\\s+)?type\\s+" + owner + "\\s*=([\\s\\S]*?);",
+    "m",
+  ).exec(content);
+  return declaration?.[1];
+}
+
+async function duplicateUnionLiteralFindingIsVerified(
+  finding: ReviewFinding,
+  options: ExternalPullRequestReviewOptions,
+): Promise<boolean> {
+  const claim = duplicateUnionLiteralClaim(finding);
+  if (!claim) return true;
+  if (!options.readFile || isWorkspacePathSensitive(finding.path)) return false;
+
+  try {
+    const content = readFileContent(await options.readFile(finding.path, {}));
+    if (!content) return false;
+    const block = typeAliasUnionBlock(content, claim.owner);
+    if (!block) return false;
+    const literalPattern = new RegExp("[\\\"'`]" + claim.literal + "[\\\"'`]", "g");
+    return [...block.matchAll(literalPattern)].length >= 2;
+  } catch {
+    return false;
+  }
+}
+
+async function verifyExternalFindings(
+  findings: ReviewFinding[],
+  options: ExternalPullRequestReviewOptions,
+): Promise<ReviewFinding[]> {
+  const verified: ReviewFinding[] = [];
+  for (const finding of findings) {
+    if (!(await typedMemberAbsenceFindingIsVerified(finding, options))) continue;
+    if (!(await duplicateUnionLiteralFindingIsVerified(finding, options))) continue;
+    verified.push(finding);
+  }
+  return verified;
+}
+
 function deduplicateFindings(findings: ReviewFinding[]): ReviewFinding[] {
   const byKey = new Map<string, ReviewFinding>();
 
@@ -1295,6 +1550,7 @@ async function runReviewLens(
   lens: ReviewLens,
   material?: PullRequestReviewMaterial,
   externalPacket?: string,
+  sessionAvoidedModels?: Set<string>,
 ): Promise<{ summary: string; findings: ReviewFinding[] }> {
   const model = options.model?.trim() || "kilo-auto/free";
   const messages: GatewayMessage[] = [
@@ -1312,13 +1568,24 @@ async function runReviewLens(
               authorLogin: material.authorLogin,
               ciState: material.ciState,
               diffTruncated: material.diffTruncated,
-              documentedAcceptanceEvidence: pullRequestAcceptanceEvidence(material.body),
+              documentedAcceptanceEvidence: documentedAcceptanceEvidence(material),
+              acceptanceEvidenceSource: material.acceptanceEvidenceSource,
+              acceptanceEvidenceUnavailableReason: material.acceptanceEvidenceUnavailableReason,
               reviews: material.reviews ?? [],
               comments: material.comments ?? [],
               reviewThreads: safePullRequestReviewThreads(material.reviewThreads),
             }).slice(0, MAX_TOOL_RESULT_CHARS),
             "Changed non-secret files in this bounded batch:",
             changedFiles.map((path) => "- " + path).join("\n"),
+            "All changed non-secret files in the pull request:",
+            material.changedFiles
+              .filter(
+                (path) =>
+                  !isWorkspacePathSensitive(path) &&
+                  pullRequestDiffContainsPath(material.diff, path),
+              )
+              .map((path) => "- " + path)
+              .join("\n"),
             "This batch contains " +
               String(changedFiles.length) +
               " of " +
@@ -1355,7 +1622,7 @@ async function runReviewLens(
     : Math.max(1, Math.min(30, options.maxSteps ?? 12));
   let reportRepairAttempts = 0;
   const maxReportRepairAttempts = 2;
-  const avoidedModels = new Set<string>();
+  const avoidedModels = new Set<string>(sessionAvoidedModels ?? []);
 
   for (let step = 1; step <= maxSteps; step += 1) {
     options.onActivity?.({ type: "model-request", lens, step });
@@ -1490,6 +1757,7 @@ async function runReviewLens(
       const failedModel = response.routed_model?.trim() || response.model?.trim();
       if (failedModel) {
         avoidedModels.add(failedModel);
+        sessionAvoidedModels?.add(failedModel);
       }
 
       if (material && step < maxSteps) {
@@ -1541,6 +1809,7 @@ async function runReviewLens(
       const failedModel = response.routed_model?.trim() || response.model?.trim();
       if (failedModel) {
         avoidedModels.add(failedModel);
+        sessionAvoidedModels?.add(failedModel);
       }
       await reportSemanticModelFailure(
         options.gateway,
@@ -1766,14 +2035,13 @@ export async function runExternalPullRequestReview(
     );
   }
 
-  const acceptanceEvidence = pullRequestAcceptanceEvidence(options.material.body);
-  const findings = deduplicateFindings(
-    strictExternalFindings(
-      lensResults.flatMap(({ result }) => result.findings),
-      options.material,
-      acceptanceEvidence,
-    ),
+  const acceptanceEvidence = documentedAcceptanceEvidence(options.material);
+  const strictFindings = strictExternalFindings(
+    lensResults.flatMap(({ result }) => result.findings),
+    options.material,
+    acceptanceEvidence,
   );
+  const findings = deduplicateFindings(await verifyExternalFindings(strictFindings, options));
   const codeBlockingCount = findings.filter((finding) => finding.severity === "blocking").length;
   options.onActivity?.({ type: "architecture-start" });
   const architectureStartedAt = Date.now();
@@ -1789,12 +2057,17 @@ export async function runExternalPullRequestReview(
   const defectFindingCount = findings.filter(
     (finding) => finding.basis === "defect" || finding.basis === "repository_rule",
   ).length;
-  const reviewSummary =
-    "Focused review: " +
-    dodFindingCount +
-    " documented DoD/acceptance violation(s), " +
-    defectFindingCount +
-    " concrete defect/rule violation(s).";
+  const reviewSummary = options.material.acceptanceEvidenceUnavailableReason
+    ? "Focused review: DoD/acceptance verification unavailable (" +
+      options.material.acceptanceEvidenceUnavailableReason +
+      "); " +
+      defectFindingCount +
+      " concrete defect/rule violation(s)."
+    : "Focused review: " +
+      dodFindingCount +
+      " documented DoD/acceptance violation(s), " +
+      defectFindingCount +
+      " concrete defect/rule violation(s).";
   const failedLensSummary =
     lensFailures.length > 0
       ? " Incomplete lenses: " +
@@ -1817,7 +2090,10 @@ export async function runExternalPullRequestReview(
     ciState: options.material.ciState,
     diffTruncated: options.material.diffTruncated,
     coverage,
-    reviewStatus: lensFailures.length === 0 ? "complete" : "partial",
+    reviewStatus:
+      lensFailures.length === 0 && !options.material.acceptanceEvidenceUnavailableReason
+        ? "complete"
+        : "partial",
     lensFailures,
     unreviewedFiles,
     summary:

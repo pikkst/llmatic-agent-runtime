@@ -174,10 +174,73 @@ describe("jira adapter", () => {
       priority: "High",
       assignee: "Engineer",
       labels: ["runtime"],
+      acceptanceCriteria: ["Tests pass"],
+      definitionOfDone: [],
       webUrl: "https://example.atlassian.net/browse/KT-123",
     });
     expect(requests[0]?.url).toContain("/rest/api/3/issue/KT-123?fields=");
     expect(requests[0]?.headers.Authorization).toMatch(/^Basic /);
+  });
+
+  it("loads acceptance criteria and Definition of Done from named Jira custom fields", async () => {
+    const issue = issueJson();
+    Object.assign(issue.fields, {
+      customfield_12001: {
+        type: "doc",
+        version: 1,
+        content: [
+          {
+            type: "bulletList",
+            content: [
+              {
+                type: "listItem",
+                content: [
+                  {
+                    type: "paragraph",
+                    content: [{ type: "text", text: "Reject unknown references" }],
+                  },
+                ],
+              },
+              {
+                type: "listItem",
+                content: [
+                  {
+                    type: "paragraph",
+                    content: [{ type: "text", text: "Keep deterministic fallback" }],
+                  },
+                ],
+              },
+            ],
+          },
+        ],
+      },
+      customfield_12002: "Tests, lint and build pass\nDocumentation updated",
+    });
+    Object.assign(issue, {
+      names: {
+        customfield_12001: "Acceptance Criteria",
+        customfield_12002: "Definition of Done",
+      },
+    });
+
+    const transport: JiraHttpTransport = async (request) => {
+      expect(request.url).toContain("?fields=*all&expand=names");
+      return {
+        status: 200,
+        statusText: "OK",
+        body: JSON.stringify(issue),
+      };
+    };
+    const provider = new JiraTaskProvider(configFor("/repo"), connection, transport);
+
+    const task = await provider.getTask("KT-123");
+
+    expect(task.acceptanceCriteria).toEqual([
+      "Reject unknown references",
+      "Keep deterministic fallback",
+      "Tests pass",
+    ]);
+    expect(task.definitionOfDone).toEqual(["Tests, lint and build pass", "Documentation updated"]);
   });
 
   it("lists assigned Jira recovery candidates in Jira rank order", async () => {
