@@ -49,11 +49,7 @@ import {
   type PullRequestReviewContext,
   type PullRequestReviewEvent,
 } from "@llmatic/github-adapter";
-import {
-  createJiraTaskProviderFromEnvironment,
-  verifyJiraConnectionFromEnvironment,
-  type JiraWorkMode,
-} from "@llmatic/jira-adapter";
+import { verifyJiraConnectionFromEnvironment, type JiraWorkMode } from "@llmatic/jira-adapter";
 import {
   approveCurrentProjectPlan,
   initializeApprovedProject,
@@ -100,6 +96,7 @@ import {
   type SetupHealth,
   type SetupHealthIssue,
 } from "@llmatic/setup-health";
+import { resolveTaskReference, type TaskProviderId } from "@llmatic/task-router";
 import { stageVerifiedVsix } from "@llmatic/update-installer";
 import { ensureManagedWorkspace, type ManagedWorkspace } from "@llmatic/workspace-manager";
 import {
@@ -465,104 +462,159 @@ interface PullRequestAcceptanceEvidence {
   unavailableReason?: string;
 }
 
-function jiraIssueKeys(value: string | undefined, projectKey?: string): string[] {
+function pullRequestTaskReferences(value: string | undefined): string[] {
   if (!value) return [];
-  const matches = value.match(/\b[A-Z][A-Z0-9_]*-\d+\b/gi) ?? [];
-  const normalizedProjectKey = projectKey?.trim().toUpperCase();
+
+  const taskKeys = value.match(/\b[A-Z][A-Z0-9_.-]*-\d+\b/gi) ?? [];
+  const issueReferences = [...value.matchAll(/(^|[\s([])#(\d+)\b/g)].map(
+    (match) => "#" + match[2],
+  );
+
   return [
-    ...new Set(
-      matches
-        .map((match) => match.toUpperCase())
-        .filter((match) => !normalizedProjectKey || match.startsWith(normalizedProjectKey + "-")),
-    ),
+    ...new Set([
+      ...taskKeys.map((match) => match.toUpperCase()),
+      ...issueReferences,
+    ]),
   ];
 }
 
-function pullRequestJiraIssueKey(
+function pullRequestTaskReference(
   reviewContext: PullRequestReviewContext,
-  projectKey?: string,
-): { key?: string; unavailableReason?: string } {
-  const titleKeys = jiraIssueKeys(reviewContext.title, projectKey);
-  const branchKeys = jiraIssueKeys(reviewContext.status.pullRequest.headRefName, projectKey);
-  const primaryKeys = [...new Set([...titleKeys, ...branchKeys])];
+): { reference?: string; unavailableReason?: string } {
+  const primary = [
+    ...new Set([
+      ...pullRequestTaskReferences(reviewContext.title),
+      ...pullRequestTaskReferences(reviewContext.status.pullRequest.headRefName),
+    ]),
+  ];
 
-  if (primaryKeys.length === 1) return { key: primaryKeys[0] };
-  if (primaryKeys.length > 1) {
+  if (primary.length === 1) return { reference: primary[0] };
+  if (primary.length > 1) {
     return {
       unavailableReason:
-        "multiple Jira task keys are present in the PR title/branch: " + primaryKeys.join(", "),
+        "multiple task references are present in the PR title/branch: " + primary.join(", "),
     };
   }
 
-  const bodyKeys = jiraIssueKeys(reviewContext.body, projectKey);
-  if (bodyKeys.length === 1) return { key: bodyKeys[0] };
-  if (bodyKeys.length > 1) {
+  const body = pullRequestTaskReferences(reviewContext.body);
+  if (body.length === 1) return { reference: body[0] };
+  if (body.length > 1) {
     return {
       unavailableReason:
-        "multiple Jira task keys are present in the PR body: " + bodyKeys.join(", "),
+        "multiple task references are present in the PR body: " + body.join(", "),
     };
   }
 
   return {};
 }
 
-async function pullRequestAcceptanceEvidenceFromJira(
+function configuredTaskProvider(environment: NodeJS.ProcessEnv): TaskProviderId {
+  const value = environment.LLMATIC_TASK_PROVIDER?.trim().toLowerCase() || "auto";
+  return value === "markdown" ||
+    value === "jira" ||
+    value === "github" ||
+    value === "manual"
+    ? value
+    : "auto";
+}
+
+function taskProviderLabel(provider: string): string {
+  switch (provider) {
+    case "jira":
+      return "Jira";
+    case "github":
+      return "GitHub";
+    case "markdown":
+      return "Markdown";
+    default:
+      return provider;
+  }
+}
+
+async function pullRequestAcceptanceEvidenceFromTaskSource(
   context: vscode.ExtensionContext,
   state: ExtensionState,
   config: Awaited<ReturnType<typeof loadAgentConfig>>,
+  root: string,
   reviewContext: PullRequestReviewContext,
 ): Promise<PullRequestAcceptanceEvidence> {
+  const linked = pullRequestTaskReference(reviewContext);
+  if (linked.unavailableReason) {
+    return {
+      items: [],
+      unavailableReason: linked.unavailableReason,
+    };
+  }
+  if (!linked.reference) {
+    return { items: [] };
+  }
+
   const environment = await taskRecoveryEnvironment(context, state);
-  const baseUrl = environment.LLMATIC_JIRA_BASE_URL?.trim();
-  const hasCredentials = Boolean(
-    environment.LLMATIC_JIRA_BEARER_TOKEN ||
-    (environment.LLMATIC_JIRA_EMAIL && environment.LLMATIC_JIRA_API_TOKEN),
+  const resolution = await resolveTaskReference(
+    root,
+    config,
+    linked.reference,
+    configuredTaskProvider(environment),
+    environment,
   );
 
-  if (!baseUrl || !hasCredentials) {
-    return { items: [] };
-  }
-
-  const resolved = pullRequestJiraIssueKey(reviewContext, environment.LLMATIC_JIRA_PROJECT_KEY);
-  if (resolved.unavailableReason) {
+  if (resolution.status === "ambiguous") {
     return {
       items: [],
-      unavailableReason: resolved.unavailableReason,
-    };
-  }
-  if (!resolved.key) {
-    return { items: [] };
-  }
-
-  try {
-    const provider = createJiraTaskProviderFromEnvironment(config, environment);
-    const task = await provider.getTask(resolved.key);
-    return {
-      source: "Jira " + task.key,
-      task: {
-        provider: "Jira",
-        key: task.key,
-        summary: task.summary,
-        webUrl: task.webUrl,
-        acceptanceCriteria: task.acceptanceCriteria,
-        definitionOfDone: task.definitionOfDone,
-      },
-      items: [
-        ...task.acceptanceCriteria.map((item) => "[Jira " + task.key + " AC] " + item),
-        ...task.definitionOfDone.map((item) => "[Jira " + task.key + " DoD] " + item),
-      ],
-    };
-  } catch (error) {
-    return {
-      items: [],
-      source: "Jira " + resolved.key,
       unavailableReason:
-        "could not load " +
-        resolved.key +
-        " acceptance criteria / Definition of Done: " +
-        (error instanceof Error ? error.message : String(error)),
+        "task reference " +
+        linked.reference +
+        " resolves in multiple providers: " +
+        resolution.matches.map((match) => taskProviderLabel(match.provider)).join(", "),
     };
   }
+
+  if (resolution.status === "unavailable") {
+    return {
+      items: [],
+      unavailableReason:
+        "task reference " +
+        linked.reference +
+        " could not be verified across available providers: " +
+        resolution.failures
+          .map((failure) => taskProviderLabel(failure.provider) + " — " + failure.reason)
+          .join("; "),
+    };
+  }
+
+  if (resolution.status === "not_found") {
+    return {
+      items: [],
+      unavailableReason:
+        "task reference " +
+        linked.reference +
+        " was not found in a compatible configured task source" +
+        (resolution.attemptedProviders.length > 0
+          ? " (" + resolution.attemptedProviders.map(taskProviderLabel).join(", ") + ")"
+          : "") +
+        ".",
+    };
+  }
+
+  const task = resolution.match.task;
+  const provider = taskProviderLabel(resolution.match.provider);
+  const source = provider + " " + task.key;
+
+  return {
+    source,
+    task: {
+      provider,
+      key: task.key,
+      summary: task.summary,
+      webUrl: task.webUrl,
+      acceptanceCriteria: task.acceptanceCriteria,
+      definitionOfDone: task.definitionOfDone,
+    },
+    items: [
+      ...task.acceptanceCriteria.map((item) => "[" + source + " AC] " + item),
+      ...task.definitionOfDone.map((item) => "[" + source + " DoD] " + item),
+    ],
+  };
 }
 
 async function workspaceJiraStatus(
@@ -3446,10 +3498,11 @@ async function reviewExternalPullRequestInUi(
             formatElapsedDuration(Date.now() - contextStartedAt),
         });
 
-        const acceptanceEvidence = await pullRequestAcceptanceEvidenceFromJira(
+        const acceptanceEvidence = await pullRequestAcceptanceEvidenceFromTaskSource(
           context,
           state,
           config,
+          root,
           reviewContext,
         );
         appendReviewActivity(context, reviewLog, sessionId, normalizedReference, startedAt, {
@@ -3763,10 +3816,11 @@ async function runAutomaticExternalPullRequestReview(
         formatElapsedDuration(Date.now() - contextStartedAt),
     });
 
-    const acceptanceEvidence = await pullRequestAcceptanceEvidenceFromJira(
+    const acceptanceEvidence = await pullRequestAcceptanceEvidenceFromTaskSource(
       context,
       state,
       config,
+      root,
       reviewContext,
     );
     appendReviewActivity(context, reviewLog, sessionId, reference, startedAt, {
