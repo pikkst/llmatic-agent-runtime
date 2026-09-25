@@ -88,9 +88,11 @@ describe("VS Code extension activation surface", () => {
     expect(source).toContain('sessionId = "auto-" + reference');
     expect(source).toContain("=== LLMatic Auto Review PR #");
     expect(source).toContain("CI snapshot");
-    expect(source).toContain("pullRequestAcceptanceEvidenceFromJira");
-    expect(source).toContain("createJiraTaskProviderFromEnvironment");
+    expect(source).toContain("pullRequestAcceptanceEvidenceFromTaskSource");
+    expect(source).toContain("resolveTaskReference");
+    expect(source).toContain("task reference ");
     expect(source).toContain("documentedAcceptanceEvidence: acceptanceEvidence.items");
+    expect(source).toContain("linkedTask: acceptanceEvidence.task");
     expect(source).toContain("reviewStatus = statusProvider.beginExternalReview(reference)");
     expect(source).toContain(
       "appendReviewActivity(context, reviewLog, sessionId, reference, startedAt, event)",
