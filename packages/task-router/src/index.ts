@@ -167,6 +167,146 @@ export async function resolveTaskProvider(
   throw new Error("Unsupported task provider: " + providerId + ".");
 }
 
+export interface TaskReferenceResolutionMatch {
+  provider: string;
+  task: TaskRecord;
+}
+
+export interface TaskReferenceResolutionFailure {
+  provider: string;
+  reason: string;
+}
+
+export type TaskReferenceResolution =
+  | {
+      status: "resolved";
+      reference: string;
+      match: TaskReferenceResolutionMatch;
+      attemptedProviders: string[];
+    }
+  | {
+      status: "not_found";
+      reference: string;
+      attemptedProviders: string[];
+    }
+  | {
+      status: "ambiguous";
+      reference: string;
+      matches: TaskReferenceResolutionMatch[];
+      attemptedProviders: string[];
+    }
+  | {
+      status: "unavailable";
+      reference: string;
+      matches: TaskReferenceResolutionMatch[];
+      failures: TaskReferenceResolutionFailure[];
+      attemptedProviders: string[];
+    };
+
+function taskReferenceNotFound(error: unknown): boolean {
+  const message = error instanceof Error ? error.message : String(error);
+  return /\b(?:404|not found|was not found|could not resolve to an issue|does not exist)\b/i.test(
+    message,
+  );
+}
+
+export async function resolveTaskReferenceFromProviders(
+  reference: string,
+  providers: TaskProvider[],
+): Promise<TaskReferenceResolution> {
+  const normalized = reference.trim();
+  if (!normalized) {
+    throw new Error("Task reference must not be empty.");
+  }
+
+  const attemptedProviders: string[] = [];
+  const matches: TaskReferenceResolutionMatch[] = [];
+  const failures: TaskReferenceResolutionFailure[] = [];
+
+  for (const provider of providers) {
+    if (provider.id === "manual") continue;
+    attemptedProviders.push(provider.id);
+
+    try {
+      const task = await provider.getTask(normalized);
+      matches.push({ provider: provider.id, task });
+    } catch (error) {
+      if (taskReferenceNotFound(error)) continue;
+      failures.push({
+        provider: provider.id,
+        reason: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }
+
+  if (failures.length > 0) {
+    return {
+      status: "unavailable",
+      reference: normalized,
+      matches,
+      failures,
+      attemptedProviders,
+    };
+  }
+
+  if (matches.length > 1) {
+    return {
+      status: "ambiguous",
+      reference: normalized,
+      matches,
+      attemptedProviders,
+    };
+  }
+
+  if (matches.length === 1) {
+    return {
+      status: "resolved",
+      reference: normalized,
+      match: matches[0]!,
+      attemptedProviders,
+    };
+  }
+
+  return {
+    status: "not_found",
+    reference: normalized,
+    attemptedProviders,
+  };
+}
+
+export async function resolveTaskReference(
+  root: string,
+  config: AgentConfig,
+  reference: string,
+  providerInput: TaskProviderId = "auto",
+  environment: NodeJS.ProcessEnv = process.env,
+): Promise<TaskReferenceResolution> {
+  if (providerInput === "manual") {
+    return {
+      status: "not_found",
+      reference: reference.trim(),
+      attemptedProviders: [],
+    };
+  }
+
+  if (providerInput !== "auto") {
+    const provider = await resolveTaskProvider(root, config, providerInput, environment);
+    return resolveTaskReferenceFromProviders(reference, [provider]);
+  }
+
+  const detection = await detectTaskSources(root, environment);
+  const candidates = detection.candidates
+    .filter((candidate) => candidate.available && candidate.id !== "manual")
+    .sort((left, right) => right.priority - left.priority);
+
+  const providers: TaskProvider[] = [];
+  for (const candidate of candidates) {
+    providers.push(await resolveTaskProvider(root, config, candidate.id, environment));
+  }
+
+  return resolveTaskReferenceFromProviders(reference, providers);
+}
+
 function workflowProviderId(
   run: WorkflowRun | undefined,
 ): Exclude<TaskProviderId, "auto"> | undefined {
