@@ -999,6 +999,7 @@ describe("review engine", () => {
           "--- a/src/server/explanation/followUp.ts\n" +
           "+++ b/src/server/explanation/followUp.ts\n" +
           "@@ -317,2 +317,2 @@\n" +
+          "   const parts: string[] = [];\n" +
           "-  let truncated = false;\n" +
           "+  let truncated = older.length > 0;\n",
         diffTruncated: false,
