@@ -2643,6 +2643,21 @@ function reviewActivityDescription(event: ReviewActivityEvent): {
           " blocking · " +
           formatElapsedDuration(event.durationMs),
       };
+    case "review-contract":
+      return {
+        phase: "Review contract",
+        detail:
+          (event.task ? event.task + " · " : "") +
+          event.requirementCount +
+          " requirement(s) · " +
+          event.ruleCount +
+          " relevant rule(s) · " +
+          event.invariantCount +
+          " invariant(s) · scopes " +
+          event.scopes.join(", ") +
+          " · " +
+          event.completeness,
+      };
     case "coverage":
       return {
         phase: "Review coverage",
