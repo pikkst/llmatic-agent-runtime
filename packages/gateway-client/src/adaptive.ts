@@ -77,6 +77,7 @@ interface ModelStats {
 }
 
 const AUTO_FREE_SESSION_FAILURE_LIMIT = 2;
+const REVIEW_FAILURE_COOLDOWN_MS = 15 * 60_000;
 
 function isFreeModelId(model: string): boolean {
   return model === "kilo-auto/free" || model.endsWith(":free");
@@ -303,6 +304,9 @@ export class AdaptiveFreeGatewayClient implements GatewayChatClient {
     const task = feedback.task?.trim() || "generic";
     for (const candidate of this.feedbackModels(model, feedback.responseModel)) {
       this.recordSemanticFailure(task, candidate);
+      if (task.startsWith("review_")) {
+        this.excludeForTask(task, candidate, feedback.reason);
+      }
       if (
         task.startsWith("review_") &&
         /generation length limit reached without structured review content/i.test(feedback.reason)
@@ -667,12 +671,22 @@ export class AdaptiveFreeGatewayClient implements GatewayChatClient {
       return;
     }
 
+    const cooldownMs = task.startsWith("review_")
+      ? Math.max(this.modelCooldownMs, REVIEW_FAILURE_COOLDOWN_MS)
+      : this.modelCooldownMs;
+
     let unhealthy = this.taskUnhealthyUntil.get(task);
     if (!unhealthy) {
       unhealthy = new Map<string, number>();
       this.taskUnhealthyUntil.set(task, unhealthy);
     }
-    unhealthy.set(model, Date.now() + cooldownForFailure(reason, this.modelCooldownMs));
+    unhealthy.set(
+      model,
+      Date.now() +
+        (/rate.?limit|too many requests|\b429\b/i.test(reason)
+          ? cooldownMs
+          : cooldownForFailure(reason, cooldownMs)),
+    );
   }
 
   private clearTaskFailure(task: string, model: string): void {
