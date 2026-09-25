@@ -31,7 +31,6 @@ function config(root: string) {
   return createDefaultConfig(detection);
 }
 
-
 class FakeTaskProvider implements TaskProvider {
   public constructor(
     public readonly id: string,
@@ -155,7 +154,6 @@ describe("task router", () => {
       attemptedProviders: ["markdown", "jira"],
     });
   });
-
 
   it("prefers local Markdown tasks over configured Jira", async () => {
     const root = await mkdtemp(join(tmpdir(), "llmatic-router-"));

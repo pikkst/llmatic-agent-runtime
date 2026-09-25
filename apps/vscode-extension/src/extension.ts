@@ -466,21 +466,15 @@ function pullRequestTaskReferences(value: string | undefined): string[] {
   if (!value) return [];
 
   const taskKeys = value.match(/\b[A-Z][A-Z0-9_.-]*-\d+\b/gi) ?? [];
-  const issueReferences = [...value.matchAll(/(^|[\s([])#(\d+)\b/g)].map(
-    (match) => "#" + match[2],
-  );
+  const issueReferences = [...value.matchAll(/(^|[\s([])#(\d+)\b/g)].map((match) => "#" + match[2]);
 
-  return [
-    ...new Set([
-      ...taskKeys.map((match) => match.toUpperCase()),
-      ...issueReferences,
-    ]),
-  ];
+  return [...new Set([...taskKeys.map((match) => match.toUpperCase()), ...issueReferences])];
 }
 
-function pullRequestTaskReference(
-  reviewContext: PullRequestReviewContext,
-): { reference?: string; unavailableReason?: string } {
+function pullRequestTaskReference(reviewContext: PullRequestReviewContext): {
+  reference?: string;
+  unavailableReason?: string;
+} {
   const primary = [
     ...new Set([
       ...pullRequestTaskReferences(reviewContext.title),
@@ -500,8 +494,7 @@ function pullRequestTaskReference(
   if (body.length === 1) return { reference: body[0] };
   if (body.length > 1) {
     return {
-      unavailableReason:
-        "multiple task references are present in the PR body: " + body.join(", "),
+      unavailableReason: "multiple task references are present in the PR body: " + body.join(", "),
     };
   }
 
@@ -510,10 +503,7 @@ function pullRequestTaskReference(
 
 function configuredTaskProvider(environment: NodeJS.ProcessEnv): TaskProviderId {
   const value = environment.LLMATIC_TASK_PROVIDER?.trim().toLowerCase() || "auto";
-  return value === "markdown" ||
-    value === "jira" ||
-    value === "github" ||
-    value === "manual"
+  return value === "markdown" || value === "jira" || value === "github" || value === "manual"
     ? value
     : "auto";
 }
