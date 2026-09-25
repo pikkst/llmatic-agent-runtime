@@ -1,9 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { RepositoryConstitution } from "@llmatic/repository-constitution";
-import {
-  buildReviewContract,
-  reviewContractAcceptanceEvidence,
-} from "../src/review-contract.js";
+import { buildReviewContract, reviewContractAcceptanceEvidence } from "../src/review-contract.js";
 
 function constitution(): RepositoryConstitution {
   return {
@@ -178,8 +175,14 @@ describe("review contract", () => {
     expect(contract.scopes).toEqual(expect.arrayContaining(["security", "database"]));
     expect(contract.invariants).toEqual(
       expect.arrayContaining([
-        expect.objectContaining({ kind: "security", text: expect.stringContaining("tenant isolation") }),
-        expect.objectContaining({ kind: "database", text: expect.stringContaining("rollback safety") }),
+        expect.objectContaining({
+          kind: "security",
+          text: expect.stringContaining("tenant isolation"),
+        }),
+        expect.objectContaining({
+          kind: "database",
+          text: expect.stringContaining("rollback safety"),
+        }),
       ]),
     );
     expect(contract.requiredEvidence).toEqual(

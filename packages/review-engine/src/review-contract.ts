@@ -6,9 +6,7 @@ import {
 } from "@llmatic/repository-constitution";
 
 export type ReviewRequirementKind =
-  | "acceptance_criterion"
-  | "definition_of_done"
-  | "pull_request_acceptance";
+  "acceptance_criterion" | "definition_of_done" | "pull_request_acceptance";
 
 export interface ReviewTaskEvidence {
   provider: string;
@@ -89,7 +87,10 @@ export interface BuildReviewContractInput {
 const REVIEW_SCOPE_PATTERNS: Array<[RegExp, string]> = [
   [/\b(api|endpoint|route|http|openapi|contract)\b/i, "api"],
   [/\b(db|database|schema|migration|sql|postgres|supabase|prisma)\b/i, "database"],
-  [/\b(auth|authorization|authentication|security|rls|rbac|permission|secret|trust)\b/i, "security"],
+  [
+    /\b(auth|authorization|authentication|security|rls|rbac|permission|secret|trust)\b/i,
+    "security",
+  ],
   [/\b(test|testing|spec|coverage|e2e|vitest|jest|playwright|regression)\b/i, "testing"],
   [/\b(ci|pipeline|github actions|workflow|lint|format|typecheck|build)\b/i, "quality"],
   [/\b(frontend|ui|ux|react|view|component)\b/i, "frontend"],
@@ -100,8 +101,7 @@ const REVIEW_SCOPE_PATTERNS: Array<[RegExp, string]> = [
   [/\b(architecture|architectural|boundary|module|layer)\b/i, "architecture"],
 ];
 
-const GLOBAL_POLICY_SOURCE =
-  /(?:^|\/)(?:agents?|contributing|code[-_]?review|review)\.md$/i;
+const GLOBAL_POLICY_SOURCE = /(?:^|\/)(?:agents?|contributing|code[-_]?review|review)\.md$/i;
 
 function stableId(prefix: string, values: string[]): string {
   return (
@@ -126,7 +126,10 @@ function pullRequestRequirements(body: string): string[] {
 
   for (const rawLine of body.split(/\r?\n/)) {
     const line = rawLine.trim();
-    const heading = line.match(/^#{1,6}\s+(.+)$/)?.[1]?.trim().toLowerCase();
+    const heading = line
+      .match(/^#{1,6}\s+(.+)$/)?.[1]
+      ?.trim()
+      .toLowerCase();
 
     if (heading) {
       active = /\b(acceptance criteria|acceptance|definition of done|dod|done criteria|ac)\b/i.test(
@@ -241,7 +244,10 @@ function buildRequirements(input: BuildReviewContractInput): ReviewContractRequi
   return [...byIdentity.values()].slice(0, 100);
 }
 
-function inferredScopes(input: BuildReviewContractInput, requirements: ReviewContractRequirement[]): string[] {
+function inferredScopes(
+  input: BuildReviewContractInput,
+  requirements: ReviewContractRequirement[],
+): string[] {
   const haystack = [
     input.title,
     input.body,
@@ -266,7 +272,8 @@ function selectedRules(
   const ranked = activeRepositoryRules(constitution)
     .map((rule) => {
       const overlap = rule.scopes.filter((scope) => scopeSet.has(scope)).length;
-      const global = rule.scopes.includes("repository") || GLOBAL_POLICY_SOURCE.test(rule.source.path);
+      const global =
+        rule.scopes.includes("repository") || GLOBAL_POLICY_SOURCE.test(rule.source.path);
       const score =
         (rule.strength === "blocking" ? 100 : rule.strength === "advisory" ? 50 : 10) +
         overlap * 30 +

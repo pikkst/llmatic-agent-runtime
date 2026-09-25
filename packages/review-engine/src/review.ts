@@ -2114,9 +2114,7 @@ export async function runExternalPullRequestReview(
     reviewOptions.material,
     acceptanceEvidence,
   );
-  const findings = deduplicateFindings(
-    await verifyExternalFindings(strictFindings, reviewOptions),
-  );
+  const findings = deduplicateFindings(await verifyExternalFindings(strictFindings, reviewOptions));
   const codeBlockingCount = findings.filter((finding) => finding.severity === "blocking").length;
   options.onActivity?.({ type: "architecture-start" });
   const architectureStartedAt = Date.now();
@@ -2140,10 +2138,10 @@ export async function runExternalPullRequestReview(
         defectFindingCount +
         " concrete defect/rule violation(s)."
       : "Focused review: " +
-      dodFindingCount +
-      " documented DoD/acceptance violation(s), " +
-      defectFindingCount +
-      " concrete defect/rule violation(s).";
+        dodFindingCount +
+        " documented DoD/acceptance violation(s), " +
+        defectFindingCount +
+        " concrete defect/rule violation(s).";
   const failedLensSummary =
     lensFailures.length > 0
       ? " Incomplete lenses: " +
