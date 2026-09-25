@@ -956,6 +956,101 @@ describe("review engine", () => {
     expect(report.reviewStatus).toBe("complete");
   });
 
+  it("suppresses a missing direct table grant claim when an exact-head SECURITY DEFINER RPC owns the write", async () => {
+    const root = await repository();
+    const config = configFor(root);
+    const gateway = new ScriptedGateway([
+      response(
+        JSON.stringify({
+          summary: "One SQL privilege defect.",
+          findings: [
+            {
+              severity: "blocking",
+              category: "security",
+              basis: "defect",
+              title: "Missing GRANT for service_role on explanation_operation_events table",
+              path: "supabase/migrations/20260925112000_kt270_admin_ai_operations.sql",
+              line: 204,
+              side: "RIGHT",
+              evidence:
+                "The migration revokes all privileges on analysis.explanation_operation_events from service_role but does not include a GRANT INSERT. Without this grant, service_role cannot persist telemetry.",
+              recommendation:
+                "GRANT INSERT ON analysis.explanation_operation_events TO service_role.",
+            },
+          ],
+        }),
+      ),
+    ]);
+
+    const migration =
+      "REVOKE ALL ON TABLE analysis.explanation_operation_events FROM PUBLIC, anon, authenticated, service_role;\n" +
+      "CREATE OR REPLACE FUNCTION public.record_kt270_explanation_event(p_event jsonb)\n" +
+      "RETURNS uuid\n" +
+      "LANGUAGE plpgsql\n" +
+      "SECURITY DEFINER\n" +
+      "SET search_path = ''\n" +
+      "AS $kt270_record$\n" +
+      "BEGIN\n" +
+      "  INSERT INTO analysis.explanation_operation_events(operation_id) VALUES (gen_random_uuid());\n" +
+      "  RETURN gen_random_uuid();\n" +
+      "END;\n" +
+      "$kt270_record$;\n" +
+      "REVOKE ALL ON FUNCTION public.record_kt270_explanation_event(jsonb) FROM PUBLIC, anon, authenticated, service_role;\n" +
+      "GRANT EXECUTE ON FUNCTION public.record_kt270_explanation_event(jsonb) TO service_role;\n";
+
+    const reads: string[] = [];
+    const report = await runExternalPullRequestReview({
+      root,
+      config,
+      gateway,
+      readFile: async (path) => {
+        reads.push(path);
+        if (path === "supabase/migrations/20260925112000_kt270_admin_ai_operations.sql") {
+          return { path, content: migration };
+        }
+        if (path === "src/server/explanation/operations.ts") {
+          return {
+            path,
+            content:
+              'await client.rpc("record_kt270_explanation_event", { p_event: event });\n',
+          };
+        }
+        throw new Error("Unexpected read " + path);
+      },
+      lenses: ["security"],
+      material: {
+        reference: "215",
+        headRefOid: "head-215",
+        title: "KT-270: add admin AI operations observability",
+        body: "",
+        ciState: "passing",
+        changedFiles: [
+          "supabase/migrations/20260925112000_kt270_admin_ai_operations.sql",
+          "src/server/explanation/operations.ts",
+        ],
+        diff:
+          "diff --git a/supabase/migrations/20260925112000_kt270_admin_ai_operations.sql b/supabase/migrations/20260925112000_kt270_admin_ai_operations.sql\n" +
+          "--- /dev/null\n" +
+          "+++ b/supabase/migrations/20260925112000_kt270_admin_ai_operations.sql\n" +
+          "@@ -0,0 +204,1 @@\n" +
+          "+REVOKE ALL ON TABLE analysis.explanation_operation_events FROM PUBLIC, anon, authenticated, service_role;\n" +
+          "diff --git a/src/server/explanation/operations.ts b/src/server/explanation/operations.ts\n" +
+          "--- /dev/null\n" +
+          "+++ b/src/server/explanation/operations.ts\n" +
+          "@@ -0,0 +1,1 @@\n" +
+          '+await client.rpc("record_kt270_explanation_event", { p_event: event });\n',
+        diffTruncated: false,
+      },
+    });
+
+    expect(reads).toEqual([
+      "supabase/migrations/20260925112000_kt270_admin_ai_operations.sql",
+      "src/server/explanation/operations.ts",
+    ]);
+    expect(report.findings).toEqual([]);
+    expect(report.reviewStatus).toBe("complete");
+  });
+
   it("keeps the PR-214 truncated-history defect because exact changed-code evidence supports it", async () => {
     const root = await repository();
     const config = configFor(root);
