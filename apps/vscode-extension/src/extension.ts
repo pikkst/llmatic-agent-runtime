@@ -82,6 +82,7 @@ import {
   type CodeReviewReport,
   type ReviewActivityEvent,
   type ReviewLoopEvent,
+  type ReviewTaskEvidence,
 } from "@llmatic/review-engine";
 import {
   ensureGlobalKiloMcpServer,
@@ -460,6 +461,7 @@ async function taskRecoveryEnvironment(
 interface PullRequestAcceptanceEvidence {
   items: string[];
   source?: string;
+  task?: ReviewTaskEvidence;
   unavailableReason?: string;
 }
 
@@ -537,6 +539,14 @@ async function pullRequestAcceptanceEvidenceFromJira(
     const task = await provider.getTask(resolved.key);
     return {
       source: "Jira " + task.key,
+      task: {
+        provider: "Jira",
+        key: task.key,
+        summary: task.summary,
+        webUrl: task.webUrl,
+        acceptanceCriteria: task.acceptanceCriteria,
+        definitionOfDone: task.definitionOfDone,
+      },
       items: [
         ...task.acceptanceCriteria.map((item) => "[Jira " + task.key + " AC] " + item),
         ...task.definitionOfDone.map((item) => "[Jira " + task.key + " DoD] " + item),
@@ -3492,6 +3502,7 @@ async function reviewExternalPullRequestInUi(
             reviewThreads: reviewContext.reviewThreads,
             documentedAcceptanceEvidence: acceptanceEvidence.items,
             acceptanceEvidenceSource: acceptanceEvidence.source,
+            linkedTask: acceptanceEvidence.task,
             acceptanceEvidenceUnavailableReason: acceptanceEvidence.unavailableReason,
           },
         });
@@ -3800,6 +3811,7 @@ async function runAutomaticExternalPullRequestReview(
         reviewThreads: reviewContext.reviewThreads,
         documentedAcceptanceEvidence: acceptanceEvidence.items,
         acceptanceEvidenceSource: acceptanceEvidence.source,
+        linkedTask: acceptanceEvidence.task,
         acceptanceEvidenceUnavailableReason: acceptanceEvidence.unavailableReason,
       },
     });
