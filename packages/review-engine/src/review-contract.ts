@@ -20,7 +20,7 @@ export interface ReviewTaskEvidence {
 }
 
 export interface ReviewRequirementSource {
-  kind: "task" | "pull_request";
+  kind: "task" | "pull_request" | "provided";
   provider?: string;
   reference?: string;
   label: string;
@@ -81,6 +81,8 @@ export interface BuildReviewContractInput {
   changedFiles: string[];
   constitution: RepositoryConstitution;
   linkedTask?: ReviewTaskEvidence;
+  supplementalAcceptanceEvidence?: string[];
+  supplementalAcceptanceEvidenceSource?: string;
   acceptanceEvidenceUnavailableReason?: string;
 }
 
@@ -203,6 +205,22 @@ function buildRequirements(input: BuildReviewContractInput): ReviewContractRequi
         ),
       );
     }
+  }
+
+  for (const item of input.supplementalAcceptanceEvidence ?? []) {
+    const text = normalizedRequirement(item);
+    if (!text) continue;
+    result.push(
+      requirement(
+        "acceptance_criterion",
+        text,
+        {
+          kind: "provided",
+          label: input.supplementalAcceptanceEvidenceSource ?? "Provided acceptance evidence",
+        },
+        item.trim(),
+      ),
+    );
   }
 
   const prSource: ReviewRequirementSource = {
