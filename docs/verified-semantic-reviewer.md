@@ -261,11 +261,14 @@ Implemented or already proven:
 Status: in progress on `feat/reviewer-review-contract`.
 
 - [x] introduce normalized ReviewContract type
-- [ ] merge Jira/Markdown/PR acceptance evidence with provenance (Jira + PR complete; Markdown/external generic task-source resolution pending)
+- [x] merge Jira/Markdown/GitHub Issue/PR acceptance evidence with provenance
 - [x] select relevant repository rules instead of sending the entire Constitution
 - [x] attach applicable architecture/security/API/schema invariants from relevant explicit/approved rules
 - [x] expose review-contract telemetry
 - [x] fail closed when authoritative linked task evidence is expected but unavailable
+- [x] fail closed when one task reference resolves in multiple providers
+- [x] route reference syntax only to compatible providers
+- [ ] live smoke confirms the resolved provider/task and Review Contract telemetry on a real PR
 
 Acceptance gate:
 
