@@ -160,6 +160,7 @@ function scopesFor(path: string, text: string): string[] {
     [/\b(frontend|ui|ux|react|view|component)\b/, "frontend"],
     [/\b(backend|server|service|worker|queue|job)\b/, "backend"],
     [/\b(document|documentation|docs|readme|adr)\b/, "documentation"],
+    [/\b(architecture|architectural|adr|boundary|layer|module)\b/, "architecture"],
     [/\b(task|jira|issue|roadmap|dod|definition of done)\b/, "task"],
     [/\b(git|branch|commit|pull request|pr|merge)\b/, "delivery"],
   ];

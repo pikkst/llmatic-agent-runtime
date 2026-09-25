@@ -38,6 +38,13 @@ import {
   type RepositoryConstitution,
 } from "@llmatic/repository-constitution";
 import { isWorkspacePathSensitive, readWorkspaceFile } from "@llmatic/workspace-files";
+import {
+  buildReviewContract,
+  reviewContractAcceptanceEvidence,
+  reviewContractPolicyContext,
+  type ReviewContract,
+  type ReviewTaskEvidence,
+} from "./review-contract.js";
 
 const MAX_DIFF_CHARS = 64000;
 const MAX_TOOL_RESULT_CHARS = 64000;
@@ -288,6 +295,15 @@ export type ReviewActivityEvent =
       durationMs: number;
     }
   | {
+      type: "review-contract";
+      task?: string;
+      requirementCount: number;
+      ruleCount: number;
+      invariantCount: number;
+      scopes: string[];
+      completeness: "complete" | "partial";
+    }
+  | {
       type: "coverage";
       changedFileCount: number;
       reviewableFileCount: number;
@@ -391,6 +407,7 @@ interface ReviewExecutionOptions {
   lenses?: ReviewLens[];
   captureRawResponses?: boolean;
   onActivity?: (event: ReviewActivityEvent) => void;
+  reviewContract?: ReviewContract;
 }
 
 export interface CodeReviewOptions extends ReviewExecutionOptions {
@@ -413,6 +430,7 @@ export interface PullRequestReviewMaterial {
   documentedAcceptanceEvidence?: string[];
   acceptanceEvidenceSource?: string;
   acceptanceEvidenceUnavailableReason?: string;
+  linkedTask?: ReviewTaskEvidence;
 }
 
 export interface ExternalPullRequestReviewOptions extends ReviewExecutionOptions {
@@ -436,6 +454,7 @@ export interface ExternalPullRequestReviewReport extends CodeReviewReport {
   reviewStatus: "complete" | "partial";
   lensFailures: ReviewLensFailure[];
   unreviewedFiles: string[];
+  reviewContract: ReviewContract;
 }
 
 export interface ReviewFixLoopOptions extends CodeReviewOptions {
@@ -925,7 +944,12 @@ function pullRequestAcceptanceEvidence(body: string): string[] {
   return [...new Set(evidence.filter(Boolean))].slice(0, 100);
 }
 
-function documentedAcceptanceEvidence(material: PullRequestReviewMaterial): string[] {
+function documentedAcceptanceEvidence(
+  material: PullRequestReviewMaterial,
+  contract?: ReviewContract,
+): string[] {
+  if (contract) return reviewContractAcceptanceEvidence(contract);
+
   return [
     ...new Set(
       [
@@ -967,6 +991,7 @@ function reviewSystemPrompt(
   constitution: RepositoryConstitution,
   lens: ReviewLens,
   externalPullRequest = false,
+  reviewContract?: ReviewContract,
 ): string {
   return [
     "You are the LLMatic code reviewer.",
@@ -1012,11 +1037,13 @@ function reviewSystemPrompt(
     "Each finding requires severity, category, basis, title, path, evidence, recommendation; line/side, dod_ref and rule_id follow the basis rules above.",
     "Use an empty findings array when no concrete finding is supported.",
     "",
-    repositoryConstitutionContext(constitution, {
-      includeInferred: true,
-      includeProposed: false,
-      maxRules: 60,
-    }),
+    externalPullRequest && reviewContract
+      ? reviewContractPolicyContext(reviewContract)
+      : repositoryConstitutionContext(constitution, {
+          includeInferred: true,
+          includeProposed: false,
+          maxRules: 60,
+        }),
   ].join("\n");
 }
 
@@ -1102,12 +1129,13 @@ function positiveDodObservation(value: unknown): boolean {
 function pruneImpossibleExternalDodFindings(
   value: unknown,
   material: PullRequestReviewMaterial | undefined,
+  contract?: ReviewContract,
 ): unknown {
   if (!material || !value || typeof value !== "object" || Array.isArray(value)) return value;
 
   const report = value as Record<string, unknown>;
   if (!Array.isArray(report.findings)) return value;
-  const hasAcceptanceEvidence = documentedAcceptanceEvidence(material).length > 0;
+  const hasAcceptanceEvidence = documentedAcceptanceEvidence(material, contract).length > 0;
 
   return {
     ...report,
@@ -1554,7 +1582,15 @@ async function runReviewLens(
 ): Promise<{ summary: string; findings: ReviewFinding[] }> {
   const model = options.model?.trim() || "kilo-auto/free";
   const messages: GatewayMessage[] = [
-    { role: "system", content: reviewSystemPrompt(constitution, lens, Boolean(material)) },
+    {
+      role: "system",
+      content: reviewSystemPrompt(
+        constitution,
+        lens,
+        Boolean(material),
+        material ? options.reviewContract : undefined,
+      ),
+    },
     {
       role: "user",
       content: material
@@ -1568,7 +1604,11 @@ async function runReviewLens(
               authorLogin: material.authorLogin,
               ciState: material.ciState,
               diffTruncated: material.diffTruncated,
-              documentedAcceptanceEvidence: documentedAcceptanceEvidence(material),
+              documentedAcceptanceEvidence: documentedAcceptanceEvidence(
+                material,
+                options.reviewContract,
+              ),
+              reviewContract: options.reviewContract,
               acceptanceEvidenceSource: material.acceptanceEvidenceSource,
               acceptanceEvidenceUnavailableReason: material.acceptanceEvidenceUnavailableReason,
               reviews: material.reviews ?? [],
@@ -1794,6 +1834,7 @@ async function runReviewLens(
       const extracted = pruneImpossibleExternalDodFindings(
         extractJson(assistant.content),
         material,
+        options.reviewContract,
       );
       const parsed = rawReviewSchema.parse(extracted);
       await reportValidatedModelSuccess(options.gateway, response, lens);
@@ -1906,6 +1947,38 @@ export async function runExternalPullRequestReview(
     .map((path) => path.replaceAll("\\", "/"))
     .filter((path) => path && !isWorkspacePathSensitive(path))
     .sort();
+  const reviewContract = buildReviewContract({
+    headRefOid: options.material.headRefOid,
+    title: options.material.title,
+    body: options.material.body,
+    changedFiles,
+    constitution,
+    linkedTask: options.material.linkedTask,
+    supplementalAcceptanceEvidence: options.material.linkedTask
+      ? undefined
+      : options.material.documentedAcceptanceEvidence,
+    supplementalAcceptanceEvidenceSource: options.material.acceptanceEvidenceSource,
+    acceptanceEvidenceUnavailableReason: options.material.acceptanceEvidenceUnavailableReason,
+  });
+  const reviewOptions: ExternalPullRequestReviewOptions = {
+    ...options,
+    reviewContract,
+    material: {
+      ...options.material,
+      changedFiles,
+    },
+  };
+  options.onActivity?.({
+    type: "review-contract",
+    task: reviewContract.task
+      ? reviewContract.task.provider + " " + reviewContract.task.key
+      : undefined,
+    requirementCount: reviewContract.requirements.length,
+    ruleCount: reviewContract.rules.length,
+    invariantCount: reviewContract.invariants.length,
+    scopes: reviewContract.scopes,
+    completeness: reviewContract.completeness,
+  });
   const reviewableFiles = changedFiles.filter((path) =>
     pullRequestDiffContainsPath(options.material.diff, path),
   );
@@ -1931,7 +2004,7 @@ export async function runExternalPullRequestReview(
     options.onActivity?.({ type: "lens-start", lens });
 
     const lensFiles = externalLensFiles(lens, reviewableFiles);
-    const batches = externalReviewBatches(options.material, lensFiles);
+    const batches = externalReviewBatches(reviewOptions.material, lensFiles);
     const batchResults: Array<{ summary: string; findings: ReviewFinding[] }> = [];
     const batchFailures: string[] = [];
 
@@ -1949,7 +2022,7 @@ export async function runExternalPullRequestReview(
 
       try {
         const batchResult = await runExternalReviewBatchWithRecovery(
-          options,
+          reviewOptions,
           constitution,
           lens,
           batch,
@@ -2035,13 +2108,13 @@ export async function runExternalPullRequestReview(
     );
   }
 
-  const acceptanceEvidence = documentedAcceptanceEvidence(options.material);
+  const acceptanceEvidence = reviewContractAcceptanceEvidence(reviewContract);
   const strictFindings = strictExternalFindings(
     lensResults.flatMap(({ result }) => result.findings),
-    options.material,
+    reviewOptions.material,
     acceptanceEvidence,
   );
-  const findings = deduplicateFindings(await verifyExternalFindings(strictFindings, options));
+  const findings = deduplicateFindings(await verifyExternalFindings(strictFindings, reviewOptions));
   const codeBlockingCount = findings.filter((finding) => finding.severity === "blocking").length;
   options.onActivity?.({ type: "architecture-start" });
   const architectureStartedAt = Date.now();
@@ -2057,17 +2130,18 @@ export async function runExternalPullRequestReview(
   const defectFindingCount = findings.filter(
     (finding) => finding.basis === "defect" || finding.basis === "repository_rule",
   ).length;
-  const reviewSummary = options.material.acceptanceEvidenceUnavailableReason
-    ? "Focused review: DoD/acceptance verification unavailable (" +
-      options.material.acceptanceEvidenceUnavailableReason +
-      "); " +
-      defectFindingCount +
-      " concrete defect/rule violation(s)."
-    : "Focused review: " +
-      dodFindingCount +
-      " documented DoD/acceptance violation(s), " +
-      defectFindingCount +
-      " concrete defect/rule violation(s).";
+  const reviewSummary =
+    reviewContract.completeness === "partial"
+      ? "Focused review: DoD/acceptance verification unavailable (" +
+        reviewContract.warnings.join("; ") +
+        "); " +
+        defectFindingCount +
+        " concrete defect/rule violation(s)."
+      : "Focused review: " +
+        dodFindingCount +
+        " documented DoD/acceptance violation(s), " +
+        defectFindingCount +
+        " concrete defect/rule violation(s).";
   const failedLensSummary =
     lensFailures.length > 0
       ? " Incomplete lenses: " +
@@ -2091,11 +2165,12 @@ export async function runExternalPullRequestReview(
     diffTruncated: options.material.diffTruncated,
     coverage,
     reviewStatus:
-      lensFailures.length === 0 && !options.material.acceptanceEvidenceUnavailableReason
+      lensFailures.length === 0 && reviewContract.completeness === "complete"
         ? "complete"
         : "partial",
     lensFailures,
     unreviewedFiles,
+    reviewContract,
     summary:
       reviewSummary +
       failedLensSummary +
