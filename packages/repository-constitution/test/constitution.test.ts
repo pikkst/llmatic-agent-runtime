@@ -129,6 +129,11 @@ describe("repository constitution", () => {
       },
     });
     expect(apiRule?.scopes).toContain("api");
+
+    const architectureRule = constitution.rules.find((rule) =>
+      rule.text.includes("canonical repository abstraction"),
+    );
+    expect(architectureRule?.scopes).toContain("architecture");
   });
 
   it("does not promote ordinary documentation prose to repository policy", async () => {
