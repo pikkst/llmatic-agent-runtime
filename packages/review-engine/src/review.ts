@@ -894,16 +894,6 @@ function pullRequestDiffContainsPath(diff: string, path: string): boolean {
   }
 }
 
-function safePullRequestReviewThreads(value: unknown[] | undefined): unknown[] {
-  if (!value) return [];
-
-  return value.filter((item) => {
-    if (!item || typeof item !== "object" || Array.isArray(item)) return true;
-    const path = (item as Record<string, unknown>).path;
-    return typeof path !== "string" || !isWorkspacePathSensitive(path);
-  });
-}
-
 function normalizeAcceptanceText(value: string): string {
   return value
     .toLowerCase()
