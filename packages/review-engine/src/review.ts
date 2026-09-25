@@ -1954,7 +1954,9 @@ export async function runExternalPullRequestReview(
     changedFiles,
     constitution,
     linkedTask: options.material.linkedTask,
-    supplementalAcceptanceEvidence: options.material.documentedAcceptanceEvidence,
+    supplementalAcceptanceEvidence: options.material.linkedTask
+      ? undefined
+      : options.material.documentedAcceptanceEvidence,
     supplementalAcceptanceEvidenceSource: options.material.acceptanceEvidenceSource,
     acceptanceEvidenceUnavailableReason: options.material.acceptanceEvidenceUnavailableReason,
   });
