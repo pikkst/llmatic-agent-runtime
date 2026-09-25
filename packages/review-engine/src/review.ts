@@ -38,6 +38,13 @@ import {
   type RepositoryConstitution,
 } from "@llmatic/repository-constitution";
 import { isWorkspacePathSensitive, readWorkspaceFile } from "@llmatic/workspace-files";
+import {
+  buildReviewContract,
+  reviewContractAcceptanceEvidence,
+  reviewContractPolicyContext,
+  type ReviewContract,
+  type ReviewTaskEvidence,
+} from "./review-contract.js";
 
 const MAX_DIFF_CHARS = 64000;
 const MAX_TOOL_RESULT_CHARS = 64000;
@@ -288,6 +295,15 @@ export type ReviewActivityEvent =
       durationMs: number;
     }
   | {
+      type: "review-contract";
+      task?: string;
+      requirementCount: number;
+      ruleCount: number;
+      invariantCount: number;
+      scopes: string[];
+      completeness: "complete" | "partial";
+    }
+  | {
       type: "coverage";
       changedFileCount: number;
       reviewableFileCount: number;
@@ -391,6 +407,7 @@ interface ReviewExecutionOptions {
   lenses?: ReviewLens[];
   captureRawResponses?: boolean;
   onActivity?: (event: ReviewActivityEvent) => void;
+  reviewContract?: ReviewContract;
 }
 
 export interface CodeReviewOptions extends ReviewExecutionOptions {
@@ -413,6 +430,7 @@ export interface PullRequestReviewMaterial {
   documentedAcceptanceEvidence?: string[];
   acceptanceEvidenceSource?: string;
   acceptanceEvidenceUnavailableReason?: string;
+  linkedTask?: ReviewTaskEvidence;
 }
 
 export interface ExternalPullRequestReviewOptions extends ReviewExecutionOptions {
@@ -436,6 +454,7 @@ export interface ExternalPullRequestReviewReport extends CodeReviewReport {
   reviewStatus: "complete" | "partial";
   lensFailures: ReviewLensFailure[];
   unreviewedFiles: string[];
+  reviewContract: ReviewContract;
 }
 
 export interface ReviewFixLoopOptions extends CodeReviewOptions {
@@ -925,7 +944,12 @@ function pullRequestAcceptanceEvidence(body: string): string[] {
   return [...new Set(evidence.filter(Boolean))].slice(0, 100);
 }
 
-function documentedAcceptanceEvidence(material: PullRequestReviewMaterial): string[] {
+function documentedAcceptanceEvidence(
+  material: PullRequestReviewMaterial,
+  contract?: ReviewContract,
+): string[] {
+  if (contract) return reviewContractAcceptanceEvidence(contract);
+
   return [
     ...new Set(
       [
@@ -967,6 +991,7 @@ function reviewSystemPrompt(
   constitution: RepositoryConstitution,
   lens: ReviewLens,
   externalPullRequest = false,
+  reviewContract?: ReviewContract,
 ): string {
   return [
     "You are the LLMatic code reviewer.",
@@ -1012,11 +1037,13 @@ function reviewSystemPrompt(
     "Each finding requires severity, category, basis, title, path, evidence, recommendation; line/side, dod_ref and rule_id follow the basis rules above.",
     "Use an empty findings array when no concrete finding is supported.",
     "",
-    repositoryConstitutionContext(constitution, {
-      includeInferred: true,
-      includeProposed: false,
-      maxRules: 60,
-    }),
+    externalPullRequest && reviewContract
+      ? reviewContractPolicyContext(reviewContract)
+      : repositoryConstitutionContext(constitution, {
+          includeInferred: true,
+          includeProposed: false,
+          maxRules: 60,
+        }),
   ].join("\n");
 }
 
@@ -1102,12 +1129,13 @@ function positiveDodObservation(value: unknown): boolean {
 function pruneImpossibleExternalDodFindings(
   value: unknown,
   material: PullRequestReviewMaterial | undefined,
+  contract?: ReviewContract,
 ): unknown {
   if (!material || !value || typeof value !== "object" || Array.isArray(value)) return value;
 
   const report = value as Record<string, unknown>;
   if (!Array.isArray(report.findings)) return value;
-  const hasAcceptanceEvidence = documentedAcceptanceEvidence(material).length > 0;
+  const hasAcceptanceEvidence = documentedAcceptanceEvidence(material, contract).length > 0;
 
   return {
     ...report,
@@ -1554,7 +1582,15 @@ async function runReviewLens(
 ): Promise<{ summary: string; findings: ReviewFinding[] }> {
   const model = options.model?.trim() || "kilo-auto/free";
   const messages: GatewayMessage[] = [
-    { role: "system", content: reviewSystemPrompt(constitution, lens, Boolean(material)) },
+    {
+      role: "system",
+      content: reviewSystemPrompt(
+        constitution,
+        lens,
+        Boolean(material),
+        material ? options.reviewContract : undefined,
+      ),
+    },
     {
       role: "user",
       content: material
@@ -1568,7 +1604,11 @@ async function runReviewLens(
               authorLogin: material.authorLogin,
               ciState: material.ciState,
               diffTruncated: material.diffTruncated,
-              documentedAcceptanceEvidence: documentedAcceptanceEvidence(material),
+              documentedAcceptanceEvidence: documentedAcceptanceEvidence(
+                material,
+                options.reviewContract,
+              ),
+              reviewContract: options.reviewContract,
               acceptanceEvidenceSource: material.acceptanceEvidenceSource,
               acceptanceEvidenceUnavailableReason: material.acceptanceEvidenceUnavailableReason,
               reviews: material.reviews ?? [],
@@ -1794,6 +1834,7 @@ async function runReviewLens(
       const extracted = pruneImpossibleExternalDodFindings(
         extractJson(assistant.content),
         material,
+        options.reviewContract,
       );
       const parsed = rawReviewSchema.parse(extracted);
       await reportValidatedModelSuccess(options.gateway, response, lens);
