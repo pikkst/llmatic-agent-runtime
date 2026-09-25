@@ -135,6 +135,9 @@ importers:
       '@llmatic/jira-adapter':
         specifier: workspace:*
         version: link:../../packages/jira-adapter
+      '@llmatic/task-router':
+        specifier: workspace:*
+        version: link:../../packages/task-router
       '@llmatic/kilo-connector':
         specifier: workspace:*
         version: link:../../packages/kilo-connector
