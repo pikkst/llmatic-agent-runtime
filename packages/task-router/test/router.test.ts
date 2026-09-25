@@ -3,7 +3,13 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { WorkflowStateStore, createDefaultConfig, type RepositoryDetection } from "@llmatic/core";
-import { detectTaskSources, resolveTaskProvider, startTaskWorkflow } from "../src/index.js";
+import type { TaskProvider, TaskRecord, TaskTransition } from "@llmatic/task-provider";
+import {
+  detectTaskSources,
+  resolveTaskProvider,
+  resolveTaskReferenceFromProviders,
+  startTaskWorkflow,
+} from "../src/index.js";
 
 const roots: string[] = [];
 
@@ -24,7 +30,115 @@ function config(root: string) {
   return createDefaultConfig(detection);
 }
 
+
+class FakeTaskProvider implements TaskProvider {
+  public constructor(
+    public readonly id: string,
+    private readonly task?: TaskRecord,
+    private readonly error?: Error,
+  ) {}
+
+  public async getTask(): Promise<TaskRecord> {
+    if (this.error) throw this.error;
+    if (!this.task) throw new Error("Task was not found.");
+    return this.task;
+  }
+
+  public async listTransitions(): Promise<TaskTransition[]> {
+    return [];
+  }
+
+  public async addComment(): Promise<void> {}
+
+  public async transitionTask(): Promise<TaskTransition> {
+    throw new Error("Not implemented.");
+  }
+}
+
+function fakeTask(provider: string, key: string, summary: string): TaskRecord {
+  return {
+    provider,
+    id: key,
+    key,
+    summary,
+    status: {
+      id: "todo",
+      name: "Todo",
+      lifecycle: "todo",
+    },
+    labels: [],
+    acceptanceCriteria: ["Acceptance for " + key],
+    definitionOfDone: ["DoD for " + key],
+    dependencies: [],
+    source: {
+      type: provider,
+    },
+  };
+}
+
 describe("task router", () => {
+  it("resolves one explicit task match across available providers", async () => {
+    const result = await resolveTaskReferenceFromProviders("KT-123", [
+      new FakeTaskProvider("markdown", undefined, new Error("Task KT-123 was not found.")),
+      new FakeTaskProvider("jira", fakeTask("jira", "KT-123", "Jira task")),
+    ]);
+
+    expect(result).toMatchObject({
+      status: "resolved",
+      reference: "KT-123",
+      attemptedProviders: ["markdown", "jira"],
+      match: {
+        provider: "jira",
+        task: {
+          key: "KT-123",
+          summary: "Jira task",
+        },
+      },
+    });
+  });
+
+  it("fails closed when the same explicit task reference resolves in multiple providers", async () => {
+    const result = await resolveTaskReferenceFromProviders("KT-123", [
+      new FakeTaskProvider("markdown", fakeTask("markdown", "KT-123", "Local task")),
+      new FakeTaskProvider("jira", fakeTask("jira", "KT-123", "Remote task")),
+    ]);
+
+    expect(result.status).toBe("ambiguous");
+    if (result.status !== "ambiguous") throw new Error("Expected ambiguous result.");
+    expect(result.matches.map((match) => match.provider)).toEqual(["markdown", "jira"]);
+  });
+
+  it("fails closed when an available provider cannot be checked", async () => {
+    const result = await resolveTaskReferenceFromProviders("KT-123", [
+      new FakeTaskProvider("markdown", fakeTask("markdown", "KT-123", "Local task")),
+      new FakeTaskProvider("jira", undefined, new Error("Jira request failed with 503")),
+    ]);
+
+    expect(result.status).toBe("unavailable");
+    if (result.status !== "unavailable") throw new Error("Expected unavailable result.");
+    expect(result.matches).toHaveLength(1);
+    expect(result.failures).toEqual([
+      {
+        provider: "jira",
+        reason: "Jira request failed with 503",
+      },
+    ]);
+  });
+
+  it("returns not_found only when every provider was checked successfully", async () => {
+    const result = await resolveTaskReferenceFromProviders("KT-404", [
+      new FakeTaskProvider("markdown", undefined, new Error("Task KT-404 was not found.")),
+      new FakeTaskProvider("jira", undefined, new Error("Jira request failed with 404")),
+    ]);
+
+    expect(result).toEqual({
+      status: "not_found",
+      reference: "KT-404",
+      attemptedProviders: ["markdown", "jira"],
+    });
+  });
+
+
   it("prefers local Markdown tasks over configured Jira", async () => {
     const root = await mkdtemp(join(tmpdir(), "llmatic-router-"));
     roots.push(root);
