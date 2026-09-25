@@ -1947,6 +1947,36 @@ export async function runExternalPullRequestReview(
     .map((path) => path.replaceAll("\\", "/"))
     .filter((path) => path && !isWorkspacePathSensitive(path))
     .sort();
+  const reviewContract = buildReviewContract({
+    headRefOid: options.material.headRefOid,
+    title: options.material.title,
+    body: options.material.body,
+    changedFiles,
+    constitution,
+    linkedTask: options.material.linkedTask,
+    supplementalAcceptanceEvidence: options.material.documentedAcceptanceEvidence,
+    supplementalAcceptanceEvidenceSource: options.material.acceptanceEvidenceSource,
+    acceptanceEvidenceUnavailableReason: options.material.acceptanceEvidenceUnavailableReason,
+  });
+  const reviewOptions: ExternalPullRequestReviewOptions = {
+    ...options,
+    reviewContract,
+    material: {
+      ...options.material,
+      changedFiles,
+    },
+  };
+  options.onActivity?.({
+    type: "review-contract",
+    task: reviewContract.task
+      ? reviewContract.task.provider + " " + reviewContract.task.key
+      : undefined,
+    requirementCount: reviewContract.requirements.length,
+    ruleCount: reviewContract.rules.length,
+    invariantCount: reviewContract.invariants.length,
+    scopes: reviewContract.scopes,
+    completeness: reviewContract.completeness,
+  });
   const reviewableFiles = changedFiles.filter((path) =>
     pullRequestDiffContainsPath(options.material.diff, path),
   );
@@ -1972,7 +2002,7 @@ export async function runExternalPullRequestReview(
     options.onActivity?.({ type: "lens-start", lens });
 
     const lensFiles = externalLensFiles(lens, reviewableFiles);
-    const batches = externalReviewBatches(options.material, lensFiles);
+    const batches = externalReviewBatches(reviewOptions.material, lensFiles);
     const batchResults: Array<{ summary: string; findings: ReviewFinding[] }> = [];
     const batchFailures: string[] = [];
 
@@ -1990,7 +2020,7 @@ export async function runExternalPullRequestReview(
 
       try {
         const batchResult = await runExternalReviewBatchWithRecovery(
-          options,
+          reviewOptions,
           constitution,
           lens,
           batch,
@@ -2076,13 +2106,15 @@ export async function runExternalPullRequestReview(
     );
   }
 
-  const acceptanceEvidence = documentedAcceptanceEvidence(options.material);
+  const acceptanceEvidence = reviewContractAcceptanceEvidence(reviewContract);
   const strictFindings = strictExternalFindings(
     lensResults.flatMap(({ result }) => result.findings),
-    options.material,
+    reviewOptions.material,
     acceptanceEvidence,
   );
-  const findings = deduplicateFindings(await verifyExternalFindings(strictFindings, options));
+  const findings = deduplicateFindings(
+    await verifyExternalFindings(strictFindings, reviewOptions),
+  );
   const codeBlockingCount = findings.filter((finding) => finding.severity === "blocking").length;
   options.onActivity?.({ type: "architecture-start" });
   const architectureStartedAt = Date.now();
@@ -2098,13 +2130,14 @@ export async function runExternalPullRequestReview(
   const defectFindingCount = findings.filter(
     (finding) => finding.basis === "defect" || finding.basis === "repository_rule",
   ).length;
-  const reviewSummary = options.material.acceptanceEvidenceUnavailableReason
-    ? "Focused review: DoD/acceptance verification unavailable (" +
-      options.material.acceptanceEvidenceUnavailableReason +
-      "); " +
-      defectFindingCount +
-      " concrete defect/rule violation(s)."
-    : "Focused review: " +
+  const reviewSummary =
+    reviewContract.completeness === "partial"
+      ? "Focused review: DoD/acceptance verification incomplete (" +
+        reviewContract.warnings.join("; ") +
+        "); " +
+        defectFindingCount +
+        " concrete defect/rule violation(s)."
+      : "Focused review: " +
       dodFindingCount +
       " documented DoD/acceptance violation(s), " +
       defectFindingCount +
@@ -2132,11 +2165,12 @@ export async function runExternalPullRequestReview(
     diffTruncated: options.material.diffTruncated,
     coverage,
     reviewStatus:
-      lensFailures.length === 0 && !options.material.acceptanceEvidenceUnavailableReason
+      lensFailures.length === 0 && reviewContract.completeness === "complete"
         ? "complete"
         : "partial",
     lensFailures,
     unreviewedFiles,
+    reviewContract,
     summary:
       reviewSummary +
       failedLensSummary +
