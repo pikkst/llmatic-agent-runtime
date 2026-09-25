@@ -150,20 +150,20 @@ Each high-risk claim type must have a deterministic or tool-backed verifier wher
 
 Initial verifier registry:
 
-| Claim type | Verification source |
-| --- | --- |
-| missing type/interface/class member | TypeScript TypeChecker / exact-head source |
-| duplicate union/enum member | AST / exact-head source |
-| undefined symbol | compiler symbol resolution |
-| signature mismatch | TypeChecker |
-| unused symbol | semantic reference index |
-| missing implementation/reference | semantic reference index |
-| missing test | symbol-to-test evidence search |
-| API contract mismatch | route/schema inventory |
-| repository-rule violation | exact active rule + source |
-| DoD/AC violation | exact requirement + implementation/test evidence |
-| determinism violation | static rule + targeted test evidence |
-| security/dataflow claim | Semgrep/CodeQL-compatible verifier adapter |
+| Claim type                          | Verification source                              |
+| ----------------------------------- | ------------------------------------------------ |
+| missing type/interface/class member | TypeScript TypeChecker / exact-head source       |
+| duplicate union/enum member         | AST / exact-head source                          |
+| undefined symbol                    | compiler symbol resolution                       |
+| signature mismatch                  | TypeChecker                                      |
+| unused symbol                       | semantic reference index                         |
+| missing implementation/reference    | semantic reference index                         |
+| missing test                        | symbol-to-test evidence search                   |
+| API contract mismatch               | route/schema inventory                           |
+| repository-rule violation           | exact active rule + source                       |
+| DoD/AC violation                    | exact requirement + implementation/test evidence |
+| determinism violation               | static rule + targeted test evidence             |
+| security/dataflow claim             | Semgrep/CodeQL-compatible verifier adapter       |
 
 Possible external analyzers:
 
@@ -374,17 +374,17 @@ Initial mutation classes:
 
 Target quality gates:
 
-| Metric | Target |
-| --- | ---: |
-| Blocking finding precision | >= 98% |
-| Overall finding precision | >= 92% |
-| Known-defect recall | >= 75% |
-| False blocking findings | < 1% |
-| Unverified finding publication | 0% |
-| Wrong-head publication | 0% |
-| Jira task resolution | >= 99% |
-| Partial review rate on healthy infrastructure | < 5% |
-| P95 review duration | < 5 min |
+| Metric                                        |  Target |
+| --------------------------------------------- | ------: |
+| Blocking finding precision                    |  >= 98% |
+| Overall finding precision                     |  >= 92% |
+| Known-defect recall                           |  >= 75% |
+| False blocking findings                       |    < 1% |
+| Unverified finding publication                |      0% |
+| Wrong-head publication                        |      0% |
+| Jira task resolution                          |  >= 99% |
+| Partial review rate on healthy infrastructure |    < 5% |
+| P95 review duration                           | < 5 min |
 
 These numbers are initial engineering targets and may be recalibrated after the benchmark corpus is large enough.
 

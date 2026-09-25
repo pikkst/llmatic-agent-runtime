@@ -1428,9 +1428,7 @@ function duplicateUnionLiteralClaim(
   if (!/\bduplicate\b/i.test(text) || !/\bunion\s+type\b/i.test(text)) return undefined;
 
   const owner =
-    /\b(?:in|inside)\s+(?:the\s+)?([A-Za-z_$][A-Za-z0-9_$]*)\s+union\s+type\b/i.exec(
-      text,
-    )?.[1] ??
+    /\b(?:in|inside)\s+(?:the\s+)?([A-Za-z_$][A-Za-z0-9_$]*)\s+union\s+type\b/i.exec(text)?.[1] ??
     /\b([A-Za-z_$][A-Za-z0-9_$]*)\s+union\s+type\b/i.exec(text)?.[1];
   const literal =
     /["'`]([A-Z][A-Z0-9_]{2,})["'`]/.exec(text)?.[1] ??
@@ -1460,10 +1458,7 @@ async function duplicateUnionLiteralFindingIsVerified(
     if (!content) return false;
     const block = typeAliasUnionBlock(content, claim.owner);
     if (!block) return false;
-    const literalPattern = new RegExp(
-      "[\\\"'`]" + claim.literal + "[\\\"'`]",
-      "g",
-    );
+    const literalPattern = new RegExp("[\\\"'`]" + claim.literal + "[\\\"'`]", "g");
     return [...block.matchAll(literalPattern)].length >= 2;
   } catch {
     return false;

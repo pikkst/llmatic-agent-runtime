@@ -358,7 +358,6 @@ Future expansion:
 - allow user policy to disable particular providers/models
 - evaluate cloud/always-on routing only after the local review path is stable
 
-
 ## M32 — Verified Semantic Reviewer
 
 Status: in progress.
