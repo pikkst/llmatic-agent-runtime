@@ -7,6 +7,7 @@ import type { TaskProvider, TaskRecord, TaskTransition } from "@llmatic/task-pro
 import {
   detectTaskSources,
   resolveTaskProvider,
+  resolveTaskReference,
   resolveTaskReferenceFromProviders,
   startTaskWorkflow,
 } from "../src/index.js";
@@ -123,6 +124,23 @@ describe("task router", () => {
         reason: "Jira request failed with 503",
       },
     ]);
+  });
+
+  it("does not send GitHub-style issue references to Markdown or Jira providers", async () => {
+    const root = await mkdtemp(join(tmpdir(), "llmatic-router-"));
+    roots.push(root);
+    await writeFile(join(root, "TASKS.md"), "## TASK-001 — Local\n\nStatus: Todo\n", "utf8");
+
+    const result = await resolveTaskReference(root, config(root), "#123", "auto", {
+      LLMATIC_JIRA_BASE_URL: "https://example.atlassian.net",
+      LLMATIC_JIRA_BEARER_TOKEN: "token",
+    });
+
+    expect(result).toEqual({
+      status: "not_found",
+      reference: "#123",
+      attemptedProviders: [],
+    });
   });
 
   it("returns not_found only when every provider was checked successfully", async () => {
