@@ -234,7 +234,7 @@ Rules:
 
 ### Phase R0 — Reliability foundation
 
-Status: in progress in PR #42.
+Status: completed in PR #42.
 
 Implemented or already proven:
 
@@ -252,20 +252,20 @@ Implemented or already proven:
 - [x] positive DoD observations filtered from findings
 - [x] duplicate union-member candidate verification against exact PR head
 - [x] share failed-model avoidance across batch recovery attempts
-- [ ] PR #42 CI green after latest reliability changes
-- [ ] live regression smoke with Jira-backed Krunditark PR
-- [ ] PR #42 merged
+- [x] PR #42 CI green after latest reliability changes
+- [x] live regression smoke with Jira-backed Krunditark PR
+- [x] PR #42 merged
 
 ### Phase R1 — Review Contract
 
-Status: planned.
+Status: in progress on `feat/reviewer-review-contract`.
 
-- [ ] introduce normalized ReviewContract type
-- [ ] merge Jira/Markdown/PR acceptance evidence with provenance
-- [ ] select relevant repository rules instead of sending the entire Constitution
-- [ ] attach applicable architecture/security/API/schema invariants
-- [ ] expose review-contract telemetry
-- [ ] fail closed when authoritative linked task evidence is expected but unavailable
+- [x] introduce normalized ReviewContract type
+- [ ] merge Jira/Markdown/PR acceptance evidence with provenance (Jira + PR complete; Markdown/external generic task-source resolution pending)
+- [x] select relevant repository rules instead of sending the entire Constitution
+- [x] attach applicable architecture/security/API/schema invariants from relevant explicit/approved rules
+- [x] expose review-contract telemetry
+- [x] fail closed when authoritative linked task evidence is expected but unavailable
 
 Acceptance gate:
 
