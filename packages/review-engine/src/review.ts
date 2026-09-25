@@ -1549,6 +1549,115 @@ async function testLiteralAbsenceFindingIsVerified(
   }
 }
 
+interface MissingDirectTableGrantClaim {
+  table: string;
+  role: string;
+}
+
+function missingDirectTableGrantClaim(
+  finding: ReviewFinding,
+): MissingDirectTableGrantClaim | undefined {
+  if (finding.basis !== "defect" || !finding.path.toLowerCase().endsWith(".sql")) return undefined;
+
+  const text = [finding.title, finding.evidence, finding.recommendation].join(" ");
+  if (!/\bmissing\s+grant\b|\bdoes not include a grant\b|\bwithout this grant\b/i.test(text)) {
+    return undefined;
+  }
+  if (!/\binsert\b/i.test(text)) return undefined;
+
+  const role =
+    /\b(service_role|authenticated|anon|public)\b/i.exec(text)?.[1]?.toLowerCase();
+  const table =
+    /\b(?:table|on)\s+([a-z_][a-z0-9_]*\.[a-z_][a-z0-9_]*)\b/i.exec(text)?.[1] ??
+    /\b([a-z_][a-z0-9_]*\.[a-z_][a-z0-9_]*)\s+table\b/i.exec(text)?.[1];
+
+  return role && table ? { role, table } : undefined;
+}
+
+interface SecurityDefinerInsertPath {
+  functionName: string;
+}
+
+function delegatedSecurityDefinerInsertPath(
+  sql: string,
+  claim: MissingDirectTableGrantClaim,
+): SecurityDefinerInsertPath | undefined {
+  const functionPattern =
+    /CREATE\s+OR\s+REPLACE\s+FUNCTION\s+([a-z_][a-z0-9_]*\.[a-z_][a-z0-9_]*)\s*\([\s\S]*?\)\s*RETURNS[\s\S]*?SECURITY\s+DEFINER[\s\S]*?AS\s+\$[A-Za-z0-9_]*\$([\s\S]*?)\$[A-Za-z0-9_]*\$\s*;/gi;
+
+  for (const match of sql.matchAll(functionPattern)) {
+    const functionName = match[1]!;
+    const body = match[2] ?? "";
+    const tablePattern = new RegExp(
+      "\\bINSERT\\s+INTO\\s+" + claim.table.replace(".", "\\.") + "\\b",
+      "i",
+    );
+    if (!tablePattern.test(body)) continue;
+
+    const escapedFunction = functionName.replace(".", "\\.");
+    const grant = new RegExp(
+      "GRANT\\s+EXECUTE\\s+ON\\s+FUNCTION\\s+" +
+        escapedFunction +
+        "\\s*\\([\\s\\S]*?\\)\\s+TO\\s+" +
+        claim.role +
+        "\\b",
+      "i",
+    );
+    if (grant.test(sql)) return { functionName };
+  }
+
+  return undefined;
+}
+
+async function missingDirectTableGrantFindingIsVerified(
+  finding: ReviewFinding,
+  options: ExternalPullRequestReviewOptions,
+): Promise<boolean> {
+  const claim = missingDirectTableGrantClaim(finding);
+  if (!claim) return true;
+  if (!options.readFile || isWorkspacePathSensitive(finding.path)) return false;
+
+  try {
+    const sql = readFileContent(await options.readFile(finding.path, {}));
+    if (!sql) return false;
+
+    const delegated = delegatedSecurityDefinerInsertPath(sql, claim);
+    if (!delegated) return true;
+
+    const functionLeaf = delegated.functionName.split(".").pop() ?? delegated.functionName;
+    const candidatePaths = options.material.changedFiles
+      .filter(
+        (path) =>
+          path !== finding.path &&
+          !isWorkspacePathSensitive(path) &&
+          /\.(?:[cm]?[jt]sx?)$/i.test(path),
+      )
+      .slice(0, 12);
+
+    for (const path of candidatePaths) {
+      try {
+        const content = readFileContent(await options.readFile(path, {}));
+        if (!content) continue;
+        if (
+          content.includes('.rpc("' + functionLeaf + '"') ||
+          content.includes(".rpc('" + functionLeaf + "'")
+        ) {
+          return false;
+        }
+      } catch {
+        continue;
+      }
+    }
+
+    // The exact-head migration proves a callable SECURITY DEFINER write path.
+    // A direct table INSERT grant is therefore not required merely because the
+    // caller role is denied direct table privileges.
+    return false;
+  } catch {
+    return false;
+  }
+}
+
 async function verifyExternalFindings(
   findings: ReviewFinding[],
   options: ExternalPullRequestReviewOptions,
@@ -1558,6 +1667,7 @@ async function verifyExternalFindings(
     if (!(await typedMemberAbsenceFindingIsVerified(finding, options))) continue;
     if (!(await duplicateUnionLiteralFindingIsVerified(finding, options))) continue;
     if (!(await testLiteralAbsenceFindingIsVerified(finding, options))) continue;
+    if (!(await missingDirectTableGrantFindingIsVerified(finding, options))) continue;
     verified.push(finding);
   }
   return verified;
@@ -1851,7 +1961,9 @@ async function runReviewLens(
       const failedModel = response.routed_model?.trim() || response.model?.trim();
       if (failedModel) {
         avoidedModels.add(failedModel);
-        sessionAvoidedModels?.add(failedModel);
+        if (choice?.finish_reason !== "length") {
+          sessionAvoidedModels?.add(failedModel);
+        }
       }
 
       if (material && step < maxSteps) {
