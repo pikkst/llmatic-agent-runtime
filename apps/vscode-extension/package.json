@@ -38,6 +38,7 @@
     "@llmatic/repository-constitution": "workspace:*",
     "@llmatic/pr-draft": "workspace:*",
     "@llmatic/jira-adapter": "workspace:*",
+    "@llmatic/task-router": "workspace:*",
     "@llmatic/github-adapter": "workspace:*",
     "@llmatic/external-connections": "workspace:*"
   },
