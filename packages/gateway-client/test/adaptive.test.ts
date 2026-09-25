@@ -228,6 +228,51 @@ describe("AdaptiveFreeGatewayClient", () => {
     expect(requestedModels[0]).not.toBe("provider/recoverable:free");
   });
 
+  it("keeps a capacity-limited review model eligible for smaller later work", async () => {
+    const requestedModels: string[] = [];
+
+    const client = new AdaptiveFreeGatewayClient({
+      maxRetries: 0,
+      maxModelAttempts: 1,
+      fetch: async (input, init) => {
+        if (String(input).endsWith("/models")) {
+          return new Response(
+            JSON.stringify({
+              data: [
+                {
+                  id: "provider/capacity-model:free",
+                  owned_by: "provider",
+                  context_length: 131072,
+                  supported_parameters: ["max_tokens", "temperature", "response_format"],
+                },
+              ],
+            }),
+            { status: 200, headers: { "Content-Type": "application/json" } },
+          );
+        }
+
+        const body = JSON.parse(String(init?.body ?? "{}")) as { model?: string };
+        requestedModels.push(String(body.model));
+        return completion(String(body.model));
+      },
+    });
+
+    await client.reportModelFailure({
+      model: "provider/capacity-model:free",
+      task: "review_general",
+      reason: "generation length limit reached without structured review content",
+    });
+
+    await client.createChatCompletion({
+      model: "kilo-auto/free",
+      messages: [{ role: "user", content: "smaller recovery batch" }],
+      routing: { task: "review_general" },
+      response_format: { type: "json_object" },
+    });
+
+    expect(requestedModels).toEqual(["provider/capacity-model:free"]);
+  });
+
   it("uses a 24-hour cooldown for provider daily-limit failures", async () => {
     const requestedModels: string[] = [];
 
@@ -650,6 +695,51 @@ describe("AdaptiveFreeGatewayClient", () => {
     });
 
     expect(requestBodies[0]?.response_format).toEqual({ type: "json_object" });
+  });
+
+  it("prefers native structured-output models for review requests", async () => {
+    const requestedModels: string[] = [];
+
+    const client = new AdaptiveFreeGatewayClient({
+      maxRetries: 0,
+      maxModelAttempts: 1,
+      fetch: async (input, init) => {
+        if (String(input).endsWith("/models")) {
+          return new Response(
+            JSON.stringify({
+              data: [
+                {
+                  id: "provider/plain-mini-flash:free",
+                  owned_by: "provider-a",
+                  context_length: 131072,
+                  supported_parameters: ["max_tokens", "temperature"],
+                },
+                {
+                  id: "provider/json-large-120b:free",
+                  owned_by: "provider-b",
+                  context_length: 131072,
+                  supported_parameters: ["max_tokens", "temperature", "response_format"],
+                },
+              ],
+            }),
+            { status: 200, headers: { "Content-Type": "application/json" } },
+          );
+        }
+
+        const body = JSON.parse(String(init?.body ?? "{}")) as { model?: string };
+        requestedModels.push(String(body.model));
+        return completion(String(body.model));
+      },
+    });
+
+    await client.createChatCompletion({
+      model: "kilo-auto/free",
+      messages: [{ role: "user", content: "Return one compact JSON review." }],
+      routing: { task: "review_general" },
+      response_format: { type: "json_object" },
+    });
+
+    expect(requestedModels[0]).toBe("provider/json-large-120b:free");
   });
 
   it("opens an Auto Free session circuit breaker after two transient failures", async () => {

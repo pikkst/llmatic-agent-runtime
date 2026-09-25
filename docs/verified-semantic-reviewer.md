@@ -258,7 +258,7 @@ Implemented or already proven:
 
 ### Phase R1 — Review Contract
 
-Status: in progress. Review Contract + generic task resolution are merged; live-smoke precision hardening is in progress on `fix/reviewer-r1-smoke-hardening`.
+Status: in progress. Review Contract + generic task resolution + first live-smoke precision hardening are merged; model-pool reliability hardening is in progress on `fix/reviewer-r1-model-pool-reliability`.
 
 - [x] introduce normalized ReviewContract type
 - [x] merge Jira/Markdown/GitHub Issue/PR acceptance evidence with provenance
@@ -271,7 +271,8 @@ Status: in progress. Review Contract + generic task resolution are merged; live-
 - [x] live smoke confirms the resolved provider/task and Review Contract telemetry on a real PR
 - [ ] re-smoke confirms PR #214 false-positive regression is suppressed while the real truncated-history defect remains publishable
 - [ ] re-smoke confirms rule selection stays below the relevance caps without unrelated subsystem rules
-- [ ] re-smoke confirms failed review models are not recycled during the same long-running lens
+- [x] re-smoke confirms hard semantic/transport failures are removed from later work in the same long-running lens
+- [ ] re-smoke confirms capacity-limited models remain available for smaller recovery work without exhausting the model pool
 
 Acceptance gate:
 
@@ -409,6 +410,25 @@ Observed failure:
 Expected permanent regression:
 
 - candidate is rejected by semantic/exact-head verification
+
+### Krunditark PR #215
+
+Observed live-smoke result after the first R1 hardening merge:
+
+- exact-head publication guard worked: the first publication attempt was rejected when PR head changed
+- hard semantic/transport failures were not immediately recycled within the same lens
+- long General/Bug Hunter passes exhausted compatible free-model candidates and ended partial despite complete diff coverage
+- prompt-only models were still selected ahead of JSON-native alternatives in several batches
+- generation-length failures consumed models as if they were permanent semantic incompatibilities
+- one blocking SQL privilege finding was false: the migration intentionally denies direct table access, exposes a SECURITY DEFINER recorder RPC, and grants EXECUTE on that RPC to service_role
+
+Expected permanent regressions:
+
+- prefer native structured-output models for review JSON when available
+- keep invalid JSON/schema and transport failures out of the active review window
+- treat generation-length exhaustion as a capacity signal: avoid within the current attempt, but keep the model eligible for smaller recovery work with learned penalties
+- exact-head SQL privilege verification recognizes SECURITY DEFINER + GRANT EXECUTE write paths before claiming a missing direct table GRANT
+- model-pool exhaustion should not turn a large but otherwise reviewable PR into a mostly incomplete review
 
 ### Krunditark PR #214
 

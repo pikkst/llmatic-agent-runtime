@@ -224,6 +224,19 @@ function reviewSpeedScore(model: GatewayModelInfo): number {
   return score;
 }
 
+function reviewStructuredOutputScore(
+  model: GatewayModelInfo,
+  request: GatewayChatRequest,
+  task: string,
+): number {
+  if (!task.startsWith("review_") || !request.response_format) return 0;
+
+  const support = structuredOutputSupport(model);
+  if (support === "supported") return 900;
+  if (support === "unsupported") return -300;
+  return 0;
+}
+
 function autoFreeCircuitBreakerFailure(reason: string): boolean {
   return /timed? out|timeout|temporar|overload|resourceexhausted|resource exhausted|upstream.*unavailable|service.*unavailable/i.test(
     reason,
@@ -302,9 +315,11 @@ export class AdaptiveFreeGatewayClient implements GatewayChatClient {
     if (!model) return;
 
     const task = feedback.task?.trim() || "generic";
+    const capacityFailure =
+      /generation length limit reached without structured review content/i.test(feedback.reason);
     for (const candidate of this.feedbackModels(model, feedback.responseModel)) {
       this.recordSemanticFailure(task, candidate);
-      if (task.startsWith("review_")) {
+      if (task.startsWith("review_") && !capacityFailure) {
         this.excludeForTask(task, candidate, feedback.reason);
       }
       if (
@@ -491,7 +506,12 @@ export class AdaptiveFreeGatewayClient implements GatewayChatClient {
             (taskUnhealthy?.get(model.id) ?? 0) <= now &&
             (this.globallyUnhealthyUntil.get(model.id) ?? 0) <= now,
         )
-        .sort((left, right) => this.score(task, right) - this.score(task, left));
+        .sort(
+          (left, right) =>
+            this.score(task, right) +
+            reviewStructuredOutputScore(right, request, task) -
+            (this.score(task, left) + reviewStructuredOutputScore(left, request, task)),
+        );
 
       const usedProviders = new Set<string>();
       const diverse: GatewayModelInfo[] = [];
