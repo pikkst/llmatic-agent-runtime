@@ -185,7 +185,7 @@ describe("AdaptiveFreeGatewayClient", () => {
     expect(requestedModels[0]).toBe("provider/b:free");
   });
 
-  it("keeps a semantically invalid model eligible for later batches in the same review task", async () => {
+  it("cools a semantically invalid model for later batches in the same review task", async () => {
     const requestedModels: string[] = [];
 
     const client = new AdaptiveFreeGatewayClient({
@@ -225,7 +225,7 @@ describe("AdaptiveFreeGatewayClient", () => {
       routing: { task: "review_general" },
     });
 
-    expect(requestedModels[0]).toBe("provider/recoverable:free");
+    expect(requestedModels[0]).not.toBe("provider/recoverable:free");
   });
 
   it("uses a 24-hour cooldown for provider daily-limit failures", async () => {
@@ -292,7 +292,7 @@ describe("AdaptiveFreeGatewayClient", () => {
     expect(requestedModels).not.toContain("daily/model:free");
   });
 
-  it("retries a transient generic 429 after the short review cooldown", async () => {
+  it("keeps a transient review 429 cooled for the full review window", async () => {
     const requestedModels: string[] = [];
     const now = Date.now();
     let currentTime = now;
@@ -370,7 +370,16 @@ describe("AdaptiveFreeGatewayClient", () => {
       requestedModels.length = 0;
       await client.createChatCompletion({
         model: "kilo-auto/free",
-        messages: [{ role: "user", content: "after cooldown" }],
+        messages: [{ role: "user", content: "after one minute" }],
+        routing: { task: "review_general" },
+      });
+      expect(requestedModels).not.toContain("provider/rate-model:free");
+
+      currentTime += 15 * 60_000;
+      requestedModels.length = 0;
+      await client.createChatCompletion({
+        model: "kilo-auto/free",
+        messages: [{ role: "user", content: "after review cooldown" }],
         routing: { task: "review_general" },
       });
 
