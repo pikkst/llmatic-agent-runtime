@@ -272,22 +272,23 @@ function selectedRules(
   const ranked = activeRepositoryRules(constitution)
     .map((rule) => {
       const overlap = rule.scopes.filter((scope) => scopeSet.has(scope)).length;
-      const global =
-        rule.scopes.includes("repository") || GLOBAL_POLICY_SOURCE.test(rule.source.path);
+      const repositoryScoped = rule.scopes.includes("repository");
+      const sourcePriority = GLOBAL_POLICY_SOURCE.test(rule.source.path) ? 20 : 0;
       const score =
         (rule.strength === "blocking" ? 100 : rule.strength === "advisory" ? 50 : 10) +
-        overlap * 30 +
-        (global ? 40 : 0);
-      return { rule, overlap, global, score };
+        overlap * 40 +
+        (repositoryScoped ? 30 : 0) +
+        sourcePriority;
+      return { rule, overlap, repositoryScoped, score };
     })
-    .filter(({ overlap, global }) => overlap > 0 || global)
+    .filter(({ overlap, repositoryScoped }) => overlap > 0 || repositoryScoped)
     .sort(
       (left, right) =>
         right.score - left.score ||
         left.rule.source.path.localeCompare(right.rule.source.path) ||
         left.rule.id.localeCompare(right.rule.id),
     )
-    .slice(0, 80);
+    .slice(0, 32);
 
   return ranked.map(({ rule }) => ({
     id: rule.id,
@@ -321,7 +322,7 @@ function selectedInvariants(rules: ReviewContractRule[]): ReviewContractInvarian
     }
   }
 
-  return result.slice(0, 40);
+  return result.slice(0, 16);
 }
 
 function requiredEvidence(scopes: string[], requirements: ReviewContractRequirement[]): string[] {
