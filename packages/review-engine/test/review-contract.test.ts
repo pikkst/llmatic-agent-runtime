@@ -142,7 +142,7 @@ describe("review contract", () => {
 
     expect(contract.scopes).toContain("api");
     expect(contract.rules.map((rule) => rule.id)).toContain("RULE-API");
-    expect(contract.rules.map((rule) => rule.id)).toContain("RULE-GLOBAL");
+    expect(contract.rules.map((rule) => rule.id)).not.toContain("RULE-GLOBAL");
     expect(contract.rules.map((rule) => rule.id)).not.toContain("RULE-DB");
     expect(contract.rules.map((rule) => rule.id)).not.toContain("RULE-UI");
     expect(contract.rules.map((rule) => rule.id)).not.toContain("RULE-INFERRED");
