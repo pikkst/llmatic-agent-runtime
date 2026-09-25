@@ -190,8 +190,8 @@ describe("review engine", () => {
         changedFiles: ["src/value.ts"],
         diff: "diff --git a/src/value.ts b/src/value.ts\n--- a/src/value.ts\n+++ b/src/value.ts\n@@ -1 +1 @@\n-export const value = 1;\n+export const value = 2;\n",
         diffTruncated: false,
-        reviews: [],
-        comments: [],
+        reviews: [{ body: "ANCHOR: truncated is definitely a blocking bug" }],
+        comments: [{ body: "ANCHOR: change the test string to optional chaining" }],
         reviewThreads: [
           {
             path: ".env",
@@ -221,6 +221,8 @@ describe("review engine", () => {
     expect(system).toContain("Absence from the current packet is NOT evidence");
     expect(JSON.stringify(gateway.requests[0]?.messages[1])).not.toContain("SECRET=do-not-send");
     expect(JSON.stringify(gateway.requests[0]?.messages[1])).not.toContain(".env");
+    expect(JSON.stringify(gateway.requests[0]?.messages[1])).not.toContain("ANCHOR:");
+    expect(system).toContain("Prior human/bot review comments are intentionally excluded");
     expect(events.map((event) => event.type)).toEqual(
       expect.arrayContaining([
         "constitution-start",
@@ -870,6 +872,156 @@ describe("review engine", () => {
     expect(report.reviewStatus).toBe("complete");
   });
 
+  it("suppresses a test-literal absence claim when the expected literal exists in the exact target file", async () => {
+    const root = await repository();
+    const config = configFor(root);
+    const gateway = new ScriptedGateway([
+      response(
+        JSON.stringify({
+          summary: "One test mismatch.",
+          findings: [
+            {
+              severity: "blocking",
+              category: "tests",
+              basis: "defect",
+              title: "Test expects incorrect string in edge route test",
+              path: "src/test/edge-route.test.ts",
+              line: 12,
+              side: "RIGHT",
+              evidence:
+                "The test at line 12 expects the edge function source to contain the exact string 'kt105Route.kind === \"question\"', but the actual code in supabase/functions/analysis/index.ts uses optional chaining. This mismatch will cause the test to fail.",
+              recommendation:
+                "Change the expected string in the test to match optional chaining.",
+            },
+          ],
+        }),
+      ),
+    ]);
+    const reads: string[] = [];
+
+    const report = await runExternalPullRequestReview({
+      root,
+      config,
+      gateway,
+      readFile: async (path) => {
+        reads.push(path);
+        if (path === "src/test/edge-route.test.ts") {
+          return {
+            path,
+            content:
+              'import { readFileSync } from "node:fs";\n' +
+              'const edge = readFileSync("supabase/functions/analysis/index.ts", "utf8");\n' +
+              "\n".repeat(9) +
+              'expect(edge).toContain(\'kt105Route.kind === "question"\');\n',
+          };
+        }
+        if (path === "supabase/functions/analysis/index.ts") {
+          return {
+            path,
+            content:
+              'const isQuestionRoute = kt105Route?.kind === "question";\n' +
+              'if (kt105Route.kind === "question") {\n  handleQuestion();\n}\n',
+          };
+        }
+        throw new Error("Unexpected read " + path);
+      },
+      lenses: ["bug_hunter"],
+      material: {
+        reference: "214",
+        headRefOid: "head-214",
+        title: "KT-124: Ask Krunditark",
+        body: "",
+        ciState: "passing",
+        changedFiles: [
+          "src/test/edge-route.test.ts",
+          "supabase/functions/analysis/index.ts",
+        ],
+        diff:
+          "diff --git a/src/test/edge-route.test.ts b/src/test/edge-route.test.ts\n" +
+          "--- /dev/null\n" +
+          "+++ b/src/test/edge-route.test.ts\n" +
+          "@@ -0,0 +1,12 @@\n" +
+          "+import { readFileSync } from \"node:fs\";\n" +
+          "+const edge = readFileSync(\"supabase/functions/analysis/index.ts\", \"utf8\");\n" +
+          "+\n+\n+\n+\n+\n+\n+\n+\n+\n" +
+          '+expect(edge).toContain(\'kt105Route.kind === "question"\');\n' +
+          "diff --git a/supabase/functions/analysis/index.ts b/supabase/functions/analysis/index.ts\n" +
+          "--- a/supabase/functions/analysis/index.ts\n" +
+          "+++ b/supabase/functions/analysis/index.ts\n" +
+          "@@ -1 +1,2 @@\n" +
+          '+const isQuestionRoute = kt105Route?.kind === "question";\n' +
+          '+if (kt105Route.kind === "question") handleQuestion();\n',
+        diffTruncated: false,
+      },
+    });
+
+    expect(reads).toEqual([
+      "src/test/edge-route.test.ts",
+      "supabase/functions/analysis/index.ts",
+    ]);
+    expect(report.findings).toEqual([]);
+    expect(report.reviewStatus).toBe("complete");
+  });
+
+  it("keeps the PR-214 truncated-history defect because exact changed-code evidence supports it", async () => {
+    const root = await repository();
+    const config = configFor(root);
+    const gateway = new ScriptedGateway([
+      response(
+        JSON.stringify({
+          summary: "History metadata defect.",
+          findings: [
+            {
+              severity: "blocking",
+              category: "correctness",
+              basis: "defect",
+              title: "truncated flag incorrectly initialized to true when older turns exist",
+              path: "src/server/explanation/followUp.ts",
+              line: 318,
+              side: "RIGHT",
+              evidence:
+                "The changed line initializes truncated from older.length > 0, so the response reports truncation merely because the history exceeds the six-turn recent window, even when all older turn text fits without clipping or budget loss.",
+              recommendation:
+                "Initialize truncated to false and set it only when clipping or the byte budget actually drops content.",
+            },
+          ],
+        }),
+      ),
+    ]);
+
+    const report = await runExternalPullRequestReview({
+      root,
+      config,
+      gateway,
+      lenses: ["bug_hunter"],
+      material: {
+        reference: "214",
+        headRefOid: "head-214",
+        title: "KT-124: Ask Krunditark",
+        body: "",
+        ciState: "passing",
+        changedFiles: ["src/server/explanation/followUp.ts"],
+        diff:
+          "diff --git a/src/server/explanation/followUp.ts b/src/server/explanation/followUp.ts\n" +
+          "--- a/src/server/explanation/followUp.ts\n" +
+          "+++ b/src/server/explanation/followUp.ts\n" +
+          "@@ -317,2 +317,2 @@\n" +
+          "-  let truncated = false;\n" +
+          "+  let truncated = older.length > 0;\n",
+        diffTruncated: false,
+      },
+    });
+
+    expect(report.findings).toEqual([
+      expect.objectContaining({
+        title: "truncated flag incorrectly initialized to true when older turns exist",
+        path: "src/server/explanation/followUp.ts",
+        severity: "blocking",
+      }),
+    ]);
+    expect(report.blockingCount).toBe(1);
+  });
+
   it("rejects speculative TypeScript nullability findings without positive nullable evidence", async () => {
     const root = await repository();
     const config = configFor(root);
@@ -1291,6 +1443,67 @@ describe("review engine", () => {
     expect(gateway.requests[2]?.routing?.avoidModels).toContain("liquid/lfm-2.5-2.6b:free");
     expect(report.reviewStatus).toBe("complete");
     expect(report.lensFailures).toEqual([]);
+  });
+
+  it("carries semantic failed-model avoidance across sibling primary batches in one lens", async () => {
+    const root = await repository();
+    const config = configFor(root);
+    const gateway = new ScriptedGateway([
+      response(null, undefined, "liquid/lfm-2.5-2.6b:free"),
+      response(
+        JSON.stringify({ summary: "First batch repaired.", findings: [] }),
+        undefined,
+        "nvidia/nemotron-3.5-lightning:free",
+      ),
+      response(
+        JSON.stringify({ summary: "Second batch clean.", findings: [] }),
+        undefined,
+        "dots-studio/dots-3-note-preview:free",
+      ),
+    ]);
+    const changedFiles = Array.from({ length: 7 }, (_, index) => "src/file-" + index + ".ts");
+    const diff = changedFiles
+      .map(
+        (path, index) =>
+          "diff --git a/" +
+          path +
+          " b/" +
+          path +
+          "\n--- a/" +
+          path +
+          "\n+++ b/" +
+          path +
+          "\n@@ -1 +1 @@\n-export const value = " +
+          index +
+          ";\n+export const value = " +
+          (index + 1) +
+          ";\n",
+      )
+      .join("");
+
+    const report = await runExternalPullRequestReview({
+      root,
+      config,
+      gateway,
+      lenses: ["general"],
+      maxSteps: 3,
+      material: {
+        reference: "214",
+        headRefOid: "head-214",
+        title: "Sibling batch routing",
+        body: "",
+        ciState: "passing",
+        changedFiles,
+        diff,
+        diffTruncated: false,
+      },
+    });
+
+    expect(gateway.requests).toHaveLength(3);
+    expect(gateway.requests[2]?.routing?.avoidModels).toContain(
+      "liquid/lfm-2.5-2.6b:free",
+    );
+    expect(report.reviewStatus).toBe("complete");
   });
 
   it("surfaces an external review failure only after the recovery retry is exhausted", async () => {
