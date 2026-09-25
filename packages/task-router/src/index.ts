@@ -274,6 +274,15 @@ export async function resolveTaskReferenceFromProviders(
   };
 }
 
+function providerSupportsReference(providerId: string, reference: string): boolean {
+  const value = reference.trim();
+  if (providerId === "github") return /^#?\d+$/.test(value);
+  if (providerId === "jira" || providerId === "markdown") {
+    return /^[A-Za-z][A-Za-z0-9_.-]*-\d+$/.test(value);
+  }
+  return false;
+}
+
 export async function resolveTaskReference(
   root: string,
   config: AgentConfig,
@@ -290,13 +299,25 @@ export async function resolveTaskReference(
   }
 
   if (providerInput !== "auto") {
+    if (!providerSupportsReference(providerInput, reference)) {
+      return {
+        status: "not_found",
+        reference: reference.trim(),
+        attemptedProviders: [],
+      };
+    }
     const provider = await resolveTaskProvider(root, config, providerInput, environment);
     return resolveTaskReferenceFromProviders(reference, [provider]);
   }
 
   const detection = await detectTaskSources(root, environment);
   const candidates = detection.candidates
-    .filter((candidate) => candidate.available && candidate.id !== "manual")
+    .filter(
+      (candidate) =>
+        candidate.available &&
+        candidate.id !== "manual" &&
+        providerSupportsReference(candidate.id, reference),
+    )
     .sort((left, right) => right.priority - left.priority);
 
   const providers: TaskProvider[] = [];
