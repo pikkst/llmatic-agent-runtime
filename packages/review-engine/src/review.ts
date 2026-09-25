@@ -2132,7 +2132,7 @@ export async function runExternalPullRequestReview(
   ).length;
   const reviewSummary =
     reviewContract.completeness === "partial"
-      ? "Focused review: DoD/acceptance verification incomplete (" +
+      ? "Focused review: DoD/acceptance verification unavailable (" +
         reviewContract.warnings.join("; ") +
         "); " +
         defectFindingCount +
