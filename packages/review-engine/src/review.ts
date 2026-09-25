@@ -1502,10 +1502,9 @@ function testLiteralAbsenceClaim(finding: ReviewFinding): TestLiteralAbsenceClai
     return undefined;
   }
 
-  const literalMatch =
-    /expects?[\s\S]{0,180}?(?:exact\s+)?string\s+(['"`])([\s\S]*?)\1/i.exec(
-      finding.evidence,
-    );
+  const literalMatch = /expects?[\s\S]{0,180}?(?:exact\s+)?string\s+(['"`])([\s\S]*?)\1/i.exec(
+    finding.evidence,
+  );
   const pathMatches = [
     ...finding.evidence.matchAll(
       /\b((?:[A-Za-z0-9_.-]+\/)+[A-Za-z0-9_.-]+\.(?:[cm]?[jt]sx?|json|sql|ya?ml))\b/g,
@@ -1540,7 +1539,7 @@ async function testLiteralAbsenceFindingIsVerified(
 
     const line =
       finding.line && finding.line > 0
-        ? testContent.split(/\r?\n/)[finding.line - 1] ?? ""
+        ? (testContent.split(/\r?\n/)[finding.line - 1] ?? "")
         : testContent;
     if (!line.includes(claim.expectedLiteral)) return false;
 

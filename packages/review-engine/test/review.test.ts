@@ -890,8 +890,7 @@ describe("review engine", () => {
               side: "RIGHT",
               evidence:
                 "The test at line 12 expects the edge function source to contain the exact string 'kt105Route.kind === \"question\"', but the actual code in supabase/functions/analysis/index.ts uses optional chaining. This mismatch will cause the test to fail.",
-              recommendation:
-                "Change the expected string in the test to match optional chaining.",
+              recommendation: "Change the expected string in the test to match optional chaining.",
             },
           ],
         }),
@@ -912,7 +911,7 @@ describe("review engine", () => {
               'import { readFileSync } from "node:fs";\n' +
               'const edge = readFileSync("supabase/functions/analysis/index.ts", "utf8");\n' +
               "\n".repeat(9) +
-              'expect(edge).toContain(\'kt105Route.kind === "question"\');\n',
+              "expect(edge).toContain('kt105Route.kind === \"question\"');\n",
           };
         }
         if (path === "supabase/functions/analysis/index.ts") {
@@ -932,19 +931,16 @@ describe("review engine", () => {
         title: "KT-124: Ask Krunditark",
         body: "",
         ciState: "passing",
-        changedFiles: [
-          "src/test/edge-route.test.ts",
-          "supabase/functions/analysis/index.ts",
-        ],
+        changedFiles: ["src/test/edge-route.test.ts", "supabase/functions/analysis/index.ts"],
         diff:
           "diff --git a/src/test/edge-route.test.ts b/src/test/edge-route.test.ts\n" +
           "--- /dev/null\n" +
           "+++ b/src/test/edge-route.test.ts\n" +
           "@@ -0,0 +1,12 @@\n" +
-          "+import { readFileSync } from \"node:fs\";\n" +
-          "+const edge = readFileSync(\"supabase/functions/analysis/index.ts\", \"utf8\");\n" +
+          '+import { readFileSync } from "node:fs";\n' +
+          '+const edge = readFileSync("supabase/functions/analysis/index.ts", "utf8");\n' +
           "+\n+\n+\n+\n+\n+\n+\n+\n+\n" +
-          '+expect(edge).toContain(\'kt105Route.kind === "question"\');\n' +
+          "+expect(edge).toContain('kt105Route.kind === \"question\"');\n" +
           "diff --git a/supabase/functions/analysis/index.ts b/supabase/functions/analysis/index.ts\n" +
           "--- a/supabase/functions/analysis/index.ts\n" +
           "+++ b/supabase/functions/analysis/index.ts\n" +
@@ -955,10 +951,7 @@ describe("review engine", () => {
       },
     });
 
-    expect(reads).toEqual([
-      "src/test/edge-route.test.ts",
-      "supabase/functions/analysis/index.ts",
-    ]);
+    expect(reads).toEqual(["src/test/edge-route.test.ts", "supabase/functions/analysis/index.ts"]);
     expect(report.findings).toEqual([]);
     expect(report.reviewStatus).toBe("complete");
   });
@@ -1500,9 +1493,7 @@ describe("review engine", () => {
     });
 
     expect(gateway.requests).toHaveLength(3);
-    expect(gateway.requests[2]?.routing?.avoidModels).toContain(
-      "liquid/lfm-2.5-2.6b:free",
-    );
+    expect(gateway.requests[2]?.routing?.avoidModels).toContain("liquid/lfm-2.5-2.6b:free");
     expect(report.reviewStatus).toBe("complete");
   });
 
