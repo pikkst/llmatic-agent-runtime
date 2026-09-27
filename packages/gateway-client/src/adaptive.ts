@@ -291,6 +291,7 @@ export class AdaptiveFreeGatewayClient implements GatewayChatClient {
   private readonly blockedProviders = new Set<string>();
   private readonly autoFreeTaskFailures = new Map<string, number>();
   private readonly autoFreeDisabledTasks = new Set<string>();
+  private readonly activeProviders = new Set<string>();
 
   public constructor(options: AdaptiveFreeGatewayClientOptions) {
     this.client = new KiloGatewayClient(options);
@@ -397,6 +398,13 @@ export class AdaptiveFreeGatewayClient implements GatewayChatClient {
           : "native"
         : undefined;
       const reasoningModel = candidateInfo ? reasoningHeavyModel(candidateInfo) : false;
+      const provider = providerKey(candidateModel);
+      const hasIdleAlternative = candidates
+        .slice(index + 1)
+        .some((candidate) => !this.activeProviders.has(providerKey(candidate)));
+      if (this.activeProviders.has(provider) && hasIdleAlternative) {
+        continue;
+      }
 
       await this.onRoute?.({
         type: "attempt",
@@ -409,6 +417,7 @@ export class AdaptiveFreeGatewayClient implements GatewayChatClient {
       });
 
       const startedAt = Date.now();
+      this.activeProviders.add(provider);
       try {
         const response = await this.client.createChatCompletion({
           ...request,
@@ -468,6 +477,8 @@ export class AdaptiveFreeGatewayClient implements GatewayChatClient {
             this.blockedProviders.add(providerKey(candidateModel));
           }
         }
+      } finally {
+        this.activeProviders.delete(provider);
       }
     }
 
