@@ -411,6 +411,24 @@ Expected permanent regression:
 
 - candidate is rejected by semantic/exact-head verification
 
+### Krunditark PR #240 — KT-134 post-merge locale smoke gaps
+
+Observed live-smoke result on head `3418220a9480c44bdce71c6cb689c2e7bf2cc31f`:
+
+- LLMatic produced one real inline defect: ET/EN carried Russian-only `few` / `many` plural suffixes; the fix correctly restored locale-supported plural categories and normalized parity by semantic plural family
+- LLMatic also produced two false line-less DoD findings whose only evidence was bounded-batch absence:
+  - shared date formatter implementation was "not visible in this batch"
+  - Russian plural catalog was "not present in this bounded batch"
+- exact-head verification showed both dependencies existed and satisfied the claimed requirements:
+  - browser English maps to `en-GB` and shared date formatting pins `Europe/Tallinn`
+  - Russian evidence geometry contains the required `few` and `many` variants
+
+Expected permanent regression:
+
+- a DoD/acceptance finding whose evidence is only "not visible / not present / cannot verify from this bounded batch" is rejected before publication
+- genuine missing-work DoD findings backed by complete evidence remain publishable
+- the real ET plural-category defect remains a positive recall example
+
 ### Krunditark PR #238 — KT-133 English critical-flow tests
 
 Observed live-smoke result on build `v0.3.2@513b3f7e1b73`:
