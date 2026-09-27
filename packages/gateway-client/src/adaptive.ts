@@ -257,6 +257,14 @@ function modelContextLength(model: GatewayModelInfo): number {
     : 0;
 }
 
+function reviewPacketCapacityMultiplier(inputChars: number | undefined): number {
+  const bounded = Math.max(0, inputChars ?? 0);
+  if (bounded >= 20_000) return 1;
+  if (bounded >= 12_000) return 0.6;
+  if (bounded >= 6_000) return 0.25;
+  return 0.05;
+}
+
 export class AdaptiveFreeGatewayClient implements GatewayChatClient {
   private readonly client: KiloGatewayClient;
   private readonly maxModelAttempts: number;
@@ -512,7 +520,10 @@ export class AdaptiveFreeGatewayClient implements GatewayChatClient {
             reviewStructuredOutputRank(left, request, task);
           if (structuredDifference !== 0) return structuredDifference;
 
-          return this.score(task, right) - this.score(task, left);
+          return (
+            this.score(task, right, request.routing?.inputChars) -
+            this.score(task, left, request.routing?.inputChars)
+          );
         });
 
       const usedProviders = new Set<string>();
@@ -624,7 +635,7 @@ export class AdaptiveFreeGatewayClient implements GatewayChatClient {
     return this.catalog;
   }
 
-  private score(task: string, model: GatewayModelInfo): number {
+  private score(task: string, model: GatewayModelInfo, inputChars?: number): number {
     const taskStats = this.stats.get(task)?.get(model.id);
     const transportAttempts = taskStats?.transportAttempts ?? 0;
     const transportSuccesses = taskStats?.transportSuccesses ?? 0;
@@ -657,8 +668,13 @@ export class AdaptiveFreeGatewayClient implements GatewayChatClient {
     const contextLength = modelContextLength(model);
     const contextScore = contextLength <= 0 ? 0 : (Math.min(contextLength, 131_072) / 131_072) * 30;
     const speedScore = task.startsWith("review_") ? reviewSpeedScore(model) : 0;
+    const capacityPenalty = task.startsWith("review_")
+      ? (this.reviewLengthFailures.get(model.id) ?? 0) *
+        4_000 *
+        reviewPacketCapacityMultiplier(inputChars)
+      : 0;
     const taskAffinity = (stableHash(task + "|" + model.id) % 10_000) / 10_000;
-    return learnedScore + contextScore + speedScore + taskAffinity;
+    return learnedScore + contextScore + speedScore + taskAffinity - capacityPenalty;
   }
 
   private feedbackModels(model: string, responseModel?: string): Set<string> {
