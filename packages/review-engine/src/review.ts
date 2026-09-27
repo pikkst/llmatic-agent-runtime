@@ -1669,7 +1669,9 @@ function sqlConcurrencyIdempotencyClaim(
   const text = [finding.title, finding.evidence, finding.recommendation].join(" ");
   if (!/\b(?:concurren|race|double-submit|retry)\w*\b/i.test(text)) return undefined;
   if (!/\bidempoten\w*\b/i.test(text)) return undefined;
-  if (!/\b(?:select[- ]then[- ]insert|unique[- ]violation|unique index|same request_id)\b/i.test(text)) {
+  if (
+    !/\b(?:select[- ]then[- ]insert|unique[- ]violation|unique index|same request_id)\b/i.test(text)
+  ) {
     return undefined;
   }
 
@@ -1683,9 +1685,7 @@ function sqlConcurrencyIdempotencyClaim(
 
 function sqlFunctionText(content: string, functionName: string): string | undefined {
   const startPattern = new RegExp(
-    "\\bCREATE\\s+OR\\s+REPLACE\\s+FUNCTION\\s+(?:[a-z_][a-z0-9_]*\\.)?" +
-      functionName +
-      "\\s*\\(",
+    "\\bCREATE\\s+OR\\s+REPLACE\\s+FUNCTION\\s+(?:[a-z_][a-z0-9_]*\\.)?" + functionName + "\\s*\\(",
     "i",
   );
   const match = startPattern.exec(content);
