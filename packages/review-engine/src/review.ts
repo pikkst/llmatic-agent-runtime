@@ -851,7 +851,13 @@ function externalReviewBatch(
   };
 }
 
+function staleExternalReviewHeadFailure(error: unknown): boolean {
+  const message = error instanceof Error ? error.message : String(error);
+  return /(?:pull-request )?head changed/i.test(message);
+}
+
 function recoverableExternalReviewFailure(error: unknown): boolean {
+  if (staleExternalReviewHeadFailure(error)) return false;
   const message = error instanceof Error ? error.message : String(error);
   return /timeout|timed out|429|too many requests|temporar|overload|upstream|provider|gateway|internal|without structured review content|valid structured report|neither tool calls nor a JSON report|missing assistant message|maximum step limit|context.*(?:window|length)|insufficient context/i.test(
     message,
@@ -898,6 +904,7 @@ async function runExternalReviewBatchWithRecovery(
         );
         return { ...result, recoveryFailures: [] };
       } catch (recoveryError) {
+        if (staleExternalReviewHeadFailure(recoveryError)) throw recoveryError;
         throw new Error(
           "Recovery retry failed after " +
             initialReason +
@@ -930,6 +937,7 @@ async function runExternalReviewBatchWithRecovery(
           ),
         );
       } catch (recoveryError) {
+        if (staleExternalReviewHeadFailure(recoveryError)) throw recoveryError;
         recoveryFailures.push(
           recoveryBatch.files.join(", ") +
             ": " +
@@ -2621,6 +2629,7 @@ export async function runExternalPullRequestReview(
 
         return { result: batchResult };
       } catch (error) {
+        if (staleExternalReviewHeadFailure(error)) throw error;
         const reason = error instanceof Error ? error.message : String(error);
         options.onActivity?.({
           type: "lens-batch-failed",
