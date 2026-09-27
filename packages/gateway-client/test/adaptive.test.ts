@@ -691,10 +691,28 @@ describe("AdaptiveFreeGatewayClient", () => {
       model: "kilo-auto/free",
       messages: [{ role: "user", content: "Return JSON." }],
       routing: { task: "review_general" },
-      response_format: { type: "json_object" },
+      response_format: {
+        type: "json_schema",
+        json_schema: {
+          name: "review_report",
+          strict: true,
+          schema: {
+            type: "object",
+            additionalProperties: false,
+            required: ["summary", "findings"],
+            properties: {
+              summary: { type: "string" },
+              findings: { type: "array", items: { type: "object" } },
+            },
+          },
+        },
+      },
     });
 
-    expect(requestBodies[0]?.response_format).toEqual({ type: "json_object" });
+    expect(requestBodies[0]?.response_format).toMatchObject({
+      type: "json_schema",
+      json_schema: { name: "review_report", strict: true },
+    });
   });
 
   it("prefers native structured-output models for review requests", async () => {
@@ -1838,5 +1856,73 @@ describe("AdaptiveFreeGatewayClient", () => {
     });
 
     expect(requestedModels[0]).toBe("provider/standard-model:free");
+  });
+
+  it("penalizes a capacity-limited model on large packets without excluding it from small recovery work", async () => {
+    const requestedModels: string[] = [];
+
+    const client = new AdaptiveFreeGatewayClient({
+      maxRetries: 0,
+      maxModelAttempts: 1,
+      fetch: async (input, init) => {
+        if (String(input).endsWith("/models")) {
+          return new Response(
+            JSON.stringify({
+              data: [
+                {
+                  id: "provider/a-fast:free",
+                  owned_by: "provider-a",
+                  context_length: 131072,
+                  supported_parameters: ["max_tokens", "temperature", "response_format"],
+                },
+                {
+                  id: "provider/b-fast:free",
+                  owned_by: "provider-b",
+                  context_length: 131072,
+                  supported_parameters: ["max_tokens", "temperature", "response_format"],
+                },
+              ],
+            }),
+            { status: 200, headers: { "Content-Type": "application/json" } },
+          );
+        }
+
+        const body = JSON.parse(String(init?.body ?? "{}")) as { model?: string };
+        requestedModels.push(String(body.model));
+        return completion(String(body.model));
+      },
+    });
+
+    const first = await client.createChatCompletion({
+      model: "kilo-auto/free",
+      messages: [{ role: "user", content: "large review" }],
+      routing: { task: "review_bug_hunter", inputChars: 24_000 },
+      response_format: { type: "json_object" },
+    });
+    const capacityLimitedModel = first.routed_model!;
+    await client.reportModelFailure({
+      model: capacityLimitedModel,
+      responseModel: first.model,
+      task: "review_bug_hunter",
+      reason: "generation length limit reached without structured review content",
+    });
+
+    requestedModels.length = 0;
+    await client.createChatCompletion({
+      model: "kilo-auto/free",
+      messages: [{ role: "user", content: "large review again" }],
+      routing: { task: "review_bug_hunter", inputChars: 24_000 },
+      response_format: { type: "json_object" },
+    });
+    expect(requestedModels[0]).not.toBe(capacityLimitedModel);
+
+    requestedModels.length = 0;
+    await client.createChatCompletion({
+      model: capacityLimitedModel,
+      messages: [{ role: "user", content: "small recovery" }],
+      routing: { task: "review_general", inputChars: 2_000 },
+      response_format: { type: "json_object" },
+    });
+    expect(requestedModels[0]).toBe(capacityLimitedModel);
   });
 });

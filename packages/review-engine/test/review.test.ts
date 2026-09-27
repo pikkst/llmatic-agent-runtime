@@ -213,7 +213,23 @@ describe("review engine", () => {
     expect(gateway.requests).toHaveLength(1);
     expect(gateway.requests[0]?.tools).toBeUndefined();
     expect(gateway.requests[0]?.tool_choice).toBeUndefined();
-    expect(gateway.requests[0]?.response_format).toEqual({ type: "json_object" });
+    expect(gateway.requests[0]?.response_format).toMatchObject({
+      type: "json_schema",
+      json_schema: {
+        name: "llmatic_review_report",
+        strict: true,
+      },
+    });
+    expect(
+      gateway.requests[0]?.response_format?.type === "json_schema"
+        ? gateway.requests[0].response_format.json_schema.schema
+        : undefined,
+    ).toMatchObject({
+      type: "object",
+      additionalProperties: false,
+      required: ["summary", "findings"],
+    });
+    expect(gateway.requests[0]?.routing?.inputChars).toBeGreaterThan(0);
     expect(gateway.requests[0]?.max_tokens).toBe(6000);
     expect(JSON.stringify(gateway.requests[0]?.messages[1])).toContain("+export const value = 2;");
     const system = JSON.stringify(gateway.requests[0]?.messages[0]);

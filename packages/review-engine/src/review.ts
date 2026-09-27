@@ -215,12 +215,28 @@ const findingSchema = z
     basis: z.enum(["dod", "defect", "repository_rule"]),
     title: z.string().min(1),
     path: z.string().min(1),
-    line: z.number().int().positive().optional(),
+    line: z
+      .number()
+      .int()
+      .positive()
+      .nullable()
+      .optional()
+      .transform((value) => value ?? undefined),
     side: z.enum(["RIGHT", "LEFT"]).default("RIGHT"),
     evidence: z.string().min(1),
     recommendation: z.string().min(1),
-    dod_ref: z.string().min(1).optional(),
-    rule_id: z.string().min(1).optional(),
+    dod_ref: z
+      .string()
+      .min(1)
+      .nullable()
+      .optional()
+      .transform((value) => value ?? undefined),
+    rule_id: z
+      .string()
+      .min(1)
+      .nullable()
+      .optional()
+      .transform((value) => value ?? undefined),
   })
   .strict()
   .superRefine((finding, context) => {
@@ -253,6 +269,52 @@ const rawReviewSchema = z
     findings: z.array(findingSchema).max(50),
   })
   .strict();
+
+const EXTERNAL_REVIEW_JSON_SCHEMA: Record<string, unknown> = {
+  type: "object",
+  additionalProperties: false,
+  required: ["summary", "findings"],
+  properties: {
+    summary: { type: "string", minLength: 1 },
+    findings: {
+      type: "array",
+      maxItems: 50,
+      items: {
+        type: "object",
+        additionalProperties: false,
+        required: [
+          "severity",
+          "category",
+          "basis",
+          "title",
+          "path",
+          "line",
+          "side",
+          "evidence",
+          "recommendation",
+          "dod_ref",
+          "rule_id",
+        ],
+        properties: {
+          severity: { type: "string", enum: ["blocking", "non_blocking"] },
+          category: {
+            type: "string",
+            enum: ["correctness", "security", "reliability", "tests", "maintainability"],
+          },
+          basis: { type: "string", enum: ["dod", "defect", "repository_rule"] },
+          title: { type: "string", minLength: 1 },
+          path: { type: "string", minLength: 1 },
+          line: { anyOf: [{ type: "integer", minimum: 1 }, { type: "null" }] },
+          side: { type: "string", enum: ["RIGHT", "LEFT"] },
+          evidence: { type: "string", minLength: 1 },
+          recommendation: { type: "string", minLength: 1 },
+          dod_ref: { anyOf: [{ type: "string", minLength: 1 }, { type: "null" }] },
+          rule_id: { anyOf: [{ type: "string", minLength: 1 }, { type: "null" }] },
+        },
+      },
+    },
+  },
+};
 
 type RawReviewFinding = z.infer<typeof findingSchema>;
 
@@ -1924,11 +1986,21 @@ async function runReviewLens(
       mode: "code",
       messages: [...messages],
       tools: material ? undefined : REVIEW_TOOLS,
-      response_format: material ? { type: "json_object" } : undefined,
+      response_format: material
+        ? {
+            type: "json_schema",
+            json_schema: {
+              name: "llmatic_review_report",
+              strict: true,
+              schema: EXTERNAL_REVIEW_JSON_SCHEMA,
+            },
+          }
+        : undefined,
       routing: material
         ? {
             task: "review_" + lens,
             avoidModels: [...avoidedModels],
+            inputChars: externalPacket?.length ?? 0,
           }
         : undefined,
       max_tokens: material ? 6000 : 3000,
