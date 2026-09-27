@@ -411,6 +411,21 @@ Expected permanent regression:
 
 - candidate is rejected by semantic/exact-head verification
 
+### Krunditark PR #236 — KT-131 privacy-request concurrency
+
+Benchmark provenance:
+
+- this concurrency finding was produced by another external reviewer, not proven to be an LLMatic finding
+- human verification confirmed the defect on head `45f025e8c143130e48504dee72aa2c2195b74b3d`
+- fix head `090eb9bae3825d22e4e76d68b73b7593307d648f` serializes the same permanent-account + action pair with a transaction-scoped advisory lock
+
+Expected permanent benchmark:
+
+- vulnerable head: the concurrency/idempotency finding remains publishable
+- fixed head: the same stale candidate is rejected by exact-head verification
+- live-model recall runs may use the vulnerable head to measure whether the critic discovers the race independently
+- CI does not depend on a live/free model; deterministic scripted-candidate verification covers the precision/recall boundary
+
 ### Krunditark PR #215
 
 Observed live-smoke result after the first R1 hardening merge:

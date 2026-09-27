@@ -1657,6 +1657,79 @@ async function missingDirectTableGrantFindingIsVerified(
   }
 }
 
+interface SqlConcurrencyIdempotencyClaim {
+  functionName: string;
+}
+
+function sqlConcurrencyIdempotencyClaim(
+  finding: ReviewFinding,
+): SqlConcurrencyIdempotencyClaim | undefined {
+  if (finding.basis !== "defect" || !finding.path.toLowerCase().endsWith(".sql")) return undefined;
+
+  const text = [finding.title, finding.evidence, finding.recommendation].join(" ");
+  if (!/\b(?:concurren|race|double-submit|retry)\w*\b/i.test(text)) return undefined;
+  if (!/\bidempoten\w*\b/i.test(text)) return undefined;
+  if (
+    !/\b(?:select[- ]then[- ]insert|unique[- ]violation|unique index|same request_id)\b/i.test(text)
+  ) {
+    return undefined;
+  }
+
+  const functionName =
+    /\b([a-z_][a-z0-9_]{3,})\b(?=\s+idempoten\w*)/i.exec(text)?.[1] ??
+    /\bfunction\s+([a-z_][a-z0-9_]*)\b/i.exec(text)?.[1] ??
+    /\brpc\s+([a-z_][a-z0-9_]*)\b/i.exec(text)?.[1];
+
+  return functionName ? { functionName } : undefined;
+}
+
+function sqlFunctionText(content: string, functionName: string): string | undefined {
+  const startPattern = new RegExp(
+    "\\bCREATE\\s+OR\\s+REPLACE\\s+FUNCTION\\s+(?:[a-z_][a-z0-9_]*\\.)?" + functionName + "\\s*\\(",
+    "i",
+  );
+  const match = startPattern.exec(content);
+  if (!match) return undefined;
+
+  const start = match.index;
+  const rest = content.slice(start + match[0].length);
+  const nextFunction = /\nCREATE\s+OR\s+REPLACE\s+FUNCTION\b/i.exec(rest);
+  const end = nextFunction ? start + match[0].length + nextFunction.index : content.length;
+  return content.slice(start, end);
+}
+
+function sqlFunctionSerializesIdempotentInsert(functionText: string): boolean {
+  const lockIndex = functionText.search(/\bpg_advisory_xact_lock\s*\(/i);
+  const insertIndex = functionText.search(/\bINSERT\s+INTO\b/i);
+  if (lockIndex >= 0 && insertIndex >= 0 && lockIndex < insertIndex) return true;
+
+  if (/\bINSERT\s+INTO\b[\s\S]*?\bON\s+CONFLICT\b/i.test(functionText)) return true;
+  if (/\bEXCEPTION\b[\s\S]*?\bWHEN\s+unique_violation\b/i.test(functionText)) return true;
+
+  return false;
+}
+
+async function sqlConcurrencyIdempotencyFindingIsVerified(
+  finding: ReviewFinding,
+  options: ExternalPullRequestReviewOptions,
+): Promise<boolean> {
+  const claim = sqlConcurrencyIdempotencyClaim(finding);
+  if (!claim) return true;
+  if (!options.readFile || isWorkspacePathSensitive(finding.path)) return false;
+
+  try {
+    const content = readFileContent(await options.readFile(finding.path, {}));
+    if (!content) return false;
+
+    const functionText = sqlFunctionText(content, claim.functionName);
+    if (!functionText) return false;
+
+    return !sqlFunctionSerializesIdempotentInsert(functionText);
+  } catch {
+    return false;
+  }
+}
+
 async function verifyExternalFindings(
   findings: ReviewFinding[],
   options: ExternalPullRequestReviewOptions,
@@ -1667,6 +1740,7 @@ async function verifyExternalFindings(
     if (!(await duplicateUnionLiteralFindingIsVerified(finding, options))) continue;
     if (!(await testLiteralAbsenceFindingIsVerified(finding, options))) continue;
     if (!(await missingDirectTableGrantFindingIsVerified(finding, options))) continue;
+    if (!(await sqlConcurrencyIdempotencyFindingIsVerified(finding, options))) continue;
     verified.push(finding);
   }
   return verified;
