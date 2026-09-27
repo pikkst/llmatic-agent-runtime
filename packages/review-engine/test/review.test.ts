@@ -26,6 +26,7 @@ import {
   runReviewFixLoop,
   type ReviewActivityEvent,
 } from "../src/review.js";
+import { kt131PrivacyIdempotencyBenchmark } from "./fixtures/kt131-privacy-idempotency.js";
 
 const temporaryDirectories: string[] = [];
 
@@ -953,6 +954,123 @@ describe("review engine", () => {
 
     expect(reads).toEqual(["src/test/edge-route.test.ts", "supabase/functions/analysis/index.ts"]);
     expect(report.findings).toEqual([]);
+    expect(report.reviewStatus).toBe("complete");
+  });
+
+  it("keeps the KT-131 concurrency finding on the vulnerable PR #236 head", async () => {
+    const root = await repository();
+    const config = configFor(root);
+    const fixture = kt131PrivacyIdempotencyBenchmark;
+    const gateway = new ScriptedGateway([
+      response(
+        JSON.stringify({
+          summary: "One concurrency defect.",
+          findings: [
+            {
+              ...fixture.candidate,
+              path: fixture.path,
+              line: fixture.before.findingLine,
+              side: "RIGHT",
+            },
+          ],
+        }),
+      ),
+    ]);
+
+    const report = await runExternalPullRequestReview({
+      root,
+      config,
+      gateway,
+      readFile: async (path) => {
+        if (path !== fixture.path) throw new Error("Unexpected read " + path);
+        return { path, content: fixture.before.content };
+      },
+      lenses: ["bug_hunter"],
+      material: {
+        reference: String(fixture.pullRequest),
+        headRefOid: fixture.before.head,
+        title: "KT-131: add account and privacy self-service",
+        body: "",
+        ciState: "passing",
+        changedFiles: [fixture.path],
+        diff:
+          "diff --git a/" +
+          fixture.path +
+          " b/" +
+          fixture.path +
+          "\n--- /dev/null\n+++ b/" +
+          fixture.path +
+          "\n@@ -0,0 +" +
+          fixture.before.findingLine +
+          ",1 @@\n+    INSERT INTO private.account_privacy_requests AS r (\n",
+        diffTruncated: false,
+      },
+    });
+
+    expect(report.findings).toEqual([
+      expect.objectContaining({
+        title: fixture.candidate.title,
+        path: fixture.path,
+        line: fixture.before.findingLine,
+      }),
+    ]);
+    expect(report.blockingCount).toBe(1);
+  });
+
+  it("suppresses the stale KT-131 concurrency finding on the advisory-lock fix head", async () => {
+    const root = await repository();
+    const config = configFor(root);
+    const fixture = kt131PrivacyIdempotencyBenchmark;
+    const gateway = new ScriptedGateway([
+      response(
+        JSON.stringify({
+          summary: "Candidate concurrency defect.",
+          findings: [
+            {
+              ...fixture.candidate,
+              path: fixture.path,
+              line: fixture.after.findingLine,
+              side: "RIGHT",
+            },
+          ],
+        }),
+      ),
+    ]);
+
+    const report = await runExternalPullRequestReview({
+      root,
+      config,
+      gateway,
+      readFile: async (path) => {
+        if (path !== fixture.path) throw new Error("Unexpected read " + path);
+        return { path, content: fixture.after.content };
+      },
+      lenses: ["bug_hunter"],
+      material: {
+        reference: String(fixture.pullRequest),
+        headRefOid: fixture.after.head,
+        title: "KT-131: add account and privacy self-service",
+        body: "",
+        ciState: "passing",
+        changedFiles: [fixture.path],
+        diff:
+          "diff --git a/" +
+          fixture.path +
+          " b/" +
+          fixture.path +
+          "\n--- a/" +
+          fixture.path +
+          "\n+++ b/" +
+          fixture.path +
+          "\n@@ -208,0 +" +
+          fixture.after.findingLine +
+          ",1 @@\n+    INSERT INTO private.account_privacy_requests AS r (\n",
+        diffTruncated: false,
+      },
+    });
+
+    expect(report.findings).toEqual([]);
+    expect(report.blockingCount).toBe(0);
     expect(report.reviewStatus).toBe("complete");
   });
 
