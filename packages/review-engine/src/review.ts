@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
-import { dirname, resolve } from "node:path";
+import { dirname, posix, resolve } from "node:path";
 import { spawnSync } from "node:child_process";
 import { z } from "zod";
 import {
@@ -29,6 +29,7 @@ import {
   buildRepositoryIndex,
   loadRepositoryIndex,
   searchRepositoryIndex,
+  type RepositoryIndex,
 } from "@llmatic/repo-intelligence";
 import {
   activeRepositoryRules,
@@ -484,6 +485,8 @@ export interface PullRequestReviewMaterial {
 
 export interface ExternalPullRequestReviewOptions extends ReviewExecutionOptions {
   material: PullRequestReviewMaterial;
+  assertHeadStable?: () => Promise<void>;
+  batchConcurrency?: number;
 }
 
 export interface ReviewLensFailure {
@@ -580,6 +583,214 @@ interface ExternalReviewBatch {
   packet: string;
 }
 
+interface ExternalReviewCluster {
+  files: string[];
+  securityRelevant: boolean;
+}
+
+const REVIEW_CLUSTER_STOP_WORDS = new Set([
+  "src",
+  "test",
+  "tests",
+  "spec",
+  "docs",
+  "features",
+  "feature",
+  "lib",
+  "packages",
+  "app",
+  "apps",
+  "index",
+  "page",
+  "component",
+  "components",
+]);
+
+function reviewPathTerms(path: string): Set<string> {
+  return new Set(
+    path
+      .replace(/([a-z0-9])([A-Z])/g, "$1 $2")
+      .toLowerCase()
+      .split(/[^a-z0-9]+/)
+      .filter(
+        (token) =>
+          token.length >= 3 &&
+          !REVIEW_CLUSTER_STOP_WORDS.has(token) &&
+          !/^\d+$/.test(token),
+      ),
+  );
+}
+
+function sharedReviewPathTerms(left: string, right: string): number {
+  const leftTerms = reviewPathTerms(left);
+  const rightTerms = reviewPathTerms(right);
+  let count = 0;
+  for (const term of leftTerms) {
+    if (rightTerms.has(term)) count += 1;
+  }
+  return count;
+}
+
+function importTargetCandidates(importer: string, specifier: string): string[] {
+  if (!specifier.startsWith(".")) return [];
+  const base = posix.normalize(posix.join(posix.dirname(importer), specifier));
+  return [
+    base,
+    base + ".ts",
+    base + ".tsx",
+    base + ".mts",
+    base + ".cts",
+    base + ".js",
+    base + ".jsx",
+    posix.join(base, "index.ts"),
+    posix.join(base, "index.tsx"),
+    posix.join(base, "index.js"),
+  ];
+}
+
+function securityRelevantCluster(
+  material: PullRequestReviewMaterial,
+  files: string[],
+): boolean {
+  const text = files
+    .map((path) => {
+      let diff = "";
+      try {
+        diff = pullRequestDiffForPath(material.diff, path);
+      } catch {
+        // The path alone is still useful risk evidence.
+      }
+      return path + "\n" + diff.slice(0, 4_000);
+    })
+    .join("\n");
+
+  return /\b(auth|oauth|otp|token|secret|credential|permission|authorization|authentication|rls|rbac|session|cookie|csrf|xss|crypto|webhook|admin|supabase|postgres|sql|migration|security)\b/i.test(
+    text,
+  );
+}
+
+function clusterChangedFiles(
+  material: PullRequestReviewMaterial,
+  files: string[],
+  index?: RepositoryIndex,
+): ExternalReviewCluster[] {
+  if (files.length === 0) return [];
+
+  const parent = files.map((_, index) => index);
+  const find = (value: number): number => {
+    let current = value;
+    while (parent[current] !== current) {
+      parent[current] = parent[parent[current]!]!;
+      current = parent[current]!;
+    }
+    return current;
+  };
+  const union = (left: number, right: number): void => {
+    const leftRoot = find(left);
+    const rightRoot = find(right);
+    if (leftRoot !== rightRoot) parent[rightRoot] = leftRoot;
+  };
+
+  for (let left = 0; left < files.length; left += 1) {
+    for (let right = left + 1; right < files.length; right += 1) {
+      const sharedTerms = sharedReviewPathTerms(files[left]!, files[right]!);
+      if (sharedTerms >= 2) union(left, right);
+    }
+  }
+
+  if (index) {
+    const changedIndex = new Map(files.map((path, fileIndex) => [path, fileIndex]));
+    for (const edge of index.imports) {
+      const importerIndex = changedIndex.get(edge.path);
+      if (importerIndex === undefined) continue;
+
+      for (const candidate of importTargetCandidates(edge.path, edge.specifier)) {
+        const importedIndex = changedIndex.get(candidate);
+        if (importedIndex !== undefined) {
+          union(importerIndex, importedIndex);
+          break;
+        }
+      }
+    }
+  }
+
+  const grouped = new Map<number, string[]>();
+  for (let fileIndex = 0; fileIndex < files.length; fileIndex += 1) {
+    const root = find(fileIndex);
+    const current = grouped.get(root) ?? [];
+    current.push(files[fileIndex]!);
+    grouped.set(root, current);
+  }
+
+  return [...grouped.values()]
+    .map((clusterFiles) => ({
+      files: clusterFiles.sort(),
+      securityRelevant: securityRelevantCluster(material, clusterFiles),
+    }))
+    .sort((left, right) => left.files[0]!.localeCompare(right.files[0]!));
+}
+
+async function externalReviewClusters(
+  root: string,
+  config: AgentConfig,
+  material: PullRequestReviewMaterial,
+  files: string[],
+): Promise<ExternalReviewCluster[]> {
+  try {
+    const index = await loadRepositoryIndex(root, config);
+    return clusterChangedFiles(material, files, index);
+  } catch {
+    return clusterChangedFiles(material, files);
+  }
+}
+
+function lensClusters(
+  lens: ReviewLens,
+  clusters: ExternalReviewCluster[],
+): ExternalReviewCluster[] {
+  if (lens === "general") return clusters;
+
+  const codeClusters = clusters
+    .map((cluster) => ({
+      ...cluster,
+      files: cluster.files.filter(reviewableCodePath),
+    }))
+    .filter((cluster) => cluster.files.length > 0);
+
+  if (lens === "bug_hunter") return codeClusters;
+  return codeClusters.filter((cluster) => cluster.securityRelevant);
+}
+
+function externalReviewBatchesForClusters(
+  material: PullRequestReviewMaterial,
+  clusters: ExternalReviewCluster[],
+): ExternalReviewBatch[] {
+  return clusters.flatMap((cluster) => externalReviewBatches(material, cluster.files));
+}
+
+async function mapBounded<T, R>(
+  values: T[],
+  concurrency: number,
+  worker: (value: T, index: number) => Promise<R>,
+): Promise<R[]> {
+  const results = new Array<R>(values.length);
+  let nextIndex = 0;
+  const limit = Math.max(1, Math.min(concurrency, values.length || 1));
+
+  await Promise.all(
+    Array.from({ length: limit }, async () => {
+      while (true) {
+        const index = nextIndex;
+        nextIndex += 1;
+        if (index >= values.length) return;
+        results[index] = await worker(values[index]!, index);
+      }
+    }),
+  );
+
+  return results;
+}
+
 interface ExternalReviewBatchResult {
   summary: string;
   findings: ReviewFinding[];
@@ -616,6 +827,7 @@ async function runExternalReviewBatchWithRecovery(
   lensAvoidedModels: Set<string>,
 ): Promise<ExternalReviewBatchResult> {
   const recoveryAvoidedModels = lensAvoidedModels;
+  await options.assertHeadStable?.();
   try {
     const result = await runReviewLens(
       options,
@@ -635,6 +847,7 @@ async function runExternalReviewBatchWithRecovery(
 
     if (batch.files.length === 1) {
       try {
+        await options.assertHeadStable?.();
         const result = await runReviewLens(
           options,
           constitution,
@@ -665,6 +878,7 @@ async function runExternalReviewBatchWithRecovery(
 
     for (const recoveryBatch of recoveryBatches) {
       try {
+        await options.assertHeadStable?.();
         recovered.push(
           await runReviewLens(
             options,
@@ -703,23 +917,6 @@ function reviewableCodePath(path: string): boolean {
   return (
     /\.(?:[cm]?[jt]sx?|json|sql|ya?ml)$/i.test(path) && !/(?:^|\/)(?:dist|build)\//i.test(path)
   );
-}
-
-function externalLensFiles(lens: ReviewLens, files: string[]): string[] {
-  if (lens === "general") return files;
-
-  const codeFiles = files.filter(reviewableCodePath);
-  if (codeFiles.length === 0) return files;
-  if (lens === "bug_hunter") return codeFiles;
-
-  const isSecurityPriority = (path: string) =>
-    /auth|oauth|token|secret|permission|github|gateway|external|connection|webhook|api|security|config|extension|orchestrator/i.test(
-      path,
-    );
-  return [
-    ...codeFiles.filter(isSecurityPriority),
-    ...codeFiles.filter((path) => !isSecurityPriority(path)),
-  ];
 }
 
 function externalReviewBatches(
@@ -2303,6 +2500,14 @@ export async function runExternalPullRequestReview(
     coverage,
   });
 
+  await options.assertHeadStable?.();
+  const changeClusters = await externalReviewClusters(
+    options.root,
+    options.config,
+    reviewOptions.material,
+    reviewableFiles,
+  );
+
   const lensResults: Array<{
     lens: ReviewLens;
     result: { summary: string; findings: ReviewFinding[] };
@@ -2313,39 +2518,74 @@ export async function runExternalPullRequestReview(
     const lensStartedAt = Date.now();
     options.onActivity?.({ type: "lens-start", lens });
 
-    const lensFiles = externalLensFiles(lens, reviewableFiles);
-    const batches = externalReviewBatches(reviewOptions.material, lensFiles);
+    const selectedClusters = lensClusters(lens, changeClusters);
+    const batches = externalReviewBatchesForClusters(reviewOptions.material, selectedClusters);
     const lensAvoidedModels = new Set<string>();
-    const batchResults: Array<{ summary: string; findings: ReviewFinding[] }> = [];
     const batchFailures: string[] = [];
+    const batchConcurrency = Math.max(1, Math.min(reviewOptions.batchConcurrency ?? 2, 3));
 
-    for (let index = 0; index < batches.length; index += 1) {
-      const batch = batches[index]!;
-      const batchNumber = index + 1;
-      const batchStartedAt = Date.now();
+    if (batches.length === 0) {
+      const result = {
+        summary:
+          lens === "security"
+            ? "No security-relevant changed-code cluster required a security model pass."
+            : "No changed-code batch was available for this lens.",
+        findings: [] as ReviewFinding[],
+      };
+      lensResults.push({ lens, result });
       options.onActivity?.({
-        type: "lens-batch-start",
+        type: "lens-complete",
         lens,
-        batch: batchNumber,
-        totalBatches: batches.length,
-        files: batch.files,
+        findingCount: 0,
+        durationMs: Date.now() - lensStartedAt,
       });
+      continue;
+    }
 
-      try {
-        const batchResult = await runExternalReviewBatchWithRecovery(
-          reviewOptions,
-          constitution,
+    const outcomes = await mapBounded(
+      batches,
+      batchConcurrency,
+      async (batch, index) => {
+        const batchNumber = index + 1;
+        const batchStartedAt = Date.now();
+        options.onActivity?.({
+          type: "lens-batch-start",
           lens,
-          batch,
-          lensAvoidedModels,
-        );
-        batchResults.push(batchResult);
+          batch: batchNumber,
+          totalBatches: batches.length,
+          files: batch.files,
+        });
 
-        if (batchResult.recoveryFailures.length > 0) {
-          const reason =
-            "split recovery incomplete after an initial recoverable failure: " +
-            batchResult.recoveryFailures.join(" | ");
-          batchFailures.push("batch " + batchNumber + "/" + batches.length + ": " + reason);
+        try {
+          const batchResult = await runExternalReviewBatchWithRecovery(
+            reviewOptions,
+            constitution,
+            lens,
+            batch,
+            lensAvoidedModels,
+          );
+
+          if (batchResult.recoveryFailures.length > 0) {
+            const reason =
+              "split recovery incomplete after an initial recoverable failure: " +
+              batchResult.recoveryFailures.join(" | ");
+            options.onActivity?.({
+              type: "lens-batch-failed",
+              lens,
+              batch: batchNumber,
+              totalBatches: batches.length,
+              reason,
+              durationMs: Date.now() - batchStartedAt,
+            });
+            return {
+              result: batchResult,
+              failure: "batch " + batchNumber + "/" + batches.length + ": " + reason,
+            };
+          }
+
+          return { result: batchResult };
+        } catch (error) {
+          const reason = error instanceof Error ? error.message : String(error);
           options.onActivity?.({
             type: "lens-batch-failed",
             lens,
@@ -2354,20 +2594,23 @@ export async function runExternalPullRequestReview(
             reason,
             durationMs: Date.now() - batchStartedAt,
           });
+          return {
+            failure: "batch " + batchNumber + "/" + batches.length + ": " + reason,
+          };
         }
-      } catch (error) {
-        const reason = error instanceof Error ? error.message : String(error);
-        batchFailures.push("batch " + batchNumber + "/" + batches.length + ": " + reason);
-        options.onActivity?.({
-          type: "lens-batch-failed",
-          lens,
-          batch: batchNumber,
-          totalBatches: batches.length,
-          reason,
-          durationMs: Date.now() - batchStartedAt,
-        });
-      }
-    }
+      },
+    );
+
+    const batchResults = outcomes
+      .map((outcome) => outcome.result)
+      .filter(
+        (result): result is ExternalReviewBatchResult => result !== undefined,
+      );
+    batchFailures.push(
+      ...outcomes
+        .map((outcome) => outcome.failure)
+        .filter((failure): failure is string => Boolean(failure)),
+    );
 
     if (batchResults.length > 0) {
       const result = {
