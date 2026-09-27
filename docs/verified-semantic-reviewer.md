@@ -258,7 +258,7 @@ Implemented or already proven:
 
 ### Phase R1 — Review Contract
 
-Status: in progress. Review Contract + generic task resolution + first live-smoke precision hardening are merged; model-pool reliability hardening is in progress on `fix/reviewer-r1-model-pool-reliability`.
+Status: closure audit in progress. Review Contract and R1 hardening through PR #50 are merged. Two live-smoke exit gates remain: PR #214 precision/recall re-smoke, and rule-selection relevance below the configured caps without unrelated subsystem rules.
 
 - [x] introduce normalized ReviewContract type
 - [x] merge Jira/Markdown/GitHub Issue/PR acceptance evidence with provenance
@@ -272,7 +272,14 @@ Status: in progress. Review Contract + generic task resolution + first live-smok
 - [ ] re-smoke confirms PR #214 false-positive regression is suppressed while the real truncated-history defect remains publishable
 - [ ] re-smoke confirms rule selection stays below the relevance caps without unrelated subsystem rules
 - [x] re-smoke confirms hard semantic/transport failures are removed from later work in the same long-running lens
-- [ ] re-smoke confirms capacity-limited models remain available for smaller recovery work without exhausting the model pool
+- [x] re-smoke confirms capacity-limited models remain available for smaller recovery work without exhausting the model pool
+
+Closure audit (2026-09-27):
+
+- PR #214 precision/recall behavior is covered deterministically: the false test-literal absence claim is rejected against exact-head source while the real `truncated` history defect remains publishable. The explicit live re-smoke gate is still open.
+- PR #238 selected exactly 32 relevant rules and 16 invariants. This proves the new caps are enforced, but because both limits were saturated it does not yet prove the live rule set stays below the caps or excludes all unrelated subsystem rules.
+- PR #237, after the PR #46 model-pool changes, demonstrated capacity recovery: a prompt-only model reached `finish=length`, then a JSON-native model completed the batch. Capacity exhaustion is therefore no longer treated as permanent semantic incompatibility for the full lens.
+- PR #48 native-JSON routing/build identity, PR #49 strict structured schema, and PR #50 bounded-batch DoD uncertainty filtering are merged. These harden R1 precision but do not replace the two remaining live exit gates above.
 
 Acceptance gate:
 
