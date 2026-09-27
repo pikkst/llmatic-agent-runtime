@@ -1,3 +1,4 @@
+import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { mkdir, readFile, stat, writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
@@ -7,6 +8,17 @@ const extensionRoot = resolve(import.meta.dirname, "..");
 const dist = resolve(extensionRoot, "dist");
 const runtimeDirectory = resolve(dist, "runtime");
 const runtimePath = resolve(runtimeDirectory, "mcp-server.mjs");
+
+let buildSha = "unknown";
+try {
+  buildSha = execFileSync("git", ["rev-parse", "HEAD"], {
+    cwd: extensionRoot,
+    encoding: "utf8",
+  }).trim();
+} catch {
+  // Packaging can still proceed outside a Git worktree; the runtime log will
+  // make that lack of provenance explicit instead of inventing a commit.
+}
 
 await mkdir(runtimeDirectory, { recursive: true });
 
@@ -20,6 +32,9 @@ await build({
   outfile: resolve(dist, "extension.cjs"),
   sourcemap: true,
   external: ["vscode"],
+  define: {
+    __LLMATIC_BUILD_SHA__: JSON.stringify(buildSha),
+  },
   logLevel: "info",
 });
 
