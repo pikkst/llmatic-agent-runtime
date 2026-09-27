@@ -1642,7 +1642,7 @@ describe("review engine", () => {
       },
     });
 
-    expect(call).toBe(4);
+    expect(call).toBe(3);
     expect(report.reviewStatus).toBe("complete");
     expect(report.lensFailures).toEqual([]);
     expect(report.summary).toContain(
