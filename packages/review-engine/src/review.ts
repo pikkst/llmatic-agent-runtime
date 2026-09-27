@@ -222,6 +222,7 @@ const findingSchema = z
     dod_ref: z.string().min(1).optional(),
     rule_id: z.string().min(1).optional(),
   })
+  .strict()
   .superRefine((finding, context) => {
     if (finding.basis === "dod" && !finding.dod_ref) {
       context.addIssue({
@@ -246,10 +247,12 @@ const findingSchema = z
     }
   });
 
-const rawReviewSchema = z.object({
-  summary: z.string().min(1),
-  findings: z.array(findingSchema).max(50),
-});
+const rawReviewSchema = z
+  .object({
+    summary: z.string().min(1),
+    findings: z.array(findingSchema).max(50),
+  })
+  .strict();
 
 type RawReviewFinding = z.infer<typeof findingSchema>;
 
