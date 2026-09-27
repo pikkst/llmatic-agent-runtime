@@ -102,6 +102,108 @@ const REVIEW_SCOPE_PATTERNS: Array<[RegExp, string]> = [
 ];
 
 const GLOBAL_POLICY_SOURCE = /(?:^|\/)(?:agents?|contributing|code[-_]?review|review)\.md$/i;
+const MAX_REVIEW_CONTRACT_RULES = 16;
+const MAX_REVIEW_CONTRACT_INVARIANTS = 8;
+
+const RULE_RELEVANCE_STOP_WORDS = new Set([
+  "the",
+  "and",
+  "for",
+  "with",
+  "from",
+  "must",
+  "should",
+  "this",
+  "that",
+  "into",
+  "only",
+  "when",
+  "where",
+  "without",
+  "change",
+  "changes",
+  "pull",
+  "request",
+  "repository",
+  "rule",
+  "rules",
+  "required",
+  "existing",
+  "current",
+]);
+
+const RULE_DOMAIN_TERMS = new Set([
+  "auth",
+  "oauth",
+  "rls",
+  "rbac",
+  "stripe",
+  "payment",
+  "billing",
+  "map",
+  "maps",
+  "tile",
+  "tiles",
+  "gis",
+  "postgis",
+  "supabase",
+  "postgres",
+  "database",
+  "migration",
+  "github",
+  "jira",
+  "cloudflare",
+  "wrangler",
+  "localization",
+  "locale",
+  "i18n",
+  "email",
+  "otp",
+  "webhook",
+  "analytics",
+]);
+
+function relevanceTerms(value: string): Set<string> {
+  return new Set(
+    value
+      .replace(/([a-z0-9])([A-Z])/g, "$1 $2")
+      .toLowerCase()
+      .split(/[^a-z0-9]+/)
+      .filter(
+        (token) =>
+          token.length >= 3 &&
+          !RULE_RELEVANCE_STOP_WORDS.has(token) &&
+          !/^\d+$/.test(token),
+      ),
+  );
+}
+
+function overlapCount(left: Set<string>, right: Set<string>): number {
+  let count = 0;
+  for (const item of left) {
+    if (right.has(item)) count += 1;
+  }
+  return count;
+}
+
+function reviewRelevanceTerms(
+  input: BuildReviewContractInput,
+  requirements: ReviewContractRequirement[],
+): Set<string> {
+  return relevanceTerms(
+    [
+      input.title,
+      ...input.changedFiles,
+      input.linkedTask?.summary ?? "",
+      ...requirements.map((item) => item.text),
+    ].join("\n"),
+  );
+}
+
+function hasDomainMismatch(ruleTerms: Set<string>, reviewTerms: Set<string>): boolean {
+  const domainTerms = [...ruleTerms].filter((term) => RULE_DOMAIN_TERMS.has(term));
+  return domainTerms.length > 0 && domainTerms.every((term) => !reviewTerms.has(term));
+}
 
 function stableId(prefix: string, values: string[]): string {
   return (
@@ -267,28 +369,47 @@ function inferredScopes(
 function selectedRules(
   constitution: RepositoryConstitution,
   scopes: string[],
+  reviewTerms: Set<string>,
 ): ReviewContractRule[] {
   const scopeSet = new Set(scopes);
   const ranked = activeRepositoryRules(constitution)
     .map((rule) => {
-      const overlap = rule.scopes.filter((scope) => scopeSet.has(scope)).length;
+      const scopeOverlap = rule.scopes.filter((scope) => scopeSet.has(scope)).length;
       const repositoryScoped = rule.scopes.includes("repository");
-      const sourcePriority = GLOBAL_POLICY_SOURCE.test(rule.source.path) ? 20 : 0;
+      const globalPolicy = GLOBAL_POLICY_SOURCE.test(rule.source.path);
+      const ruleTerms = relevanceTerms(rule.text + "\n" + rule.source.path);
+      const lexicalOverlap = overlapCount(ruleTerms, reviewTerms);
+      const domainMismatch = hasDomainMismatch(ruleTerms, reviewTerms);
+      const sourcePriority = globalPolicy ? 20 : 0;
       const score =
         (rule.strength === "blocking" ? 100 : rule.strength === "advisory" ? 50 : 10) +
-        overlap * 40 +
-        (repositoryScoped ? 30 : 0) +
+        scopeOverlap * 50 +
+        Math.min(lexicalOverlap, 6) * 20 +
         sourcePriority;
-      return { rule, overlap, repositoryScoped, score };
+
+      return {
+        rule,
+        scopeOverlap,
+        repositoryScoped,
+        globalPolicy,
+        lexicalOverlap,
+        domainMismatch,
+        score,
+      };
     })
-    .filter(({ overlap, repositoryScoped }) => overlap > 0 || repositoryScoped)
+    .filter(({ scopeOverlap, repositoryScoped, globalPolicy, lexicalOverlap, domainMismatch }) => {
+      if (domainMismatch && !globalPolicy) return false;
+      if (scopeOverlap > 0) return lexicalOverlap > 0 || globalPolicy;
+      return repositoryScoped && (globalPolicy || lexicalOverlap >= 2);
+    })
     .sort(
       (left, right) =>
         right.score - left.score ||
+        right.lexicalOverlap - left.lexicalOverlap ||
         left.rule.source.path.localeCompare(right.rule.source.path) ||
         left.rule.id.localeCompare(right.rule.id),
     )
-    .slice(0, 32);
+    .slice(0, MAX_REVIEW_CONTRACT_RULES);
 
   return ranked.map(({ rule }) => ({
     id: rule.id,
@@ -322,7 +443,7 @@ function selectedInvariants(rules: ReviewContractRule[]): ReviewContractInvarian
     }
   }
 
-  return result.slice(0, 16);
+  return result.slice(0, MAX_REVIEW_CONTRACT_INVARIANTS);
 }
 
 function requiredEvidence(scopes: string[], requirements: ReviewContractRequirement[]): string[] {
@@ -346,7 +467,11 @@ function requiredEvidence(scopes: string[], requirements: ReviewContractRequirem
 export function buildReviewContract(input: BuildReviewContractInput): ReviewContract {
   const requirements = buildRequirements(input);
   const scopes = inferredScopes(input, requirements);
-  const rules = selectedRules(input.constitution, scopes);
+  const rules = selectedRules(
+    input.constitution,
+    scopes,
+    reviewRelevanceTerms(input, requirements),
+  );
   const warnings: string[] = [];
 
   if (input.acceptanceEvidenceUnavailableReason) {
