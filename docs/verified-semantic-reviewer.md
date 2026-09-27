@@ -411,6 +411,22 @@ Expected permanent regression:
 
 - candidate is rejected by semantic/exact-head verification
 
+### Krunditark PR #238 — KT-133 English critical-flow tests
+
+Observed live-smoke result on build `v0.3.2@513b3f7e1b73`:
+
+- exact build identity and Acceptance evidence telemetry were present
+- Review Contract resolved Jira KT-133 with 16 AC/DoD items, 32 relevant rules and 16 invariants
+- Bug Hunter correctly selected a JSON-native model ahead of prompt-only alternatives
+- the first Bug Hunter response omitted the required top-level `summary` and was correctly rejected/repaired
+- the Security response contained valid `summary` + `findings` but also emitted unknown top-level fields (`severity`, `category`, `basis`, `side`, `line`)
+- Zod's default object behavior stripped those unknown fields, so the response was incorrectly accepted as schema-valid
+
+Expected permanent regression:
+
+- structured review report objects are strict: unknown top-level keys trigger `invalid_schema` repair
+- individual finding objects are strict: unknown finding keys trigger `invalid_schema` repair
+
 ### Krunditark PR #237 — KT-132 Russian critical-flow tests
 
 Observed live-smoke result:

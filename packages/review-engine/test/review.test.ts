@@ -247,6 +247,144 @@ describe("review engine", () => {
     ).toBeGreaterThanOrEqual(0);
   });
 
+  it("repairs a structured review report with unknown top-level fields", async () => {
+    const root = await repository();
+    const config = configFor(root);
+    const events: ReviewActivityEvent[] = [];
+    const gateway = new ScriptedGateway([
+      response(
+        JSON.stringify({
+          summary: "No security findings.",
+          findings: [],
+          severity: "blocking",
+          category: "security",
+          basis: "documentation",
+          side: "RIGHT",
+          line: 0,
+        }),
+        undefined,
+        "liquid/lfm-2.5-2.6b:free",
+      ),
+      response(
+        JSON.stringify({
+          summary: "No security findings.",
+          findings: [],
+        }),
+        undefined,
+        "dots-studio/dots-3-note-preview:free",
+      ),
+    ]);
+
+    const report = await runExternalPullRequestReview({
+      root,
+      config,
+      gateway,
+      lenses: ["security"],
+      onActivity: (event) => events.push(event),
+      material: {
+        reference: "238",
+        headRefOid: "head-238",
+        title: "Strict top-level review schema",
+        body: "",
+        ciState: "passing",
+        changedFiles: ["src/value.ts"],
+        diff: "diff --git a/src/value.ts b/src/value.ts\n--- a/src/value.ts\n+++ b/src/value.ts\n@@ -1 +1 @@\n-export const value = 1;\n+export const value = 2;\n",
+        diffTruncated: false,
+      },
+    });
+
+    expect(gateway.requests).toHaveLength(2);
+    expect(gateway.modelFailures).toContainEqual(
+      expect.objectContaining({
+        model: "liquid/lfm-2.5-2.6b:free",
+        task: "review_security",
+        reason: "structured review schema mismatch",
+      }),
+    );
+    expect(events).toContainEqual(
+      expect.objectContaining({
+        type: "report-repair",
+        lens: "security",
+        reason: "invalid_schema",
+      }),
+    );
+    expect(report.reviewStatus).toBe("complete");
+    expect(report.findings).toEqual([]);
+  });
+
+  it("repairs a structured review finding with unknown fields", async () => {
+    const root = await repository();
+    const config = configFor(root);
+    const events: ReviewActivityEvent[] = [];
+    const gateway = new ScriptedGateway([
+      response(
+        JSON.stringify({
+          summary: "One concrete defect.",
+          findings: [
+            {
+              severity: "blocking",
+              category: "correctness",
+              basis: "defect",
+              title: "Unexpected exported value",
+              path: "src/value.ts",
+              line: 1,
+              side: "RIGHT",
+              evidence: "The patch changes the exported value.",
+              recommendation: "Restore the expected value.",
+              confidence: 0.99,
+            },
+          ],
+        }),
+        undefined,
+        "liquid/lfm-2.5-2.6b:free",
+      ),
+      response(
+        JSON.stringify({
+          summary: "No verified finding after schema repair.",
+          findings: [],
+        }),
+        undefined,
+        "dots-studio/dots-3-note-preview:free",
+      ),
+    ]);
+
+    const report = await runExternalPullRequestReview({
+      root,
+      config,
+      gateway,
+      lenses: ["general"],
+      onActivity: (event) => events.push(event),
+      material: {
+        reference: "238",
+        headRefOid: "head-238",
+        title: "Strict finding schema",
+        body: "",
+        ciState: "passing",
+        changedFiles: ["src/value.ts"],
+        diff: "diff --git a/src/value.ts b/src/value.ts\n--- a/src/value.ts\n+++ b/src/value.ts\n@@ -1 +1 @@\n-export const value = 1;\n+export const value = 2;\n",
+        diffTruncated: false,
+      },
+    });
+
+    expect(gateway.requests).toHaveLength(2);
+    expect(gateway.modelFailures).toContainEqual(
+      expect.objectContaining({
+        model: "liquid/lfm-2.5-2.6b:free",
+        task: "review_general",
+        reason: "structured review schema mismatch",
+      }),
+    );
+    expect(events).toContainEqual(
+      expect.objectContaining({
+        type: "report-repair",
+        lens: "general",
+        reason: "invalid_schema",
+      }),
+    );
+    expect(report.findings).toEqual([]);
+    expect(report.reviewStatus).toBe("complete");
+  });
+
   it("truncates external file packets only at complete source-line boundaries", async () => {
     const root = await repository();
     const config = configFor(root);
