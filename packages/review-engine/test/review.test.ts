@@ -736,6 +736,91 @@ describe("review engine", () => {
     expect(report.summary).toContain("1 documented DoD/acceptance violation(s)");
   });
 
+  it("rejects PR-240 DoD claims based only on bounded-batch visibility", async () => {
+    const root = await repository();
+    const config = configFor(root);
+    const dateDod =
+      "[Jira KT-134 AC] Dates, numbers, units and currencies use documented locale formatting while stored values remain canonical.";
+    const translationDod =
+      "[Jira KT-134 AC] Missing translation behavior is explicit and observable; raw localization keys are not exposed in production critical surfaces.";
+    const gateway = new ScriptedGateway([
+      response(
+        JSON.stringify({
+          summary: "Two acceptance requirements cannot be verified from this bounded batch.",
+          findings: [
+            {
+              severity: "non_blocking",
+              category: "tests",
+              basis: "dod",
+              title:
+                "Date formatter relies on createBrowserLocalizationContext which is not visible in this batch",
+              path: "src/features/parcel-overview/ParcelOverview.tsx",
+              evidence:
+                "The implementation of createBrowserLocalizationContext and formatLocalizedDateTime is not in this bounded batch, so the en-GB pinning and timezone behavior asserted by the new test cannot be independently verified here.",
+              recommendation:
+                "Verify createBrowserLocalizationContext pins en-GB and formatLocalizedDateTime uses the shared timezone-pinned formatter.",
+              dod_ref: dateDod,
+            },
+            {
+              severity: "non_blocking",
+              category: "tests",
+              basis: "dod",
+              title: "Russian plural coverage cannot be verified from the bounded batch",
+              path: "src/features/parcel-overview/ParcelOverview.test.tsx",
+              evidence:
+                "src/locales/ru/evidence-geometry.json is not present in this bounded batch and only the English catalog is visible, so the Russian many form cannot be independently verified here.",
+              recommendation:
+                "Confirm the Russian few and many plural variants exist before accepting the requirement.",
+              dod_ref: translationDod,
+            },
+          ],
+        }),
+      ),
+    ]);
+
+    const changedFiles = [
+      "src/features/parcel-overview/ParcelOverview.tsx",
+      "src/features/parcel-overview/ParcelOverview.test.tsx",
+      "src/locales/ru/evidence-geometry.json",
+    ];
+    const diff =
+      "diff --git a/src/features/parcel-overview/ParcelOverview.tsx b/src/features/parcel-overview/ParcelOverview.tsx\n" +
+      "--- a/src/features/parcel-overview/ParcelOverview.tsx\n" +
+      "+++ b/src/features/parcel-overview/ParcelOverview.tsx\n" +
+      '@@ -1 +1 @@\n-export const locale = "en";\n+export const locale = "en-GB";\n' +
+      "diff --git a/src/features/parcel-overview/ParcelOverview.test.tsx b/src/features/parcel-overview/ParcelOverview.test.tsx\n" +
+      "--- a/src/features/parcel-overview/ParcelOverview.test.tsx\n" +
+      "+++ b/src/features/parcel-overview/ParcelOverview.test.tsx\n" +
+      '@@ -1 +1 @@\n-export const expected = "8/1/2026";\n+export const expected = "01/08/2026";\n' +
+      "diff --git a/src/locales/ru/evidence-geometry.json b/src/locales/ru/evidence-geometry.json\n" +
+      "--- a/src/locales/ru/evidence-geometry.json\n" +
+      "+++ b/src/locales/ru/evidence-geometry.json\n" +
+      '@@ -1 +1 @@\n-{}\n+{"analysisEvidenceMapNote_many":"{{count}}"}\n';
+
+    const report = await runExternalPullRequestReview({
+      root,
+      config,
+      gateway,
+      lenses: ["general"],
+      material: {
+        reference: "240",
+        headRefOid: "3418220a9480c44bdce71c6cb689c2e7bf2cc31f",
+        title: "fix(KT-134): close post-merge locale smoke gaps",
+        body: "",
+        ciState: "pending",
+        changedFiles,
+        diff,
+        diffTruncated: false,
+        documentedAcceptanceEvidence: [dateDod, translationDod],
+        acceptanceEvidenceSource: "Jira KT-134",
+      },
+    });
+
+    expect(report.coverage).toBe("complete");
+    expect(report.findings).toEqual([]);
+    expect(report.summary).toContain("0 documented DoD/acceptance violation(s)");
+  });
+
   it("rejects line-less missing-work DoD findings when external diff coverage is partial", async () => {
     const root = await repository();
     const config = configFor(root);
