@@ -97,6 +97,18 @@ import {
   type SetupHealthIssue,
 } from "@llmatic/setup-health";
 import { resolveTaskReference, type TaskProviderId } from "@llmatic/task-router";
+
+declare const __LLMATIC_BUILD_SHA__: string;
+
+function extensionBuildIdentity(context: vscode.ExtensionContext): string {
+  const packageJson = context.extension.packageJSON as { version?: unknown };
+  const version = typeof packageJson.version === "string" ? packageJson.version : "unknown";
+  const sha =
+    typeof __LLMATIC_BUILD_SHA__ === "string" && __LLMATIC_BUILD_SHA__.trim()
+      ? __LLMATIC_BUILD_SHA__.trim()
+      : "unknown";
+  return "v" + version + "@" + (sha === "unknown" ? sha : sha.slice(0, 12));
+}
 import { stageVerifiedVsix } from "@llmatic/update-installer";
 import { ensureManagedWorkspace, type ManagedWorkspace } from "@llmatic/workspace-manager";
 import {
@@ -3390,6 +3402,7 @@ async function reviewExternalPullRequestInUi(
   const startedAt = Date.now();
   const sessionId = "manual-" + normalizedReference + "-" + String(startedAt);
   const reviewStatus = statusProvider.beginExternalReview(normalizedReference);
+  const buildIdentity = extensionBuildIdentity(context);
   let lockedPullRequestNumber: number | undefined;
 
   appendReviewActivity(context, reviewLog, sessionId, normalizedReference, startedAt, {
@@ -3399,12 +3412,15 @@ async function reviewExternalPullRequestInUi(
       "Manual external PR review · telemetry " +
       (reviewActivityLoggingEnabled() ? "ON" : "OFF") +
       " · raw responses " +
-      (configuration().get<boolean>("reviewRawResponseLogging", false) ? "ON" : "OFF"),
+      (configuration().get<boolean>("reviewRawResponseLogging", false) ? "ON" : "OFF") +
+      " · build " +
+      buildIdentity,
   });
 
   if (reviewActivityLoggingEnabled()) {
     reviewLog.appendLine("");
     reviewLog.appendLine("=== LLMatic External PR Review " + normalizedReference + " ===");
+    reviewLog.appendLine("Build: " + buildIdentity);
     reviewLog.appendLine("Telemetry: " + reviewTelemetryPath(context));
     reviewLog.show(true);
   }
@@ -3722,6 +3738,7 @@ async function runAutomaticExternalPullRequestReview(
   const startedAt = Date.now();
   const sessionId = "auto-" + reference + "-" + String(startedAt);
   const reviewStatus = statusProvider.beginExternalReview(reference);
+  const buildIdentity = extensionBuildIdentity(context);
 
   appendReviewActivity(context, reviewLog, sessionId, reference, startedAt, {
     type: "session",
@@ -3730,12 +3747,15 @@ async function runAutomaticExternalPullRequestReview(
       "Automatic external PR review · telemetry " +
       (reviewActivityLoggingEnabled() ? "ON" : "OFF") +
       " · raw responses " +
-      (configuration().get<boolean>("reviewRawResponseLogging", false) ? "ON" : "OFF"),
+      (configuration().get<boolean>("reviewRawResponseLogging", false) ? "ON" : "OFF") +
+      " · build " +
+      buildIdentity,
   });
 
   if (reviewActivityLoggingEnabled()) {
     reviewLog.appendLine("");
     reviewLog.appendLine("=== LLMatic Auto Review PR #" + reference + " ===");
+    reviewLog.appendLine("Build: " + buildIdentity);
     reviewLog.appendLine("Telemetry: " + reviewTelemetryPath(context));
   }
 
