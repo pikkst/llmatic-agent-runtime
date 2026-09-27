@@ -345,4 +345,12 @@ describe("VS Code extension activation surface", () => {
     expect(source).toContain("await target.activate()");
     expect(source).toContain("llmatic.agentChatProbe");
   });
+
+  it("refreshes pull-request CI immediately before review publication", async () => {
+    const source = await readFile(new URL("../src/extension.ts", import.meta.url), "utf8");
+    expect(source).toContain("async function refreshReviewPublicationReport");
+    expect(source).toContain("getPullRequestStatus(root, report.reference)");
+    expect(source).toContain("externalPullRequestReviewDraft(publicationReport)");
+    expect(source).toContain("externalPullRequestInlineComments(publicationReport)");
+  });
 });

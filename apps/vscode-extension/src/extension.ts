@@ -42,6 +42,8 @@ import {
   getGitHubRepositoryName,
   getPullRequestReviewContext,
   getPullRequestRequiredStatus,
+  getPullRequestStatus,
+  getPullRequestSummary,
   listOpenPullRequests,
   publishPullRequestReview,
   readPullRequestFileAtHead,
@@ -3096,12 +3098,41 @@ function externalPullRequestInlineComments(
           finding.title,
         "",
         "Evidence: " + finding.evidence,
+        ...(finding.verificationConfidence !== undefined
+          ? [
+              "",
+              "Verification confidence: **" +
+                String(Math.round(finding.verificationConfidence * 100)) +
+                "%**",
+            ]
+          : []),
         "",
         "Required fix: " + finding.recommendation,
         ...(finding.dodRef ? ["", "DoD/AC: " + finding.dodRef] : []),
         ...(finding.ruleId ? ["", "Repository rule: `" + finding.ruleId + "`"] : []),
       ].join("\n"),
     }));
+}
+
+async function refreshReviewPublicationReport(
+  root: string,
+  report: Awaited<ReturnType<typeof runExternalPullRequestReview>>,
+): Promise<Awaited<ReturnType<typeof runExternalPullRequestReview>>> {
+  const status = await getPullRequestStatus(root, report.reference);
+  if (status.pullRequest.headRefOid !== report.headRefOid) {
+    throw new Error(
+      "Pull-request head changed after review. Expected " +
+        report.headRefOid +
+        " but found " +
+        status.pullRequest.headRefOid +
+        ".",
+    );
+  }
+
+  return {
+    ...report,
+    ciState: status.ciState,
+  };
 }
 
 function externalPullRequestReviewDraft(
@@ -3282,10 +3313,11 @@ async function publishAutomaticReviewResult(
   const config = await loadAgentConfig(root, {
     LLMATIC_HOME: context.globalStorageUri.fsPath,
   });
+  const publicationReport = await refreshReviewPublicationReport(root, report);
   const body =
-    externalPullRequestReviewDraft(report) +
+    externalPullRequestReviewDraft(publicationReport) +
     (publicationDecision.note ? "\n\n> " + publicationDecision.note : "");
-  const inlineComments = externalPullRequestInlineComments(report);
+  const inlineComments = externalPullRequestInlineComments(publicationReport);
 
   const logPublication = (detail: string) => {
     output.appendLine("[AUTO REVIEW][PUBLISH] " + detail);
@@ -3529,6 +3561,18 @@ async function reviewExternalPullRequestInUi(
           root,
           config,
           gateway,
+          assertHeadStable: async () => {
+            const current = await getPullRequestSummary(root, normalizedReference);
+            if (current.headRefOid !== reviewContext.status.pullRequest.headRefOid) {
+              throw new Error(
+                "Pull-request head changed during review. Expected " +
+                  reviewContext.status.pullRequest.headRefOid +
+                  " but found " +
+                  current.headRefOid +
+                  ".",
+              );
+            }
+          },
           readFile: (path, options) => {
             const key =
               path + ":" + String(options.startLine ?? "") + ":" + String(options.endLine ?? "");
@@ -3621,7 +3665,8 @@ async function reviewExternalPullRequestInUi(
     printReviewReport(output, report);
     output.show(true);
 
-    const draft = externalPullRequestReviewDraft(report);
+    const publicationReport = await refreshReviewPublicationReport(root, report);
+    const draft = externalPullRequestReviewDraft(publicationReport);
     output.appendLine("");
     output.appendLine("Review comment draft (exact text that can be published):");
     output.appendLine("");
@@ -3686,7 +3731,7 @@ async function reviewExternalPullRequestInUi(
       );
       if (approval !== publishLabel) return;
 
-      const inlineComments = externalPullRequestInlineComments(report);
+      const inlineComments = externalPullRequestInlineComments(publicationReport);
       await publishPullRequestReview(
         root,
         config,
@@ -3851,6 +3896,18 @@ async function runAutomaticExternalPullRequestReview(
       root,
       config,
       gateway,
+      assertHeadStable: async () => {
+        const current = await getPullRequestSummary(root, reference);
+        if (current.headRefOid !== reviewContext.status.pullRequest.headRefOid) {
+          throw new Error(
+            "Pull-request head changed during review. Expected " +
+              reviewContext.status.pullRequest.headRefOid +
+              " but found " +
+              current.headRefOid +
+              ".",
+          );
+        }
+      },
       readFile: (path, options) => {
         const key =
           path + ":" + String(options.startLine ?? "") + ":" + String(options.endLine ?? "");
