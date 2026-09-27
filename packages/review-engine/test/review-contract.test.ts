@@ -229,4 +229,72 @@ describe("review contract", () => {
       }),
     ]);
   });
+
+  it("keeps auth diagnostics rules focused and excludes unrelated subsystem rules", () => {
+    const source = constitution();
+    source.rules.push(
+      {
+        id: "RULE-AUTH-ADMIN",
+        kind: "approved_rule",
+        text: "Admin auth diagnostics must derive actor identity from auth uid and remain read only.",
+        strength: "blocking",
+        confidence: 1,
+        scopes: ["security", "api"],
+        source: { path: "docs/AUTH_SECURITY.md", line: 12, origin: "approved" },
+        status: "active",
+      },
+      {
+        id: "RULE-STRIPE",
+        kind: "approved_rule",
+        text: "Stripe secret and payment API keys must remain server side.",
+        strength: "blocking",
+        confidence: 1,
+        scopes: ["security", "api"],
+        source: { path: "docs/PAYMENTS.md", line: 8, origin: "approved" },
+        status: "active",
+      },
+      {
+        id: "RULE-TILES",
+        kind: "approved_rule",
+        text: "Map tile requests must use the fixed GIS tile proxy endpoint.",
+        strength: "blocking",
+        confidence: 1,
+        scopes: ["api", "architecture"],
+        source: { path: "docs/MAPS.md", line: 9, origin: "approved" },
+        status: "active",
+      },
+    );
+    source.counts.approvedRule += 3;
+    source.counts.blocking += 3;
+
+    const contract = buildReviewContract({
+      headRefOid: "kt271-head",
+      title: "feat(KT-271): add admin identity and auth diagnostics",
+      body: "",
+      changedFiles: [
+        "src/features/admin/AdminIdentityAuthPage.tsx",
+        "src/lib/admin-identity-auth/api.ts",
+        "src/lib/auth-diagnostics/telemetry.ts",
+        "supabase/migrations/20260927220000_kt271_admin_identity_auth_diagnostics.sql",
+      ],
+      constitution: source,
+      linkedTask: {
+        provider: "Jira",
+        key: "KT-271",
+        summary: "Admin Identity & Auth Diagnostics",
+        acceptanceCriteria: [
+          "No password, OTP, OAuth token or service-role secret is exposed.",
+          "Cross-user ownership anomalies can be diagnosed safely.",
+        ],
+        definitionOfDone: ["Tests and build pass."],
+      },
+    });
+
+    const ids = contract.rules.map((rule) => rule.id);
+    expect(ids).toContain("RULE-AUTH-ADMIN");
+    expect(ids).not.toContain("RULE-STRIPE");
+    expect(ids).not.toContain("RULE-TILES");
+    expect(contract.rules.length).toBeLessThan(16);
+    expect(contract.invariants.length).toBeLessThanOrEqual(8);
+  });
 });
