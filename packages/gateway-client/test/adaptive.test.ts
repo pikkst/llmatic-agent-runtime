@@ -742,6 +742,74 @@ describe("AdaptiveFreeGatewayClient", () => {
     expect(requestedModels[0]).toBe("provider/json-large-120b:free");
   });
 
+  it("keeps native structured output ahead of a higher-scoring Tier B prompt-only model", async () => {
+    const requestedModels: string[] = [];
+    const now = Date.now();
+
+    const client = new AdaptiveFreeGatewayClient({
+      maxRetries: 0,
+      maxModelAttempts: 1,
+      reviewHistory: [
+        {
+          model: "poolside/prompt-only:free",
+          task: "review_general",
+          validatedReports: 6,
+          semanticFailures: 0,
+          lengthFailures: 0,
+          transportFailures: 0,
+          lastValidatedAt: now,
+          updatedAt: now,
+        },
+        {
+          model: "liquid/json-native:free",
+          task: "review_security",
+          validatedReports: 1,
+          semanticFailures: 0,
+          lengthFailures: 0,
+          transportFailures: 0,
+          lastValidatedAt: now,
+          updatedAt: now,
+        },
+      ],
+      fetch: async (input, init) => {
+        if (String(input).endsWith("/models")) {
+          return new Response(
+            JSON.stringify({
+              data: [
+                {
+                  id: "poolside/prompt-only:free",
+                  owned_by: "poolside",
+                  context_length: 131072,
+                  supported_parameters: ["max_tokens", "temperature"],
+                },
+                {
+                  id: "liquid/json-native:free",
+                  owned_by: "liquid",
+                  context_length: 131072,
+                  supported_parameters: ["max_tokens", "temperature", "response_format"],
+                },
+              ],
+            }),
+            { status: 200, headers: { "Content-Type": "application/json" } },
+          );
+        }
+
+        const body = JSON.parse(String(init?.body ?? "{}")) as { model?: string };
+        requestedModels.push(String(body.model));
+        return completion(String(body.model));
+      },
+    });
+
+    await client.createChatCompletion({
+      model: "kilo-auto/free",
+      messages: [{ role: "user", content: "Bug-hunt and return compact JSON." }],
+      routing: { task: "review_bug_hunter" },
+      response_format: { type: "json_object" },
+    });
+
+    expect(requestedModels[0]).toBe("liquid/json-native:free");
+  });
+
   it("opens an Auto Free session circuit breaker after two transient failures", async () => {
     let chatRequests = 0;
 

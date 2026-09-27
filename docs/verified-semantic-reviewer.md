@@ -411,6 +411,24 @@ Expected permanent regression:
 
 - candidate is rejected by semantic/exact-head verification
 
+### Krunditark PR #237 — KT-132 Russian critical-flow tests
+
+Observed live-smoke result:
+
+- LLMatic completed all three lenses with complete diff coverage and no published findings
+- the same exact head later passed repository CI
+- a separate Kilo review produced two low-signal comments: nullish-coalescing consistency inside a test assertion and a 1 px overflow tolerance suggestion; neither established a production defect or documented acceptance failure
+- structured-output recovery worked: an invalid security report was rejected and repaired to an empty valid report
+- capacity recovery worked: a Bug Hunter prompt-only model hit `finish=length`, then a JSON-native model completed the batch
+- however, the prompt-only model was selected before an available JSON-native Tier B model and consumed about 1m49s before recovery
+- the Auto Review activity log omitted the expected Acceptance evidence line even though the packaged extension bundle contains that stage; exact build identity was not logged, so the active runtime could not be proven from telemetry alone
+
+Expected permanent regressions:
+
+- within the same review-history tier, native structured-output support outranks prompt-only candidates regardless of learned score
+- every manual and automatic external review logs extension version + exact source commit
+- Acceptance evidence telemetry remains present in both manual and Auto Review source paths
+
 ### Krunditark PR #236 — KT-131 privacy-request concurrency
 
 Benchmark provenance:

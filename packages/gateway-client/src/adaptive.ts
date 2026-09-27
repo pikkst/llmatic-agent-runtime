@@ -224,7 +224,7 @@ function reviewSpeedScore(model: GatewayModelInfo): number {
   return score;
 }
 
-function reviewStructuredOutputScore(
+function reviewStructuredOutputRank(
   model: GatewayModelInfo,
   request: GatewayChatRequest,
   task: string,
@@ -232,8 +232,8 @@ function reviewStructuredOutputScore(
   if (!task.startsWith("review_") || !request.response_format) return 0;
 
   const support = structuredOutputSupport(model);
-  if (support === "supported") return 900;
-  if (support === "unsupported") return -300;
+  if (support === "supported") return 2;
+  if (support === "unknown") return 1;
   return 0;
 }
 
@@ -506,12 +506,14 @@ export class AdaptiveFreeGatewayClient implements GatewayChatClient {
             (taskUnhealthy?.get(model.id) ?? 0) <= now &&
             (this.globallyUnhealthyUntil.get(model.id) ?? 0) <= now,
         )
-        .sort(
-          (left, right) =>
-            this.score(task, right) +
-            reviewStructuredOutputScore(right, request, task) -
-            (this.score(task, left) + reviewStructuredOutputScore(left, request, task)),
-        );
+        .sort((left, right) => {
+          const structuredDifference =
+            reviewStructuredOutputRank(right, request, task) -
+            reviewStructuredOutputRank(left, request, task);
+          if (structuredDifference !== 0) return structuredDifference;
+
+          return this.score(task, right) - this.score(task, left);
+        });
 
       const usedProviders = new Set<string>();
       const diverse: GatewayModelInfo[] = [];

@@ -89,6 +89,9 @@ describe("VS Code extension activation surface", () => {
     expect(source).toContain("=== LLMatic Auto Review PR #");
     expect(source).toContain("CI snapshot");
     expect(source).toContain("pullRequestAcceptanceEvidenceFromTaskSource");
+    expect(source.match(/phase: "Acceptance evidence"/g)?.length ?? 0).toBeGreaterThanOrEqual(2);
+    expect(source).toContain("extensionBuildIdentity");
+    expect(source).toContain('reviewLog.appendLine("Build: " + buildIdentity)');
     expect(source).toContain("resolveTaskReference");
     expect(source).toContain("task reference ");
     expect(source).toContain("documentedAcceptanceEvidence: acceptanceEvidence.items");
@@ -111,6 +114,14 @@ describe("VS Code extension activation surface", () => {
     expect(source).toContain("password: true");
     expect(source).toContain("Auto Free can run anonymously");
     expect(source).toContain("export function deactivate");
+  });
+
+  it("embeds an exact build SHA into the extension bundle", async () => {
+    const bundle = await readFile(new URL("../scripts/bundle.mjs", import.meta.url), "utf8");
+
+    expect(bundle).toContain('execFileSync("git", ["rev-parse", "HEAD"]');
+    expect(bundle).toContain("__LLMATIC_BUILD_SHA__");
+    expect(bundle).toContain("JSON.stringify(buildSha)");
   });
 
   it("does not block the Auto Review PR queue on result notifications", async () => {
