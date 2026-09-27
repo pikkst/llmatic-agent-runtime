@@ -216,12 +216,28 @@ const findingSchema = z
     basis: z.enum(["dod", "defect", "repository_rule"]),
     title: z.string().min(1),
     path: z.string().min(1),
-    line: z.number().int().positive().nullable().optional().transform((value) => value ?? undefined),
+    line: z
+      .number()
+      .int()
+      .positive()
+      .nullable()
+      .optional()
+      .transform((value) => value ?? undefined),
     side: z.enum(["RIGHT", "LEFT"]).default("RIGHT"),
     evidence: z.string().min(1),
     recommendation: z.string().min(1),
-    dod_ref: z.string().min(1).nullable().optional().transform((value) => value ?? undefined),
-    rule_id: z.string().min(1).nullable().optional().transform((value) => value ?? undefined),
+    dod_ref: z
+      .string()
+      .min(1)
+      .nullable()
+      .optional()
+      .transform((value) => value ?? undefined),
+    rule_id: z
+      .string()
+      .min(1)
+      .nullable()
+      .optional()
+      .transform((value) => value ?? undefined),
   })
   .strict()
   .superRefine((finding, context) => {
@@ -614,9 +630,7 @@ function reviewPathTerms(path: string): Set<string> {
       .split(/[^a-z0-9]+/)
       .filter(
         (token) =>
-          token.length >= 3 &&
-          !REVIEW_CLUSTER_STOP_WORDS.has(token) &&
-          !/^\d+$/.test(token),
+          token.length >= 3 && !REVIEW_CLUSTER_STOP_WORDS.has(token) && !/^\d+$/.test(token),
       ),
   );
 }
@@ -648,10 +662,7 @@ function importTargetCandidates(importer: string, specifier: string): string[] {
   ];
 }
 
-function securityRelevantCluster(
-  material: PullRequestReviewMaterial,
-  files: string[],
-): boolean {
+function securityRelevantCluster(material: PullRequestReviewMaterial, files: string[]): boolean {
   const text = files
     .map((path) => {
       let diff = "";
@@ -2542,50 +2553,30 @@ export async function runExternalPullRequestReview(
       continue;
     }
 
-    const outcomes = await mapBounded(
-      batches,
-      batchConcurrency,
-      async (batch, index) => {
-        const batchNumber = index + 1;
-        const batchStartedAt = Date.now();
-        options.onActivity?.({
-          type: "lens-batch-start",
+    const outcomes = await mapBounded(batches, batchConcurrency, async (batch, index) => {
+      const batchNumber = index + 1;
+      const batchStartedAt = Date.now();
+      options.onActivity?.({
+        type: "lens-batch-start",
+        lens,
+        batch: batchNumber,
+        totalBatches: batches.length,
+        files: batch.files,
+      });
+
+      try {
+        const batchResult = await runExternalReviewBatchWithRecovery(
+          reviewOptions,
+          constitution,
           lens,
-          batch: batchNumber,
-          totalBatches: batches.length,
-          files: batch.files,
-        });
+          batch,
+          lensAvoidedModels,
+        );
 
-        try {
-          const batchResult = await runExternalReviewBatchWithRecovery(
-            reviewOptions,
-            constitution,
-            lens,
-            batch,
-            lensAvoidedModels,
-          );
-
-          if (batchResult.recoveryFailures.length > 0) {
-            const reason =
-              "split recovery incomplete after an initial recoverable failure: " +
-              batchResult.recoveryFailures.join(" | ");
-            options.onActivity?.({
-              type: "lens-batch-failed",
-              lens,
-              batch: batchNumber,
-              totalBatches: batches.length,
-              reason,
-              durationMs: Date.now() - batchStartedAt,
-            });
-            return {
-              result: batchResult,
-              failure: "batch " + batchNumber + "/" + batches.length + ": " + reason,
-            };
-          }
-
-          return { result: batchResult };
-        } catch (error) {
-          const reason = error instanceof Error ? error.message : String(error);
+        if (batchResult.recoveryFailures.length > 0) {
+          const reason =
+            "split recovery incomplete after an initial recoverable failure: " +
+            batchResult.recoveryFailures.join(" | ");
           options.onActivity?.({
             type: "lens-batch-failed",
             lens,
@@ -2595,17 +2586,31 @@ export async function runExternalPullRequestReview(
             durationMs: Date.now() - batchStartedAt,
           });
           return {
+            result: batchResult,
             failure: "batch " + batchNumber + "/" + batches.length + ": " + reason,
           };
         }
-      },
-    );
+
+        return { result: batchResult };
+      } catch (error) {
+        const reason = error instanceof Error ? error.message : String(error);
+        options.onActivity?.({
+          type: "lens-batch-failed",
+          lens,
+          batch: batchNumber,
+          totalBatches: batches.length,
+          reason,
+          durationMs: Date.now() - batchStartedAt,
+        });
+        return {
+          failure: "batch " + batchNumber + "/" + batches.length + ": " + reason,
+        };
+      }
+    });
 
     const batchResults = outcomes
       .map((outcome) => outcome.result)
-      .filter(
-        (result): result is ExternalReviewBatchResult => result !== undefined,
-      );
+      .filter((result): result is ExternalReviewBatchResult => result !== undefined);
     batchFailures.push(
       ...outcomes
         .map((outcome) => outcome.failure)

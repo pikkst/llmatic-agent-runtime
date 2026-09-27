@@ -2569,5 +2569,4 @@ describe("review engine", () => {
 
     expect(checks).toBeGreaterThanOrEqual(3);
   });
-
 });

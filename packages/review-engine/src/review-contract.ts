@@ -171,9 +171,7 @@ function relevanceTerms(value: string): Set<string> {
       .split(/[^a-z0-9]+/)
       .filter(
         (token) =>
-          token.length >= 3 &&
-          !RULE_RELEVANCE_STOP_WORDS.has(token) &&
-          !/^\d+$/.test(token),
+          token.length >= 3 && !RULE_RELEVANCE_STOP_WORDS.has(token) && !/^\d+$/.test(token),
       ),
   );
 }

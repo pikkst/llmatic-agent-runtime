@@ -297,5 +297,4 @@ describe("review contract", () => {
     expect(contract.rules.length).toBeLessThan(16);
     expect(contract.invariants.length).toBeLessThanOrEqual(8);
   });
-
 });
