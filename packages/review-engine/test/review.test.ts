@@ -303,8 +303,8 @@ describe("review engine", () => {
         title: "Strict top-level review schema",
         body: "",
         ciState: "passing",
-        changedFiles: ["src/value.ts"],
-        diff: "diff --git a/src/value.ts b/src/value.ts\n--- a/src/value.ts\n+++ b/src/value.ts\n@@ -1 +1 @@\n-export const value = 1;\n+export const value = 2;\n",
+        changedFiles: ["src/security/value.ts"],
+        diff: "diff --git a/src/security/value.ts b/src/security/value.ts\n--- a/src/security/value.ts\n+++ b/src/security/value.ts\n@@ -1 +1 @@\n-export const value = 1;\n+export const value = 2;\n",
         diffTruncated: false,
       },
     });
