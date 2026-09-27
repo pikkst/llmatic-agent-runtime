@@ -56,6 +56,7 @@ export interface GatewayModelInfo {
 export interface GatewayRoutingHint {
   task?: string;
   avoidModels?: string[];
+  inputChars?: number;
 }
 
 export interface GatewayChatResponse {
