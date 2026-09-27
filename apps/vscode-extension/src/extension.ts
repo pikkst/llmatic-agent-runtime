@@ -3864,6 +3864,18 @@ async function runAutomaticExternalPullRequestReview(
       root,
       config,
       gateway,
+      assertHeadStable: async () => {
+        const current = await getPullRequestSummary(root, reference);
+        if (current.headRefOid !== reviewContext.status.pullRequest.headRefOid) {
+          throw new Error(
+            "Pull-request head changed during review. Expected " +
+              reviewContext.status.pullRequest.headRefOid +
+              " but found " +
+              current.headRefOid +
+              ".",
+          );
+        }
+      },
       readFile: (path, options) => {
         const key =
           path + ":" + String(options.startLine ?? "") + ":" + String(options.endLine ?? "");
