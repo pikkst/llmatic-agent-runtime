@@ -2485,4 +2485,89 @@ describe("review engine", () => {
     expect(report.blockingCount).toBe(0);
     expect((await store.loadCurrent())?.state).toBe("READY_TO_PUSH");
   });
+
+  it("skips the security model pass when no changed cluster is security relevant", async () => {
+    const root = await repository();
+    const config = configFor(root);
+    const gateway = new ScriptedGateway([]);
+
+    const report = await runExternalPullRequestReview({
+      root,
+      config,
+      gateway,
+      lenses: ["security"],
+      material: {
+        reference: "52",
+        headRefOid: "head-52",
+        title: "Adjust dashboard spacing",
+        body: "",
+        ciState: "passing",
+        changedFiles: ["src/dashboard/Layout.tsx"],
+        diff:
+          "diff --git a/src/dashboard/Layout.tsx b/src/dashboard/Layout.tsx\n" +
+          "--- a/src/dashboard/Layout.tsx\n" +
+          "+++ b/src/dashboard/Layout.tsx\n" +
+          "@@ -1 +1 @@\n-export const gap = 8;\n+export const gap = 12;\n",
+        diffTruncated: false,
+      },
+    });
+
+    expect(gateway.requests).toHaveLength(0);
+    expect(report.reviewStatus).toBe("complete");
+    expect(report.findings).toEqual([]);
+  });
+
+  it("rechecks pull-request head before bounded review batches", async () => {
+    const root = await repository();
+    const config = configFor(root);
+    let checks = 0;
+    const gateway = new ScriptedGateway([
+      response(JSON.stringify({ summary: "First batch.", findings: [] })),
+    ]);
+
+    const changedFiles = Array.from({ length: 7 }, (_, index) => "src/file-" + index + ".ts");
+    const diff = changedFiles
+      .map(
+        (path, index) =>
+          "diff --git a/" +
+          path +
+          " b/" +
+          path +
+          "\n--- a/" +
+          path +
+          "\n+++ b/" +
+          path +
+          "\n@@ -1 +1 @@\n-export const value = 1;\n+export const value = " +
+          String(index + 2) +
+          ";\n",
+      )
+      .join("");
+
+    await expect(
+      runExternalPullRequestReview({
+        root,
+        config,
+        gateway,
+        lenses: ["general"],
+        batchConcurrency: 1,
+        assertHeadStable: async () => {
+          checks += 1;
+          if (checks >= 3) throw new Error("head changed");
+        },
+        material: {
+          reference: "53",
+          headRefOid: "head-53",
+          title: "Independent changes",
+          body: "",
+          ciState: "passing",
+          changedFiles,
+          diff,
+          diffTruncated: false,
+        },
+      }),
+    ).rejects.toThrow("head changed");
+
+    expect(checks).toBeGreaterThanOrEqual(3);
+  });
+
 });
