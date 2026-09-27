@@ -1,4 +1,4 @@
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { dirname, posix, resolve } from "node:path";
 import { spawnSync } from "node:child_process";
@@ -70,6 +70,59 @@ function latestReviewPath(root: string, config: AgentConfig): string {
 
 function reviewHistoryPath(root: string, config: AgentConfig): string {
   return resolve(root, config.runtime.cacheDirectory, "review-history.json");
+}
+
+function externalReviewBatchCachePath(root: string, config: AgentConfig): string {
+  return resolve(root, config.runtime.cacheDirectory, "external-review-batch-cache.json");
+}
+
+interface ExternalReviewBatchCacheEntry {
+  savedAt: string;
+  summary: string;
+  findings: ReviewFinding[];
+}
+
+interface ExternalReviewBatchCacheFile {
+  version: 1;
+  entries: Record<string, ExternalReviewBatchCacheEntry>;
+}
+
+interface ExternalReviewBatchCacheRuntime {
+  file: ExternalReviewBatchCacheFile;
+  dirty: boolean;
+}
+
+async function loadExternalReviewBatchCache(
+  root: string,
+  config: AgentConfig,
+): Promise<ExternalReviewBatchCacheRuntime> {
+  try {
+    const parsed = JSON.parse(
+      await readFile(externalReviewBatchCachePath(root, config), "utf8"),
+    ) as ExternalReviewBatchCacheFile;
+    if (parsed.version === 1 && parsed.entries && typeof parsed.entries === "object") {
+      return { file: parsed, dirty: false };
+    }
+  } catch {
+    // Cache misses and malformed local cache files are non-fatal.
+  }
+
+  return { file: { version: 1, entries: {} }, dirty: false };
+}
+
+async function persistExternalReviewBatchCache(
+  root: string,
+  config: AgentConfig,
+  runtime: ExternalReviewBatchCacheRuntime,
+): Promise<void> {
+  if (!runtime.dirty) return;
+
+  const entries = Object.entries(runtime.file.entries)
+    .sort((left, right) => Date.parse(right[1].savedAt || "0") - Date.parse(left[1].savedAt || "0"))
+    .slice(0, 200);
+  runtime.file.entries = Object.fromEntries(entries);
+  await writeAtomicJson(externalReviewBatchCachePath(root, config), runtime.file);
+  runtime.dirty = false;
 }
 
 interface ReviewHistoryFinding {
@@ -324,6 +377,7 @@ export interface ReviewFinding extends Omit<RawReviewFinding, "rule_id" | "dod_r
   dodRef?: string;
   ruleId?: string;
   ruleSource?: string;
+  verificationConfidence?: number;
 }
 
 export interface CodeReviewReport {
@@ -391,6 +445,11 @@ export type ReviewActivityEvent =
       totalBatches: number;
       reason: string;
       durationMs: number;
+    }
+  | {
+      type: "lens-batch-cache-hit";
+      lens: ReviewLens;
+      files: string[];
     }
   | {
       type: "lens-failed";
@@ -503,6 +562,10 @@ export interface ExternalPullRequestReviewOptions extends ReviewExecutionOptions
   material: PullRequestReviewMaterial;
   assertHeadStable?: () => Promise<void>;
   batchConcurrency?: number;
+}
+
+interface ExternalPullRequestReviewRuntimeOptions extends ExternalPullRequestReviewOptions {
+  batchCache: ExternalReviewBatchCacheRuntime;
 }
 
 export interface ReviewLensFailure {
@@ -836,6 +899,78 @@ interface ExternalReviewBatchResult {
   recoveryFailures: string[];
 }
 
+function externalReviewBatchCacheKey(
+  lens: ReviewLens,
+  batch: ExternalReviewBatch,
+  contract: ReviewContract | undefined,
+): string {
+  const contractEvidence = contract
+    ? {
+        requirements: contract.requirements.map((item) => ({
+          kind: item.kind,
+          text: item.text,
+          referenceText: item.referenceText,
+        })),
+        rules: contract.rules.map((rule) => ({
+          id: rule.id,
+          text: rule.text,
+          strength: rule.strength,
+          scopes: rule.scopes,
+        })),
+        invariants: contract.invariants.map((invariant) => ({
+          kind: invariant.kind,
+          text: invariant.text,
+        })),
+        requiredEvidence: contract.requiredEvidence,
+        completeness: contract.completeness,
+      }
+    : undefined;
+
+  return createHash("sha256")
+    .update(
+      JSON.stringify({
+        version: 1,
+        lens,
+        files: batch.files,
+        packet: batch.packet,
+        contract: contractEvidence,
+      }),
+    )
+    .digest("hex");
+}
+
+function cachedExternalReviewBatch(
+  options: ExternalPullRequestReviewRuntimeOptions,
+  lens: ReviewLens,
+  batch: ExternalReviewBatch,
+): ExternalReviewBatchResult | undefined {
+  const key = externalReviewBatchCacheKey(lens, batch, options.reviewContract);
+  const cached = options.batchCache.file.entries[key];
+  if (!cached) return undefined;
+
+  return {
+    summary: cached.summary,
+    findings: cached.findings,
+    recoveryFailures: [],
+  };
+}
+
+function rememberExternalReviewBatch(
+  options: ExternalPullRequestReviewRuntimeOptions,
+  lens: ReviewLens,
+  batch: ExternalReviewBatch,
+  result: ExternalReviewBatchResult,
+): void {
+  if (result.recoveryFailures.length > 0) return;
+  const key = externalReviewBatchCacheKey(lens, batch, options.reviewContract);
+  options.batchCache.file.entries[key] = {
+    savedAt: new Date().toISOString(),
+    summary: result.summary,
+    findings: result.findings,
+  };
+  options.batchCache.dirty = true;
+}
+
 function externalReviewBatch(
   material: PullRequestReviewMaterial,
   files: string[],
@@ -865,7 +1000,7 @@ function recoverableExternalReviewFailure(error: unknown): boolean {
 }
 
 async function runExternalReviewBatchWithRecovery(
-  options: ExternalPullRequestReviewOptions,
+  options: ExternalPullRequestReviewRuntimeOptions,
   constitution: RepositoryConstitution,
   lens: ReviewLens,
   batch: ExternalReviewBatch,
@@ -873,6 +1008,17 @@ async function runExternalReviewBatchWithRecovery(
 ): Promise<ExternalReviewBatchResult> {
   const recoveryAvoidedModels = lensAvoidedModels;
   await options.assertHeadStable?.();
+
+  const cached = cachedExternalReviewBatch(options, lens, batch);
+  if (cached) {
+    options.onActivity?.({
+      type: "lens-batch-cache-hit",
+      lens,
+      files: batch.files,
+    });
+    return cached;
+  }
+
   try {
     const result = await runReviewLens(
       options,
@@ -883,7 +1029,9 @@ async function runExternalReviewBatchWithRecovery(
       batch.packet,
       recoveryAvoidedModels,
     );
-    return { ...result, recoveryFailures: [] };
+    const completed = { ...result, recoveryFailures: [] };
+    rememberExternalReviewBatch(options, lens, batch, completed);
+    return completed;
   } catch (initialError) {
     if (!recoverableExternalReviewFailure(initialError)) throw initialError;
 
@@ -902,7 +1050,9 @@ async function runExternalReviewBatchWithRecovery(
           batch.packet,
           recoveryAvoidedModels,
         );
-        return { ...result, recoveryFailures: [] };
+        const completed = { ...result, recoveryFailures: [] };
+        rememberExternalReviewBatch(options, lens, batch, completed);
+        return completed;
       } catch (recoveryError) {
         if (staleExternalReviewHeadFailure(recoveryError)) throw recoveryError;
         throw new Error(
@@ -952,11 +1102,13 @@ async function runExternalReviewBatchWithRecovery(
       );
     }
 
-    return {
+    const completed = {
       summary: recovered.map((item) => item.summary).join(" "),
       findings: recovered.flatMap((item) => item.findings),
       recoveryFailures,
     };
+    rememberExternalReviewBatch(options, lens, batch, completed);
+    return completed;
   }
 }
 
@@ -2035,6 +2187,64 @@ async function sqlConcurrencyIdempotencyFindingIsVerified(
   }
 }
 
+function specializedDeterministicClaim(finding: ReviewFinding): boolean {
+  return Boolean(
+    typedMemberAbsenceClaim(finding) ||
+    duplicateUnionLiteralClaim(finding) ||
+    testLiteralAbsenceClaim(finding) ||
+    missingDirectTableGrantClaim(finding) ||
+    sqlConcurrencyIdempotencyClaim(finding),
+  );
+}
+
+async function exactHeadFindingPathReadable(
+  finding: ReviewFinding,
+  options: ExternalPullRequestReviewOptions,
+): Promise<boolean> {
+  if (!options.readFile || isWorkspacePathSensitive(finding.path)) return false;
+  try {
+    return Boolean(readFileContent(await options.readFile(finding.path, {})));
+  } catch {
+    return false;
+  }
+}
+
+async function findingVerificationConfidence(
+  finding: ReviewFinding,
+  options: ExternalPullRequestReviewOptions,
+): Promise<number> {
+  let score = 0.5;
+
+  if (finding.line !== undefined && findingHasValidInlineTarget(finding, options.material)) {
+    score += 0.2;
+  }
+  if (
+    finding.basis === "dod" &&
+    findingMatchesDocumentedAcceptance(
+      finding,
+      documentedAcceptanceEvidence(options.material, options.reviewContract),
+    )
+  ) {
+    score += 0.2;
+  }
+  if (finding.basis === "repository_rule" && finding.ruleId) {
+    score += 0.15;
+  }
+  if (specializedDeterministicClaim(finding)) {
+    score += 0.1;
+  }
+  if (await exactHeadFindingPathReadable(finding, options)) {
+    score += 0.1;
+  }
+
+  const wording = [finding.title, finding.evidence].join(" ");
+  if (/\b(?:might|may|could|possibly|potentially|appears? to|seems? to)\b/i.test(wording)) {
+    score -= 0.15;
+  }
+
+  return Math.max(0, Math.min(1, score));
+}
+
 async function verifyExternalFindings(
   findings: ReviewFinding[],
   options: ExternalPullRequestReviewOptions,
@@ -2046,7 +2256,10 @@ async function verifyExternalFindings(
     if (!(await testLiteralAbsenceFindingIsVerified(finding, options))) continue;
     if (!(await missingDirectTableGrantFindingIsVerified(finding, options))) continue;
     if (!(await sqlConcurrencyIdempotencyFindingIsVerified(finding, options))) continue;
-    verified.push(finding);
+
+    const verificationConfidence = await findingVerificationConfidence(finding, options);
+    if (verificationConfidence < 0.7) continue;
+    verified.push({ ...finding, verificationConfidence });
   }
   return verified;
 }
@@ -2514,8 +2727,10 @@ export async function runExternalPullRequestReview(
     supplementalAcceptanceEvidenceSource: options.material.acceptanceEvidenceSource,
     acceptanceEvidenceUnavailableReason: options.material.acceptanceEvidenceUnavailableReason,
   });
-  const reviewOptions: ExternalPullRequestReviewOptions = {
+  const batchCache = await loadExternalReviewBatchCache(options.root, options.config);
+  const reviewOptions: ExternalPullRequestReviewRuntimeOptions = {
     ...options,
+    batchCache,
     reviewContract,
     material: {
       ...options.material,
@@ -2704,6 +2919,8 @@ export async function runExternalPullRequestReview(
         lensFailures.map((failure) => failure.lens + ": " + failure.reason).join(" | "),
     );
   }
+
+  await persistExternalReviewBatchCache(options.root, options.config, batchCache);
 
   const acceptanceEvidence = reviewContractAcceptanceEvidence(reviewContract);
   const strictFindings = strictExternalFindings(
