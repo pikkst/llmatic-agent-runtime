@@ -1925,5 +1925,4 @@ describe("AdaptiveFreeGatewayClient", () => {
     });
     expect(requestedModels[0]).toBe(capacityLimitedModel);
   });
-
 });

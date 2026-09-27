@@ -215,12 +215,28 @@ const findingSchema = z
     basis: z.enum(["dod", "defect", "repository_rule"]),
     title: z.string().min(1),
     path: z.string().min(1),
-    line: z.number().int().positive().nullable().optional().transform((value) => value ?? undefined),
+    line: z
+      .number()
+      .int()
+      .positive()
+      .nullable()
+      .optional()
+      .transform((value) => value ?? undefined),
     side: z.enum(["RIGHT", "LEFT"]).default("RIGHT"),
     evidence: z.string().min(1),
     recommendation: z.string().min(1),
-    dod_ref: z.string().min(1).nullable().optional().transform((value) => value ?? undefined),
-    rule_id: z.string().min(1).nullable().optional().transform((value) => value ?? undefined),
+    dod_ref: z
+      .string()
+      .min(1)
+      .nullable()
+      .optional()
+      .transform((value) => value ?? undefined),
+    rule_id: z
+      .string()
+      .min(1)
+      .nullable()
+      .optional()
+      .transform((value) => value ?? undefined),
   })
   .strict()
   .superRefine((finding, context) => {
