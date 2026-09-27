@@ -2569,4 +2569,157 @@ describe("review engine", () => {
 
     expect(checks).toBeGreaterThanOrEqual(3);
   });
+
+  it("reuses a validated unchanged batch across pull-request heads", async () => {
+    const root = await repository();
+    const config = configFor(root);
+    const firstGateway = new ScriptedGateway([
+      response(JSON.stringify({ summary: "Validated unchanged batch.", findings: [] })),
+    ]);
+
+    const material = {
+      reference: "61",
+      headRefOid: "head-a",
+      title: "Stable implementation change",
+      body: "",
+      ciState: "passing",
+      changedFiles: ["src/value.ts"],
+      diff:
+        "diff --git a/src/value.ts b/src/value.ts\n" +
+        "--- a/src/value.ts\n" +
+        "+++ b/src/value.ts\n" +
+        "@@ -1 +1 @@\n-export const value = 1;\n+export const value = 2;\n",
+      diffTruncated: false,
+    };
+
+    await runExternalPullRequestReview({
+      root,
+      config,
+      gateway: firstGateway,
+      lenses: ["general"],
+      material,
+    });
+    expect(firstGateway.requests).toHaveLength(1);
+
+    const events: ReviewActivityEvent[] = [];
+    const secondGateway = new ScriptedGateway([]);
+    const second = await runExternalPullRequestReview({
+      root,
+      config,
+      gateway: secondGateway,
+      lenses: ["general"],
+      onActivity: (event) => events.push(event),
+      material: { ...material, headRefOid: "head-b" },
+    });
+
+    expect(secondGateway.requests).toHaveLength(0);
+    expect(second.reviewStatus).toBe("complete");
+    expect(events).toContainEqual(
+      expect.objectContaining({
+        type: "lens-batch-cache-hit",
+        lens: "general",
+      }),
+    );
+  });
+
+  it("drops low-confidence speculative defects after deterministic verification", async () => {
+    const root = await repository();
+    const config = configFor(root);
+    const gateway = new ScriptedGateway([
+      response(
+        JSON.stringify({
+          summary: "Speculative concern.",
+          findings: [
+            {
+              severity: "non_blocking",
+              category: "correctness",
+              basis: "defect",
+              title: "Value might possibly be wrong",
+              path: "src/value.ts",
+              line: 1,
+              side: "RIGHT",
+              evidence: "The changed value could potentially violate an unspecified expectation.",
+              recommendation: "Double-check the value.",
+              dod_ref: null,
+              rule_id: null,
+            },
+          ],
+        }),
+      ),
+    ]);
+
+    const report = await runExternalPullRequestReview({
+      root,
+      config,
+      gateway,
+      lenses: ["general"],
+      material: {
+        reference: "62",
+        headRefOid: "head-62",
+        title: "Change value",
+        body: "",
+        ciState: "passing",
+        changedFiles: ["src/value.ts"],
+        diff:
+          "diff --git a/src/value.ts b/src/value.ts\n" +
+          "--- a/src/value.ts\n" +
+          "+++ b/src/value.ts\n" +
+          "@@ -1 +1 @@\n-export const value = 1;\n+export const value = 2;\n",
+        diffTruncated: false,
+      },
+    });
+
+    expect(report.findings).toEqual([]);
+  });
+
+  it("attaches evidence-derived confidence to verified concrete findings", async () => {
+    const root = await repository();
+    const config = configFor(root);
+    const gateway = new ScriptedGateway([
+      response(
+        JSON.stringify({
+          summary: "Concrete defect.",
+          findings: [
+            {
+              severity: "blocking",
+              category: "correctness",
+              basis: "defect",
+              title: "Exported value changed unexpectedly",
+              path: "src/value.ts",
+              line: 1,
+              side: "RIGHT",
+              evidence: "The changed line sets the exported value to 2 instead of the required 1.",
+              recommendation: "Restore the required exported value.",
+              dod_ref: null,
+              rule_id: null,
+            },
+          ],
+        }),
+      ),
+    ]);
+
+    const report = await runExternalPullRequestReview({
+      root,
+      config,
+      gateway,
+      lenses: ["general"],
+      material: {
+        reference: "63",
+        headRefOid: "head-63",
+        title: "Concrete value regression",
+        body: "",
+        ciState: "passing",
+        changedFiles: ["src/value.ts"],
+        diff:
+          "diff --git a/src/value.ts b/src/value.ts\n" +
+          "--- a/src/value.ts\n" +
+          "+++ b/src/value.ts\n" +
+          "@@ -1 +1 @@\n-export const value = 1;\n+export const value = 2;\n",
+        diffTruncated: false,
+      },
+    });
+
+    expect(report.findings).toHaveLength(1);
+    expect(report.findings[0]?.verificationConfidence).toBeGreaterThanOrEqual(0.7);
+  });
 });
