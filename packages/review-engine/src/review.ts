@@ -776,7 +776,35 @@ function externalReviewBatchesForClusters(
   material: PullRequestReviewMaterial,
   clusters: ExternalReviewCluster[],
 ): ExternalReviewBatch[] {
-  return clusters.flatMap((cluster) => externalReviewBatches(material, cluster.files));
+  const clusterBatches = clusters.flatMap((cluster) =>
+    externalReviewBatches(material, cluster.files),
+  );
+  const packed: ExternalReviewBatch[] = [];
+  let currentFiles: string[] = [];
+
+  const flush = () => {
+    if (currentFiles.length === 0) return;
+    packed.push(externalReviewBatch(material, currentFiles));
+    currentFiles = [];
+  };
+
+  for (const candidate of clusterBatches) {
+    const mergedFiles = [...currentFiles, ...candidate.files];
+    const mergedBatch = externalReviewBatch(material, mergedFiles);
+
+    if (
+      currentFiles.length > 0 &&
+      (mergedFiles.length > MAX_EXTERNAL_REVIEW_BATCH_FILES ||
+        mergedBatch.packet.length > MAX_EXTERNAL_REVIEW_BATCH_CHARS)
+    ) {
+      flush();
+    }
+
+    currentFiles.push(...candidate.files);
+  }
+
+  flush();
+  return packed;
 }
 
 async function mapBounded<T, R>(
