@@ -1248,6 +1248,15 @@ function speculativeTypeScriptNullabilityFinding(finding: ReviewFinding): boolea
   );
 }
 
+function boundedBatchUncertaintyDodFinding(finding: ReviewFinding): boolean {
+  if (finding.basis !== "dod") return false;
+
+  const text = [finding.title, finding.evidence, finding.recommendation].join(" ");
+  return /(?:not|isn't|is not)\s+(?:visible|present|included|shown)\s+in\s+(?:this|the)\s+(?:bounded\s+)?(?:batch|packet)|cannot\s+be\s+(?:independently\s+)?verified\s+(?:here|from\s+(?:this|the)\s+(?:bounded\s+)?(?:batch|packet))|not\s+in\s+(?:this|the)\s+(?:bounded\s+)?(?:batch|packet)|only\s+[^.]{0,120}\s+is\s+visible\s+in\s+(?:this|the)\s+(?:bounded\s+)?(?:batch|packet)/i.test(
+    text,
+  );
+}
+
 function strictExternalFindings(
   findings: ReviewFinding[],
   material: PullRequestReviewMaterial,
@@ -1258,6 +1267,9 @@ function strictExternalFindings(
     material.changedFiles.every((path) => pullRequestDiffContainsPath(material.diff, path));
 
   return findings.filter((finding) => {
+    if (boundedBatchUncertaintyDodFinding(finding)) {
+      return false;
+    }
     if (finding.basis === "dod" && finding.line === undefined && !completeDiffCoverage) {
       return false;
     }
