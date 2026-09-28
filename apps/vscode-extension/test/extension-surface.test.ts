@@ -353,4 +353,12 @@ describe("VS Code extension activation surface", () => {
     expect(source).toContain("externalPullRequestReviewDraft(publicationReport)");
     expect(source).toContain("externalPullRequestInlineComments(publicationReport)");
   });
+
+  it("never approves a report that still contains a documented DoD violation", async () => {
+    const source = await readFile(new URL("../src/extension.ts", import.meta.url), "utf8");
+    expect(source).toContain(
+      'report.blockingCount > 0 || report.findings.some((finding) => finding.basis === "dod")',
+    );
+  });
+
 });
