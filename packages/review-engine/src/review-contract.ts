@@ -153,6 +153,8 @@ const RULE_RELEVANCE_STOP_WORDS = new Set([
   "modules",
 ]);
 
+const SHORT_RELEVANCE_TERMS = new Set(["ux", "ui", "ai", "db", "ci"]);
+
 const DISTINCTIVE_RULE_DOMAIN_GROUPS = [
   new Set(["admin", "administrator"]),
   new Set(["stripe", "payment", "billing"]),
@@ -172,7 +174,9 @@ function relevanceTerms(value: string): Set<string> {
       .split(/[^a-z0-9]+/)
       .filter(
         (token) =>
-          token.length >= 3 && !RULE_RELEVANCE_STOP_WORDS.has(token) && !/^\d+$/.test(token),
+          (token.length >= 3 || SHORT_RELEVANCE_TERMS.has(token)) &&
+          !RULE_RELEVANCE_STOP_WORDS.has(token) &&
+          !/^\d+$/.test(token),
       ),
   );
 }
