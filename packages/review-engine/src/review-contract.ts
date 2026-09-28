@@ -404,6 +404,7 @@ function selectedRules(
         if (domainMismatch) return false;
         if (globalPolicy) return primaryOverlap >= 2;
         if (scopeOverlap > 0) return primaryOverlap > 0;
+        if (primaryOverlap >= 2 && lexicalOverlap >= 3) return true;
         return repositoryScoped && primaryOverlap >= 2;
       },
     )
