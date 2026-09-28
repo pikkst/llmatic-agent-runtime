@@ -365,4 +365,60 @@ describe("review contract", () => {
     expect(contract.rules.length).toBeLessThan(12);
     expect(contract.invariants.length).toBeLessThan(6);
   });
+
+  it("does not admit subsystem rules solely from acceptance-criterion wording", () => {
+    const source = constitution();
+    source.rules.push(
+      {
+        id: "RULE-ADMIN-ONLY",
+        kind: "approved_rule",
+        text: "Administrator authentication routes must preserve the canonical admin session guard.",
+        strength: "blocking",
+        confidence: 1,
+        scopes: ["security", "api"],
+        source: { path: "docs/ADMIN_AUTH.md", line: 4, origin: "approved" },
+        status: "active",
+      },
+      {
+        id: "RULE-INAKS",
+        kind: "approved_rule",
+        text: "In-AKS building relation requests must preserve cadastral identity and bounded provider results.",
+        strength: "blocking",
+        confidence: 1,
+        scopes: ["api", "backend"],
+        source: { path: "docs/INAKS.md", line: 5, origin: "approved" },
+        status: "active",
+      },
+    );
+    source.counts.approvedRule += 2;
+    source.counts.blocking += 2;
+
+    const result = buildReviewContract({
+      headRefOid: "kt136-head",
+      title: "feat(KT-136): implement In-AKS parcel-to-building adapter",
+      body: "",
+      changedFiles: [
+        "src/domain/source-adapters/inaks-buildings/parcel-building-fetch.ts",
+        "src/domain/source-acquisition/parcel-source-acquisition.ts",
+      ],
+      constitution: source,
+      linkedTask: {
+        provider: "Jira",
+        key: "KT-136",
+        summary: "Implement In-AKS parcel-to-building EHR adapter",
+        acceptanceCriteria: [
+          "Authentication/access prerequisites and security boundaries remain documented.",
+          "In-AKS requests validate cadastral identity and bounded results.",
+        ],
+        definitionOfDone: ["Tests and build pass."],
+      },
+    });
+
+    const ids = result.rules.map((rule) => rule.id);
+    expect(ids).toContain("RULE-INAKS");
+    expect(ids).not.toContain("RULE-ADMIN-ONLY");
+    expect(result.rules.length).toBeLessThan(12);
+    expect(result.invariants.length).toBeLessThan(6);
+  });
+
 });
