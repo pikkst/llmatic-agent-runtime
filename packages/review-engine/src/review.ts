@@ -301,11 +301,32 @@ const findingSchema = z
         message: "DoD findings require dod_ref.",
       });
     }
+    if (finding.basis === "dod" && finding.rule_id) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["rule_id"],
+        message: "DoD findings must not include rule_id.",
+      });
+    }
     if (finding.basis === "repository_rule" && !finding.rule_id) {
       context.addIssue({
         code: z.ZodIssueCode.custom,
         path: ["rule_id"],
         message: "Repository-rule findings require rule_id.",
+      });
+    }
+    if (finding.basis === "repository_rule" && finding.dod_ref) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["dod_ref"],
+        message: "Repository-rule findings must not include dod_ref.",
+      });
+    }
+    if (finding.basis === "defect" && (finding.dod_ref || finding.rule_id)) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["basis"],
+        message: "Defect findings must not include DoD or repository-rule references.",
       });
     }
     if ((finding.basis === "defect" || finding.basis === "repository_rule") && !finding.line) {
@@ -1552,14 +1573,42 @@ function positiveDodObservation(value: unknown): boolean {
   const finding = value as Record<string, unknown>;
   if (finding.basis !== "dod") return false;
 
+  const title = typeof finding.title === "string" ? finding.title.trim().toLowerCase() : "";
+  const evidence =
+    typeof finding.evidence === "string" ? finding.evidence.trim().toLowerCase() : "";
   const recommendation =
     typeof finding.recommendation === "string" ? finding.recommendation.trim().toLowerCase() : "";
+  const claim = [title, evidence].join(" ");
+  const allText = [title, evidence, recommendation].join(" ");
+
+  const explicitViolation =
+    /\b(?:violat(?:e|es|ed|ion)|unmet|missing|required\s+work\s+is\s+absent|fails?\s+to|does\s+not|doesn't|incorrect|wrong|broken|regression|gap|must\s+be\s+fixed|needs?\s+to\s+be\s+fixed)\b/.test(
+      claim,
+    );
+  if (explicitViolation) return false;
+
   return (
+    /\b(?:correctly|properly|successfully)\s+(?:implements?|implemented|enforces?|enforced|validates?|validated|applies?|applied|matches?|matched|satisfies|satisfied)\b/.test(
+      allText,
+    ) ||
+    /\b(?:matches?|aligns?|complies?)\s+with\s+(?:the\s+)?(?:kt-?\d+\s+)?(?:requirement|requirements|contract|dod|acceptance)\b/.test(
+      allText,
+    ) ||
+    /\b(?:as|required by|in line with)\s+(?:the\s+)?(?:kt-?\d+\s+)?(?:requirement|requirements|contract|dod|acceptance)\b/.test(
+      allText,
+    ) ||
+    /\b(?:is|are)\s+(?:correct|compliant|appropriate|consistent)\b/.test(allText) ||
     /\bno\s+(?:modification|change|changes|action|fix|work)\s+(?:is\s+)?(?:needed|required|recommended)\b/.test(
       recommendation,
     ) ||
     /\bno\s+changes?\s+recommended\b/.test(recommendation) ||
-    /\b(?:is|are)\s+(?:appropriate|consistent)\s+and\s+aligns?\s+with\b/.test(recommendation)
+    /\b(?:keep|retain|maintain)\s+(?:this|the)\s+(?:test|guard|policy|check)\b/.test(
+      recommendation,
+    ) ||
+    /\brun\s+(?:the\s+)?(?:script|check|test)\s+periodically\b/.test(recommendation) ||
+    /\bprovides?\s+(?:reproducible|deterministic)\s+(?:verification|coverage|evidence)\b/.test(
+      allText,
+    )
   );
 }
 
@@ -1595,7 +1644,7 @@ function normalizeReviewFinding(
   const matchedRule = raw.rule_id ? activeRules.get(raw.rule_id) : undefined;
 
   return {
-    severity: raw.severity,
+    severity: raw.basis === "dod" ? "blocking" : raw.severity,
     category: raw.category,
     basis: raw.basis,
     title: raw.title,
