@@ -77,7 +77,9 @@ describe("VS Code extension activation surface", () => {
     expect(source).toContain("AdaptiveFreeGatewayClient");
     expect(source).toContain("[MODEL ROUTER]");
     expect(source).toContain('"local_only" | "comment_only" | "review_decision"');
-    expect(source).toContain('if (report.blockingCount > 0) return "REQUEST_CHANGES"');
+    expect(source).toContain(
+      'report.blockingCount > 0 || report.findings.some((finding) => finding.basis === "dod")',
+    );
     expect(source).toContain('requiredCiState === "passing" || requiredCiState === "none"');
     expect(source).toContain('if (mode === "comment_only") return "COMMENT"');
     expect(source).toContain('report.reviewStatus === "partial" || report.coverage !== "complete"');
