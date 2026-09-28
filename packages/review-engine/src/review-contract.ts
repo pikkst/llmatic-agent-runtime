@@ -102,8 +102,8 @@ const REVIEW_SCOPE_PATTERNS: Array<[RegExp, string]> = [
 ];
 
 const GLOBAL_POLICY_SOURCE = /(?:^|\/)(?:agents?|contributing|code[-_]?review|review)\.md$/i;
-const MAX_REVIEW_CONTRACT_RULES = 16;
-const MAX_REVIEW_CONTRACT_INVARIANTS = 8;
+const MAX_REVIEW_CONTRACT_RULES = 12;
+const MAX_REVIEW_CONTRACT_INVARIANTS = 6;
 
 const RULE_RELEVANCE_STOP_WORDS = new Set([
   "the",
@@ -132,36 +132,16 @@ const RULE_RELEVANCE_STOP_WORDS = new Set([
   "current",
 ]);
 
-const RULE_DOMAIN_TERMS = new Set([
-  "auth",
-  "oauth",
-  "rls",
-  "rbac",
-  "stripe",
-  "payment",
-  "billing",
-  "map",
-  "maps",
-  "tile",
-  "tiles",
-  "gis",
-  "postgis",
-  "supabase",
-  "postgres",
-  "database",
-  "migration",
-  "github",
-  "jira",
-  "cloudflare",
-  "wrangler",
-  "localization",
-  "locale",
-  "i18n",
-  "email",
-  "otp",
-  "webhook",
-  "analytics",
-]);
+const DISTINCTIVE_RULE_DOMAIN_GROUPS = [
+  new Set(["admin", "administrator"]),
+  new Set(["stripe", "payment", "billing"]),
+  new Set(["map", "maps", "tile", "tiles", "gis", "postgis"]),
+  new Set(["oauth", "otp", "session", "rbac"]),
+  new Set(["cloudflare", "wrangler"]),
+  new Set(["localization", "locale", "i18n"]),
+  new Set(["github", "runner", "actions"]),
+  new Set(["email", "webhook"]),
+] as const;
 
 function relevanceTerms(value: string): Set<string> {
   return new Set(
@@ -184,7 +164,13 @@ function overlapCount(left: Set<string>, right: Set<string>): number {
   return count;
 }
 
-function reviewRelevanceTerms(
+function primaryReviewRelevanceTerms(input: BuildReviewContractInput): Set<string> {
+  return relevanceTerms(
+    [input.title, ...input.changedFiles, input.linkedTask?.summary ?? ""].join("\n"),
+  );
+}
+
+function supportingReviewRelevanceTerms(
   input: BuildReviewContractInput,
   requirements: ReviewContractRequirement[],
 ): Set<string> {
@@ -198,9 +184,17 @@ function reviewRelevanceTerms(
   );
 }
 
-function hasDomainMismatch(ruleTerms: Set<string>, reviewTerms: Set<string>): boolean {
-  const domainTerms = [...ruleTerms].filter((term) => RULE_DOMAIN_TERMS.has(term));
-  return domainTerms.length > 0 && domainTerms.every((term) => !reviewTerms.has(term));
+function hasDistinctiveDomainMismatch(
+  ruleTerms: Set<string>,
+  primaryReviewTerms: Set<string>,
+): boolean {
+  for (const domain of DISTINCTIVE_RULE_DOMAIN_GROUPS) {
+    const ruleUsesDomain = [...domain].some((term) => ruleTerms.has(term));
+    if (!ruleUsesDomain) continue;
+    const reviewUsesDomain = [...domain].some((term) => primaryReviewTerms.has(term));
+    if (!reviewUsesDomain) return true;
+  }
+  return false;
 }
 
 function stableId(prefix: string, values: string[]): string {
@@ -367,7 +361,8 @@ function inferredScopes(
 function selectedRules(
   constitution: RepositoryConstitution,
   scopes: string[],
-  reviewTerms: Set<string>,
+  primaryReviewTerms: Set<string>,
+  supportingReviewTerms: Set<string>,
 ): ReviewContractRule[] {
   const scopeSet = new Set(scopes);
   const ranked = activeRepositoryRules(constitution)
@@ -376,8 +371,9 @@ function selectedRules(
       const repositoryScoped = rule.scopes.includes("repository");
       const globalPolicy = GLOBAL_POLICY_SOURCE.test(rule.source.path);
       const ruleTerms = relevanceTerms(rule.text + "\n" + rule.source.path);
-      const lexicalOverlap = overlapCount(ruleTerms, reviewTerms);
-      const domainMismatch = hasDomainMismatch(ruleTerms, reviewTerms);
+      const lexicalOverlap = overlapCount(ruleTerms, supportingReviewTerms);
+      const primaryOverlap = overlapCount(ruleTerms, primaryReviewTerms);
+      const domainMismatch = hasDistinctiveDomainMismatch(ruleTerms, primaryReviewTerms);
       const sourcePriority = globalPolicy ? 20 : 0;
       const score =
         (rule.strength === "blocking" ? 100 : rule.strength === "advisory" ? 50 : 10) +
@@ -391,15 +387,26 @@ function selectedRules(
         repositoryScoped,
         globalPolicy,
         lexicalOverlap,
+        primaryOverlap,
         domainMismatch,
         score,
       };
     })
-    .filter(({ scopeOverlap, repositoryScoped, globalPolicy, lexicalOverlap, domainMismatch }) => {
-      if (domainMismatch && !globalPolicy) return false;
-      if (scopeOverlap > 0) return lexicalOverlap > 0 || globalPolicy;
-      return repositoryScoped && (globalPolicy || lexicalOverlap >= 2);
-    })
+    .filter(
+      ({
+        scopeOverlap,
+        repositoryScoped,
+        globalPolicy,
+        lexicalOverlap,
+        primaryOverlap,
+        domainMismatch,
+      }) => {
+        if (domainMismatch && !globalPolicy) return false;
+        if (globalPolicy) return primaryOverlap > 0 || lexicalOverlap >= 2;
+        if (scopeOverlap > 0) return primaryOverlap > 0 || lexicalOverlap >= 3;
+        return repositoryScoped && primaryOverlap >= 2 && lexicalOverlap >= 3;
+      },
+    )
     .sort(
       (left, right) =>
         right.score - left.score ||
@@ -468,7 +475,8 @@ export function buildReviewContract(input: BuildReviewContractInput): ReviewCont
   const rules = selectedRules(
     input.constitution,
     scopes,
-    reviewRelevanceTerms(input, requirements),
+    primaryReviewRelevanceTerms(input),
+    supportingReviewRelevanceTerms(input, requirements),
   );
   const warnings: string[] = [];
 
