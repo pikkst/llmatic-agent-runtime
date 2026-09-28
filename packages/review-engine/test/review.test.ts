@@ -3086,4 +3086,86 @@ describe("review engine", () => {
     expect(gateway.requests[1]?.routing?.avoidModels).toContain("provider/too-long:free");
     expect(gateway.requests[2]?.routing?.avoidModels).toContain("provider/too-long:free");
   });
+
+  it("treats non-empty finish=length output as capacity failure before JSON parsing", async () => {
+    const root = await repository();
+    const config = configFor(root);
+    const events: ReviewActivityEvent[] = [];
+    const truncatedResponse: GatewayChatResponse = {
+      ...response('{"summary":"truncated","findings":[{"severity":"blocking"', undefined, "provider/truncated:free"),
+      routed_model: "provider/truncated:free",
+      choices: [
+        {
+          index: 0,
+          message: {
+            role: "assistant",
+            content: '{"summary":"truncated","findings":[{"severity":"blocking"',
+          },
+          finish_reason: "length",
+        },
+      ],
+    };
+    const gateway = new ScriptedGateway([
+      truncatedResponse,
+      response(
+        JSON.stringify({ summary: "First split clean.", findings: [] }),
+        undefined,
+        "provider/recovery-a:free",
+      ),
+      response(
+        JSON.stringify({ summary: "Second split clean.", findings: [] }),
+        undefined,
+        "provider/recovery-b:free",
+      ),
+    ]);
+
+    const changedFiles = ["src/a.ts", "src/b.ts"];
+    const diff = changedFiles
+      .map(
+        (path, index) =>
+          "diff --git a/" +
+          path +
+          " b/" +
+          path +
+          "\n--- a/" +
+          path +
+          "\n+++ b/" +
+          path +
+          "\n@@ -1 +1 @@\n-export const value = 1;\n+export const value = " +
+          String(index + 2) +
+          ";\n",
+      )
+      .join("");
+
+    const report = await runExternalPullRequestReview({
+      root,
+      config,
+      gateway,
+      lenses: ["general"],
+      batchConcurrency: 1,
+      onActivity: (event) => events.push(event),
+      material: {
+        reference: "245",
+        headRefOid: "head-245-length-content",
+        title: "docs(KT-332): freeze canonical UX disclosure contract",
+        body: "",
+        ciState: "passing",
+        changedFiles,
+        diff,
+        diffTruncated: false,
+      },
+    });
+
+    expect(report.reviewStatus).toBe("complete");
+    expect(gateway.requests).toHaveLength(3);
+    expect(events).not.toContainEqual(
+      expect.objectContaining({
+        type: "report-repair",
+        lens: "general",
+      }),
+    );
+    expect(gateway.requests[1]?.routing?.avoidModels).toContain("provider/truncated:free");
+    expect(gateway.requests[2]?.routing?.avoidModels).toContain("provider/truncated:free");
+  });
+
 });
