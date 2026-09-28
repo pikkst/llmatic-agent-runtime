@@ -443,10 +443,7 @@ function selectedRules(
         if (domainMismatch) return false;
         if (globalPolicy) return primaryOverlap >= 2;
         if (scopeOverlap > 0) {
-          return (
-            textPrimaryOverlap >= 2 ||
-            (textPrimaryOverlap >= 1 && sourcePrimaryOverlap >= 1)
-          );
+          return textPrimaryOverlap >= 2 || (textPrimaryOverlap >= 1 && sourcePrimaryOverlap >= 1);
         }
         if (primaryOverlap >= 3 && lexicalOverlap >= 3) return true;
         return repositoryScoped && textPrimaryOverlap >= 2;

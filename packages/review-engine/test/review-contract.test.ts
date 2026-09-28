@@ -440,20 +440,16 @@ describe("review contract", () => {
       },
       status: "active" as const,
     }));
-    source.rules.push(
-      ...unrelated,
-      {
-        id: "RULE-UX-DISCLOSURE",
-        kind: "approved_rule",
-        text:
-          "UX disclosure documentation must keep consumer and professional presentation on one deterministic truth.",
-        strength: "blocking",
-        confidence: 1,
-        scopes: ["documentation", "frontend"],
-        source: { path: "docs/UX_UI_SPEC.md", line: 10, origin: "approved" },
-        status: "active",
-      },
-    );
+    source.rules.push(...unrelated, {
+      id: "RULE-UX-DISCLOSURE",
+      kind: "approved_rule",
+      text: "UX disclosure documentation must keep consumer and professional presentation on one deterministic truth.",
+      strength: "blocking",
+      confidence: 1,
+      scopes: ["documentation", "frontend"],
+      source: { path: "docs/UX_UI_SPEC.md", line: 10, origin: "approved" },
+      status: "active",
+    });
     source.counts.approvedRule += unrelated.length + 1;
     source.counts.blocking += unrelated.length + 1;
 
@@ -488,5 +484,4 @@ describe("review contract", () => {
     expect(result.rules.length).toBeLessThan(12);
     expect(result.invariants.length).toBeLessThan(6);
   });
-
 });

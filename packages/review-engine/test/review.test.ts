@@ -3092,7 +3092,11 @@ describe("review engine", () => {
     const config = configFor(root);
     const events: ReviewActivityEvent[] = [];
     const truncatedResponse: GatewayChatResponse = {
-      ...response('{"summary":"truncated","findings":[{"severity":"blocking"', undefined, "provider/truncated:free"),
+      ...response(
+        '{"summary":"truncated","findings":[{"severity":"blocking"',
+        undefined,
+        "provider/truncated:free",
+      ),
       routed_model: "provider/truncated:free",
       choices: [
         {
@@ -3167,5 +3171,4 @@ describe("review engine", () => {
     expect(gateway.requests[1]?.routing?.avoidModels).toContain("provider/truncated:free");
     expect(gateway.requests[2]?.routing?.avoidModels).toContain("provider/truncated:free");
   });
-
 });
