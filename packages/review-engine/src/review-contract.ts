@@ -85,7 +85,7 @@ export interface BuildReviewContractInput {
 }
 
 const REVIEW_SCOPE_PATTERNS: Array<[RegExp, string]> = [
-  [/\b(api|endpoint|route|http|openapi|contract)\b/i, "api"],
+  [/\b(api|endpoint|route|http|openapi|api contract|route contract|http contract)\b/i, "api"],
   [/\b(db|database|schema|migration|sql|postgres|supabase|prisma)\b/i, "database"],
   [
     /\b(auth|authorization|authentication|security|rls|rbac|permission|secret|trust)\b/i,
@@ -409,6 +409,10 @@ function selectedRules(
       const textPrimaryOverlap = overlapCount(ruleTextTerms, primaryReviewTerms);
       const sourcePrimaryOverlap = overlapCount(ruleSourceTerms, primaryReviewTerms);
       const domainMismatch = hasDistinctiveDomainMismatch(ruleTerms, primaryReviewTerms);
+      const criticalPrimaryScope = rule.scopes.some(
+        (scope) =>
+          scopeSet.has(scope) && (scope === "security" || scope === "database" || scope === "api"),
+      );
       const sourcePriority = globalPolicy ? 20 : 0;
       const score =
         (rule.strength === "blocking" ? 100 : rule.strength === "advisory" ? 50 : 10) +
@@ -426,6 +430,7 @@ function selectedRules(
         textPrimaryOverlap,
         sourcePrimaryOverlap,
         domainMismatch,
+        criticalPrimaryScope,
         score,
       };
     })
@@ -439,11 +444,16 @@ function selectedRules(
         textPrimaryOverlap,
         sourcePrimaryOverlap,
         domainMismatch,
+        criticalPrimaryScope,
       }) => {
         if (domainMismatch) return false;
         if (globalPolicy) return primaryOverlap >= 2;
         if (scopeOverlap > 0) {
-          return textPrimaryOverlap >= 2 || (textPrimaryOverlap >= 1 && sourcePrimaryOverlap >= 1);
+          return (
+            textPrimaryOverlap >= 2 ||
+            (criticalPrimaryScope && textPrimaryOverlap >= 1) ||
+            (textPrimaryOverlap >= 1 && sourcePrimaryOverlap >= 1)
+          );
         }
         if (primaryOverlap >= 3 && lexicalOverlap >= 3) return true;
         return repositoryScoped && textPrimaryOverlap >= 2;
