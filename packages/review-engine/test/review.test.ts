@@ -603,6 +603,157 @@ describe("review engine", () => {
     expect(report.reviewStatus).toBe("complete");
   });
 
+  it("drops PR-243 positive implementation observations mislabelled as DoD violations", async () => {
+    const root = await repository();
+    const config = configFor(root);
+    const dodRef =
+      "[Jira KT-135 AC] Current official EHR API/service endpoint and provider ownership are re-verified and dated.";
+    const gateway = new ScriptedGateway([
+      response(
+        JSON.stringify({
+          summary: "No concrete defects or bugs identified.",
+          findings: [
+            {
+              severity: "non_blocking",
+              category: "tests",
+              basis: "dod",
+              title: "EHR source policy fail-closed configuration applied correctly",
+              path: "src/value.ts",
+              line: 1,
+              side: "RIGHT",
+              evidence:
+                "The EHR source policy is updated correctly and matches the KT-135 requirement.",
+              recommendation:
+                "Ensure downstream consumers handle the disabled source gracefully.",
+              dod_ref: dodRef,
+              rule_id: "RULE-003F4C3FE4BC",
+            },
+            {
+              severity: "non_blocking",
+              category: "tests",
+              basis: "dod",
+              title: "EHR source policy test added to verify fail-closed state",
+              path: "src/value.ts",
+              line: 1,
+              side: "RIGHT",
+              evidence:
+                "A new regression test has been added and asserts the required fail-closed policy.",
+              recommendation: "Keep this test to preserve the fail-closed state.",
+              dod_ref: dodRef,
+              rule_id: "RULE-003F4C3FE4BC",
+            },
+            {
+              severity: "non_blocking",
+              category: "tests",
+              basis: "dod",
+              title: "Database migration applied to enforce fail-closed EHR policy",
+              path: "src/value.ts",
+              line: 1,
+              side: "RIGHT",
+              evidence:
+                "The migration persists the intended fail-closed policy at the database level.",
+              recommendation: "Verify the migration runs successfully after deployment.",
+              dod_ref: dodRef,
+              rule_id: "RULE-003F4C3FE4BC",
+            },
+          ],
+        }),
+      ),
+    ]);
+
+    const report = await runExternalPullRequestReview({
+      root,
+      config,
+      gateway,
+      lenses: ["bug_hunter"],
+      material: {
+        reference: "243",
+        headRefOid: "9f37e94ff4dfcb4b49f88f507b1b36981a9a6223",
+        title: "docs(KT-135): verify and fail-close EHR source contract",
+        body: "",
+        ciState: "pending",
+        changedFiles: ["src/value.ts"],
+        diff:
+          "diff --git a/src/value.ts b/src/value.ts\n" +
+          "--- a/src/value.ts\n" +
+          "+++ b/src/value.ts\n" +
+          "@@ -1 +1 @@\n-export const enabled = true;\n+export const enabled = false;\n",
+        diffTruncated: false,
+        documentedAcceptanceEvidence: [dodRef],
+        acceptanceEvidenceSource: "Jira KT-135",
+      },
+    });
+
+    expect(report.reviewStatus).toBe("complete");
+    expect(report.findings).toEqual([]);
+    expect(report.blockingCount).toBe(0);
+    expect(report.nonBlockingCount).toBe(0);
+    expect(report.summary).toContain("0 documented DoD/acceptance violation(s)");
+  });
+
+  it("normalizes a proven DoD violation to blocking and ignores stray rule metadata", async () => {
+    const root = await repository();
+    const config = configFor(root);
+    const dodRef = "[Jira KT-135 AC] Required contract evidence is documented.";
+    const gateway = new ScriptedGateway([
+      response(
+        JSON.stringify({
+          summary: "Acceptance gap.",
+          findings: [
+            {
+              severity: "non_blocking",
+              category: "tests",
+              basis: "dod",
+              title: "Required contract evidence is missing",
+              path: "src/value.ts",
+              line: 1,
+              side: "RIGHT",
+              evidence:
+                "The changed contract remains undocumented and does not include the required evidence.",
+              recommendation: "Add the missing contract evidence.",
+              dod_ref: dodRef,
+              rule_id: "RULE-003F4C3FE4BC",
+            },
+          ],
+        }),
+      ),
+    ]);
+
+    const report = await runExternalPullRequestReview({
+      root,
+      config,
+      gateway,
+      lenses: ["general"],
+      material: {
+        reference: "243",
+        headRefOid: "head-243",
+        title: "KT-135 acceptance gap",
+        body: "",
+        ciState: "passing",
+        changedFiles: ["src/value.ts"],
+        diff:
+          "diff --git a/src/value.ts b/src/value.ts\n" +
+          "--- a/src/value.ts\n" +
+          "+++ b/src/value.ts\n" +
+          "@@ -1 +1 @@\n-export const documented = true;\n+export const documented = false;\n",
+        diffTruncated: false,
+        documentedAcceptanceEvidence: [dodRef],
+        acceptanceEvidenceSource: "Jira KT-135",
+      },
+    });
+
+    expect(report.findings).toHaveLength(1);
+    expect(report.findings[0]).toMatchObject({
+      basis: "dod",
+      severity: "blocking",
+      dodRef,
+      ruleId: undefined,
+    });
+    expect(report.blockingCount).toBe(1);
+    expect(report.nonBlockingCount).toBe(0);
+    expect(report.summary).toContain("1 documented DoD/acceptance violation(s)");
+  });
+
   it("accepts Jira-backed DoD evidence even when the PR body has no acceptance section", async () => {
     const root = await repository();
     const config = configFor(root);
