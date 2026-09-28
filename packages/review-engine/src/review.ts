@@ -1446,6 +1446,9 @@ function reviewSystemPrompt(
         ]
       : []),
     "A finding is allowed only when its basis is one of: documented DoD/acceptance violation, concrete defect, or explicit/human-approved repository-rule violation.",
+    "DoD findings are violations only. Never emit satisfied, present, correct, implemented, verified or compliant acceptance work as a finding.",
+    "Every basis=dod finding must state the unmet or violated requirement in its title/evidence and must use severity=blocking.",
+    "Use dod_ref only for basis=dod. Use rule_id only for basis=repository_rule. Otherwise return those fields as null.",
     "Review only concrete defects introduced or exposed by the changed files.",
     "Never report nice-to-have work, optional cleanup, speculative future risk, feature requests, scope expansion, style preferences, generic refactors or performance ideas.",
     "Maintainability is not a finding by itself; it must manifest as a concrete defect or violate documented acceptance/rule evidence.",
@@ -1547,20 +1550,27 @@ function extractJson(content: string): unknown {
     : new Error("Review model response did not contain valid JSON.");
 }
 
+function dodViolationLanguage(value: unknown): boolean {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+  const finding = value as Record<string, unknown>;
+  const text = ["title", "evidence", "recommendation"]
+    .map((key) => (typeof finding[key] === "string" ? String(finding[key]) : ""))
+    .join(" ");
+
+  return /\b(?:missing|absent|unmet|unsatisfied|incomplete|incorrect|wrong|mismatch(?:ed)?|undocumented|unverified|unhandled|uncovered|violat(?:e|es|ed|ing|ion)|fail(?:s|ed|ing)?|lacks?|exceeds?|contradicts?|conflicts?|regress(?:ion|ed)?|breaks?|broken)\b|\b(?:does\s+not|doesn't|cannot|can't|must\s+not|should\s+not)\b|\bnot\s+(?:documented|implemented|covered|enforced|verified|present|included|handled|distinguished|enumerated|recorded|updated|captured|blocked|validated|tested)\b|\bwithout\s+(?:the\s+)?(?:required|documented|expected)\b/i.test(
+    text,
+  );
+}
+
 function positiveDodObservation(value: unknown): boolean {
   if (!value || typeof value !== "object" || Array.isArray(value)) return false;
   const finding = value as Record<string, unknown>;
   if (finding.basis !== "dod") return false;
 
-  const recommendation =
-    typeof finding.recommendation === "string" ? finding.recommendation.trim().toLowerCase() : "";
-  return (
-    /\bno\s+(?:modification|change|changes|action|fix|work)\s+(?:is\s+)?(?:needed|required|recommended)\b/.test(
-      recommendation,
-    ) ||
-    /\bno\s+changes?\s+recommended\b/.test(recommendation) ||
-    /\b(?:is|are)\s+(?:appropriate|consistent)\s+and\s+aligns?\s+with\b/.test(recommendation)
-  );
+  // DoD findings are failures of documented acceptance, never praise or
+  // implementation-status notes. If the candidate cannot articulate an
+  // unmet/violated condition, it is not a review finding.
+  return !dodViolationLanguage(finding);
 }
 
 function pruneImpossibleExternalDodFindings(
@@ -1595,7 +1605,7 @@ function normalizeReviewFinding(
   const matchedRule = raw.rule_id ? activeRules.get(raw.rule_id) : undefined;
 
   return {
-    severity: raw.severity,
+    severity: raw.basis === "dod" ? "blocking" : raw.severity,
     category: raw.category,
     basis: raw.basis,
     title: raw.title,
@@ -1605,11 +1615,12 @@ function normalizeReviewFinding(
     evidence: raw.evidence,
     recommendation: raw.recommendation,
     lens,
-    dodRef: raw.dod_ref,
-    ruleId: matchedRule?.id,
-    ruleSource: matchedRule
-      ? matchedRule.source.path + (matchedRule.source.line ? ":" + matchedRule.source.line : "")
-      : undefined,
+    dodRef: raw.basis === "dod" ? raw.dod_ref : undefined,
+    ruleId: raw.basis === "repository_rule" ? matchedRule?.id : undefined,
+    ruleSource:
+      raw.basis === "repository_rule" && matchedRule
+        ? matchedRule.source.path + (matchedRule.source.line ? ":" + matchedRule.source.line : "")
+        : undefined,
   };
 }
 
@@ -1709,6 +1720,9 @@ function strictExternalFindings(
     material.changedFiles.every((path) => pullRequestDiffContainsPath(material.diff, path));
 
   return findings.filter((finding) => {
+    if (finding.basis === "dod" && !dodViolationLanguage(finding)) {
+      return false;
+    }
     if (boundedBatchUncertaintyDodFinding(finding)) {
       return false;
     }
