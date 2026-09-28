@@ -420,4 +420,73 @@ describe("review contract", () => {
     expect(result.rules.length).toBeLessThan(12);
     expect(result.invariants.length).toBeLessThan(6);
   });
+
+  it("keeps a docs-only UX contract naturally below caps despite broad AC vocabulary", () => {
+    const source = constitution();
+    const unrelated = Array.from({ length: 16 }, (_, index) => ({
+      id: "RULE-UNRELATED-" + String(index),
+      kind: "approved_rule" as const,
+      text:
+        index % 2 === 0
+          ? "Admin API security routes must preserve protected runtime authorization."
+          : "Database API migrations must preserve operational service boundaries.",
+      strength: "blocking" as const,
+      confidence: 1,
+      scopes: index % 2 === 0 ? ["security", "api"] : ["database", "api"],
+      source: {
+        path: index % 2 === 0 ? "docs/ADMIN_RUNTIME.md" : "docs/DATABASE_RUNTIME.md",
+        line: index + 1,
+        origin: "approved" as const,
+      },
+      status: "active" as const,
+    }));
+    source.rules.push(
+      ...unrelated,
+      {
+        id: "RULE-UX-DISCLOSURE",
+        kind: "approved_rule",
+        text:
+          "UX disclosure documentation must keep consumer and professional presentation on one deterministic truth.",
+        strength: "blocking",
+        confidence: 1,
+        scopes: ["documentation", "frontend"],
+        source: { path: "docs/UX_UI_SPEC.md", line: 10, origin: "approved" },
+        status: "active",
+      },
+    );
+    source.counts.approvedRule += unrelated.length + 1;
+    source.counts.blocking += unrelated.length + 1;
+
+    const result = buildReviewContract({
+      headRefOid: "kt332-head",
+      title: "docs(KT-332): freeze canonical UX disclosure contract",
+      body: "",
+      changedFiles: [
+        "docs/ADMIN_UX_UI.md",
+        "docs/INDEX.md",
+        "docs/PRODUCT_REQUIREMENTS.md",
+        "docs/USER_JOURNEYS_AND_PERSONAS.md",
+        "docs/UX_UI_SPEC.md",
+      ],
+      constitution: source,
+      linkedTask: {
+        provider: "Jira",
+        key: "KT-332",
+        summary: "Freeze canonical UX disclosure contract",
+        acceptanceCriteria: [
+          "Admin information architecture is separated from consumer presentation.",
+          "Security and API implications remain documented.",
+          "Database implementation details remain technical disclosure only.",
+        ],
+        definitionOfDone: ["The canonical UX product contract is sufficient for implementation."],
+      },
+    });
+
+    const ids = result.rules.map((rule) => rule.id);
+    expect(ids).toContain("RULE-UX-DISCLOSURE");
+    expect(ids.some((id) => id.startsWith("RULE-UNRELATED-"))).toBe(false);
+    expect(result.rules.length).toBeLessThan(12);
+    expect(result.invariants.length).toBeLessThan(6);
+  });
+
 });
