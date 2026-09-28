@@ -1467,6 +1467,9 @@ function reviewSystemPrompt(
         ]
       : []),
     "A finding is allowed only when its basis is one of: documented DoD/acceptance violation, concrete defect, or explicit/human-approved repository-rule violation.",
+    "DoD findings are violations only. Never emit satisfied, present, correct, implemented, verified or compliant acceptance work as a finding.",
+    "Every basis=dod finding must state the unmet or violated requirement in its title/evidence and must use severity=blocking.",
+    "Use dod_ref only for basis=dod. Use rule_id only for basis=repository_rule. Otherwise return those fields as null.",
     "Review only concrete defects introduced or exposed by the changed files.",
     "Never report nice-to-have work, optional cleanup, speculative future risk, feature requests, scope expansion, style preferences, generic refactors or performance ideas.",
     "Maintainability is not a finding by itself; it must manifest as a concrete defect or violate documented acceptance/rule evidence.",
@@ -1761,6 +1764,9 @@ function strictExternalFindings(
     material.changedFiles.every((path) => pullRequestDiffContainsPath(material.diff, path));
 
   return findings.filter((finding) => {
+    if (positiveDodObservation(finding)) {
+      return false;
+    }
     if (boundedBatchUncertaintyDodFinding(finding)) {
       return false;
     }
