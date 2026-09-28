@@ -1590,6 +1590,9 @@ function explicitDodViolation(value: unknown): boolean {
     /\b(?:introduces?|causes?|creates?)\s+(?:a\s+)?regression\b|\bregression\s+(?:introduced|caused|created)\b/.test(
       claim,
     ) ||
+    /\b(?:still\s+)?(?:accepts?|accepted|allows?|allowed)\b[^.]{0,100}\b(?:unknown|unsupported|forbidden|unverified)\b|\b(?:unknown|unsupported|forbidden|unverified)\b[^.]{0,100}\b(?:is|are|remains?|still)\s+(?:accepted|allowed)\b/.test(
+      claim,
+    ) ||
     /\b(?:despite|contrary\s+to|instead\s+of|before)\b[^.]{0,160}\b(?:requirement|required|verification|validation|contract|acceptance)\b/.test(
       claim,
     ) ||
