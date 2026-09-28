@@ -2836,5 +2836,4 @@ describe("review engine", () => {
     expect(report.findings[0]).toMatchObject({ basis: "dod", severity: "blocking" });
     expect(report.blockingCount).toBe(1);
   });
-
 });

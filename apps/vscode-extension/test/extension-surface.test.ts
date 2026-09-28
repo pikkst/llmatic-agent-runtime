@@ -360,5 +360,4 @@ describe("VS Code extension activation surface", () => {
       'report.blockingCount > 0 || report.findings.some((finding) => finding.basis === "dod")',
     );
   });
-
 });
