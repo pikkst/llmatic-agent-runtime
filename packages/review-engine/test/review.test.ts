@@ -2865,7 +2865,9 @@ describe("review engine", () => {
       },
     });
 
-    const systemMessage = gateway.requests[0]?.messages.find((message) => message.role === "system");
+    const systemMessage = gateway.requests[0]?.messages.find(
+      (message) => message.role === "system",
+    );
     expect(String(systemMessage?.content)).toContain(
       "DoD findings are violations only. Never emit satisfied, present, correct, implemented, verified or compliant acceptance work as a finding.",
     );
@@ -2958,5 +2960,4 @@ describe("review engine", () => {
     expect(report.blockingCount).toBe(0);
     expect(report.nonBlockingCount).toBe(0);
   });
-
 });
