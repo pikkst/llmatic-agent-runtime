@@ -329,7 +329,7 @@ export class AdaptiveFreeGatewayClient implements GatewayChatClient {
       /generation length limit reached without structured review content/i.test(feedback.reason);
     for (const candidate of this.feedbackModels(model, feedback.responseModel)) {
       this.recordSemanticFailure(task, candidate);
-      if (task.startsWith("review_")) {
+      if (task.startsWith("review_") && !capacityFailure) {
         this.excludeForTask(task, candidate, feedback.reason);
       }
       if (
@@ -399,7 +399,7 @@ export class AdaptiveFreeGatewayClient implements GatewayChatClient {
           : "native"
         : undefined;
       const reasoningModel = candidateInfo ? reasoningHeavyModel(candidateInfo) : false;
-      const provider = providerKey(candidateModel);
+      const provider = providerKey(candidateInfo ?? candidateModel);
       if ((this.providerUnhealthyUntil.get(provider) ?? 0) > Date.now()) {
         continue;
       }
@@ -477,7 +477,7 @@ export class AdaptiveFreeGatewayClient implements GatewayChatClient {
           }
         } else {
           this.excludeForTask(task, candidateModel, reason);
-          const providerKeyValue = providerKey(candidateModel);
+          const providerKeyValue = provider;
           if (providerCompatibilityFailure(reason)) {
             this.blockedProviders.add(providerKeyValue);
           } else if (/rate.?limit|too many requests|\b429\b/i.test(reason)) {
