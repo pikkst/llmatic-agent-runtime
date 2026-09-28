@@ -2605,22 +2605,24 @@ async function runReviewLens(
       continue;
     }
 
-    if (!assistant.content?.trim()) {
-      const semanticReason =
-        choice?.finish_reason === "length"
-          ? "generation length limit reached without structured review content"
-          : "empty structured review content";
+    if (material && choice?.finish_reason === "length") {
+      const semanticReason = "generation length limit reached without structured review content";
       await reportSemanticModelFailure(options.gateway, response, lens, semanticReason);
       const failedModel = response.routed_model?.trim() || response.model?.trim();
       if (failedModel) {
         avoidedModels.add(failedModel);
         sessionAvoidedModels?.add(failedModel);
       }
+      throw new Error(semanticReason + " for lens " + lens);
+    }
 
-      if (material && choice?.finish_reason === "length") {
-        throw new Error(
-          "generation length limit reached without structured review content for lens " + lens,
-        );
+    if (!assistant.content?.trim()) {
+      const semanticReason = "empty structured review content";
+      await reportSemanticModelFailure(options.gateway, response, lens, semanticReason);
+      const failedModel = response.routed_model?.trim() || response.model?.trim();
+      if (failedModel) {
+        avoidedModels.add(failedModel);
+        sessionAvoidedModels?.add(failedModel);
       }
 
       if (material && step < maxSteps) {
