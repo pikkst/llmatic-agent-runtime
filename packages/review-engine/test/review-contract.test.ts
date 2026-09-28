@@ -294,7 +294,75 @@ describe("review contract", () => {
     expect(ids).toContain("RULE-AUTH-ADMIN");
     expect(ids).not.toContain("RULE-STRIPE");
     expect(ids).not.toContain("RULE-TILES");
-    expect(contract.rules.length).toBeLessThan(16);
-    expect(contract.invariants.length).toBeLessThanOrEqual(8);
+    expect(contract.rules.length).toBeLessThan(12);
+    expect(contract.invariants.length).toBeLessThanOrEqual(6);
+  });
+
+  it("keeps EHR source-contract reviews below caps without admin or tile subsystem leakage", () => {
+    const source = constitution();
+    source.rules.push(
+      {
+        id: "RULE-EHR-CONTRACT",
+        kind: "approved_rule",
+        text: "EHR source contracts must fail closed until provider access and source semantics are verified.",
+        strength: "blocking",
+        confidence: 1,
+        scopes: ["api", "security", "architecture"],
+        source: { path: "docs/EHR_SOURCE_CONTRACT.md", line: 4, origin: "approved" },
+        status: "active",
+      },
+      {
+        id: "RULE-ADMIN-AUTH",
+        kind: "approved_rule",
+        text: "Administrator auth routes must preserve the canonical admin session guard.",
+        strength: "blocking",
+        confidence: 1,
+        scopes: ["api", "security"],
+        source: { path: "docs/ADMIN_AUTH.md", line: 7, origin: "approved" },
+        status: "active",
+      },
+      {
+        id: "RULE-TILE-PROXY",
+        kind: "approved_rule",
+        text: "Map tile requests must use the fixed GIS tile proxy endpoint.",
+        strength: "blocking",
+        confidence: 1,
+        scopes: ["api", "architecture"],
+        source: { path: "docs/MAPS.md", line: 9, origin: "approved" },
+        status: "active",
+      },
+    );
+    source.counts.approvedRule += 3;
+    source.counts.blocking += 3;
+
+    const contract = buildReviewContract({
+      headRefOid: "kt135-head",
+      title: "docs(KT-135): verify and fail-close EHR source contract",
+      body: "",
+      changedFiles: [
+        "docs/KT-135_EHR_ACCESS_CONTRACT.md",
+        "docs/KT-135_EHR_DOWNSTREAM_COMPATIBILITY.md",
+        "src/domain/source/registry.ts",
+        "supabase/migrations/20260928023000_kt135_ehr_fail_closed_policy.sql",
+      ],
+      constitution: source,
+      linkedTask: {
+        provider: "Jira",
+        key: "KT-135",
+        summary: "Verify current EHR API access/terms",
+        acceptanceCriteria: [
+          "Authentication/access prerequisites and credential handling are documented.",
+          "Browser-direct versus server-side architecture is decided with privacy and security implications.",
+        ],
+        definitionOfDone: ["Tests and build pass."],
+      },
+    });
+
+    const ids = contract.rules.map((rule) => rule.id);
+    expect(ids).toContain("RULE-EHR-CONTRACT");
+    expect(ids).not.toContain("RULE-ADMIN-AUTH");
+    expect(ids).not.toContain("RULE-TILE-PROXY");
+    expect(contract.rules.length).toBeLessThan(12);
+    expect(contract.invariants.length).toBeLessThan(6);
   });
 });
