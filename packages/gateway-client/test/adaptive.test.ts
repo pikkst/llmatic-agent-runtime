@@ -1993,5 +1993,4 @@ describe("AdaptiveFreeGatewayClient", () => {
 
     expect(requestedModels[0]?.startsWith("provider-a/")).toBe(false);
   });
-
 });

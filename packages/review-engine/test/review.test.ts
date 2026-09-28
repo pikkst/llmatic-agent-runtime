@@ -3033,8 +3033,16 @@ describe("review engine", () => {
     };
     const gateway = new ScriptedGateway([
       lengthResponse,
-      response(JSON.stringify({ summary: "First split clean.", findings: [] }), undefined, "provider/short-a:free"),
-      response(JSON.stringify({ summary: "Second split clean.", findings: [] }), undefined, "provider/short-b:free"),
+      response(
+        JSON.stringify({ summary: "First split clean.", findings: [] }),
+        undefined,
+        "provider/short-a:free",
+      ),
+      response(
+        JSON.stringify({ summary: "Second split clean.", findings: [] }),
+        undefined,
+        "provider/short-b:free",
+      ),
     ]);
 
     const changedFiles = ["src/feature-a.ts", "src/feature-b.ts"];
@@ -3078,5 +3086,4 @@ describe("review engine", () => {
     expect(gateway.requests[1]?.routing?.avoidModels).toContain("provider/too-long:free");
     expect(gateway.requests[2]?.routing?.avoidModels).toContain("provider/too-long:free");
   });
-
 });

@@ -420,5 +420,4 @@ describe("review contract", () => {
     expect(result.rules.length).toBeLessThan(12);
     expect(result.invariants.length).toBeLessThan(6);
   });
-
 });
