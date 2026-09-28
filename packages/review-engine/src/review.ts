@@ -1582,8 +1582,13 @@ function positiveDodObservation(value: unknown): boolean {
   const allText = [title, evidence, recommendation].join(" ");
 
   const explicitViolation =
-    /\b(?:violat(?:e|es|ed|ion)|unmet|missing|required\s+work\s+is\s+absent|fails?\s+to|does\s+not|doesn't|incorrect|wrong|broken|regression|gap|must\s+be\s+fixed|needs?\s+to\s+be\s+fixed)\b/.test(
-      claim,
+    (
+      /\b(?:violat(?:e|es|ed|ion)|unmet|missing|required\s+work\s+is\s+absent|fails?\s+to|does\s+not|doesn't|incorrect|wrong|broken|gap|must\s+be\s+fixed|needs?\s+to\s+be\s+fixed)\b/.test(
+        claim,
+      ) ||
+      /\b(?:introduces?|causes?|creates?)\s+(?:a\s+)?regression\b|\bregression\s+(?:introduced|caused|created)\b/.test(
+        claim,
+      )
     );
   if (explicitViolation) return false;
 
