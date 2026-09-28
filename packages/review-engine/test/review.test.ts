@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { spawnSync } from "node:child_process";
@@ -2835,5 +2835,129 @@ describe("review engine", () => {
     expect(report.findings).toHaveLength(1);
     expect(report.findings[0]).toMatchObject({ basis: "dod", severity: "blocking" });
     expect(report.blockingCount).toBe(1);
+  });
+
+  it("states in the external-review prompt that satisfied DoD work is not a finding", async () => {
+    const root = await repository();
+    const config = configFor(root);
+    const gateway = new ScriptedGateway([
+      response(JSON.stringify({ summary: "No findings.", findings: [] })),
+    ]);
+
+    await runExternalPullRequestReview({
+      root,
+      config,
+      gateway,
+      lenses: ["general"],
+      material: {
+        reference: "243",
+        headRefOid: "prompt-head-243",
+        title: "docs(KT-135): verify and fail-close EHR source contract",
+        body: "",
+        ciState: "passing",
+        changedFiles: ["src/value.ts"],
+        diff:
+          "diff --git a/src/value.ts b/src/value.ts\n" +
+          "--- a/src/value.ts\n" +
+          "+++ b/src/value.ts\n" +
+          "@@ -1 +1 @@\n-export const enabled = true;\n+export const enabled = false;\n",
+        diffTruncated: false,
+      },
+    });
+
+    const systemMessage = gateway.requests[0]?.messages.find(
+      (message) => message.role === "system",
+    );
+    expect(String(systemMessage?.content)).toContain(
+      "DoD findings are violations only. Never emit satisfied, present, correct, implemented, verified or compliant acceptance work as a finding.",
+    );
+  });
+
+  it("drops positive DoD observations loaded from the external batch cache", async () => {
+    const root = await repository();
+    const config = configFor(root);
+    const dodRef =
+      "[Jira KT-135 AC] Current official EHR API/service endpoint and provider ownership are re-verified and dated.";
+    const material = {
+      reference: "243",
+      headRefOid: "cache-head-243",
+      title: "docs(KT-135): verify and fail-close EHR source contract",
+      body: "",
+      ciState: "passing",
+      changedFiles: ["src/value.ts"],
+      diff:
+        "diff --git a/src/value.ts b/src/value.ts\n" +
+        "--- a/src/value.ts\n" +
+        "+++ b/src/value.ts\n" +
+        "@@ -1 +1 @@\n-export const enabled = true;\n+export const enabled = false;\n",
+      diffTruncated: false,
+      documentedAcceptanceEvidence: [dodRef],
+      acceptanceEvidenceSource: "Jira KT-135",
+    };
+
+    const firstGateway = new ScriptedGateway([
+      response(JSON.stringify({ summary: "No findings.", findings: [] })),
+    ]);
+    await runExternalPullRequestReview({
+      root,
+      config,
+      gateway: firstGateway,
+      lenses: ["general"],
+      material,
+    });
+
+    const cachePath = join(root, config.runtime.cacheDirectory, "external-review-batch-cache.json");
+    const cache = JSON.parse(await readFile(cachePath, "utf8")) as {
+      version: 1;
+      entries: Record<
+        string,
+        {
+          savedAt: string;
+          summary: string;
+          findings: Array<Record<string, unknown>>;
+        }
+      >;
+    };
+    const cacheKey = Object.keys(cache.entries)[0];
+    expect(cacheKey).toBeTruthy();
+    cache.entries[cacheKey!].findings = [
+      {
+        severity: "blocking",
+        category: "tests",
+        basis: "dod",
+        title: "EHR source policy fail-closed configuration applied correctly",
+        path: "src/value.ts",
+        line: 1,
+        side: "RIGHT",
+        evidence:
+          "The source is disabled and the policy matches the KT-135 requirement for a fail-closed contract.",
+        recommendation: "Keep this guard in place.",
+        lens: "general",
+        dodRef,
+      },
+    ];
+    await writeFile(cachePath, JSON.stringify(cache, null, 2) + "\n", "utf8");
+
+    const cacheEvents: ReviewActivityEvent[] = [];
+    const cachedGateway = new ScriptedGateway([]);
+    const report = await runExternalPullRequestReview({
+      root,
+      config,
+      gateway: cachedGateway,
+      lenses: ["general"],
+      onActivity: (event) => cacheEvents.push(event),
+      material,
+    });
+
+    expect(cachedGateway.requests).toHaveLength(0);
+    expect(cacheEvents).toContainEqual(
+      expect.objectContaining({
+        type: "lens-batch-cache-hit",
+        lens: "general",
+      }),
+    );
+    expect(report.findings).toEqual([]);
+    expect(report.blockingCount).toBe(0);
+    expect(report.nonBlockingCount).toBe(0);
   });
 });
