@@ -3219,7 +3219,9 @@ function autoReviewPublicationEvent(
   if (mode === "local_only") return undefined;
   if (mode === "comment_only") return "COMMENT";
   if (report.reviewStatus === "partial" || report.coverage !== "complete") return "COMMENT";
-  if (report.blockingCount > 0) return "REQUEST_CHANGES";
+  if (report.blockingCount > 0 || report.findings.some((finding) => finding.basis === "dod")) {
+    return "REQUEST_CHANGES";
+  }
   return requiredCiState === "passing" || requiredCiState === "none" ? "APPROVE" : "COMMENT";
 }
 
