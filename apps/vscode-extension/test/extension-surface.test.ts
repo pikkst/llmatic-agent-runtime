@@ -77,7 +77,9 @@ describe("VS Code extension activation surface", () => {
     expect(source).toContain("AdaptiveFreeGatewayClient");
     expect(source).toContain("[MODEL ROUTER]");
     expect(source).toContain('"local_only" | "comment_only" | "review_decision"');
-    expect(source).toContain('if (report.blockingCount > 0) return "REQUEST_CHANGES"');
+    expect(source).toContain(
+      'report.blockingCount > 0 || report.findings.some((finding) => finding.basis === "dod")',
+    );
     expect(source).toContain('requiredCiState === "passing" || requiredCiState === "none"');
     expect(source).toContain('if (mode === "comment_only") return "COMMENT"');
     expect(source).toContain('report.reviewStatus === "partial" || report.coverage !== "complete"');
@@ -352,5 +354,12 @@ describe("VS Code extension activation surface", () => {
     expect(source).toContain("getPullRequestStatus(root, report.reference)");
     expect(source).toContain("externalPullRequestReviewDraft(publicationReport)");
     expect(source).toContain("externalPullRequestInlineComments(publicationReport)");
+  });
+
+  it("never approves a report that still contains a documented DoD violation", async () => {
+    const source = await readFile(new URL("../src/extension.ts", import.meta.url), "utf8");
+    expect(source).toContain(
+      'report.blockingCount > 0 || report.findings.some((finding) => finding.basis === "dod")',
+    );
   });
 });

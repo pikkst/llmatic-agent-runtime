@@ -2722,4 +2722,118 @@ describe("review engine", () => {
     expect(report.findings).toHaveLength(1);
     expect(report.findings[0]?.verificationConfidence).toBeGreaterThanOrEqual(0.7);
   });
+
+  it("drops PR-243-style positive DoD observations even when they look like valid inline findings", async () => {
+    const root = await repository();
+    const config = configFor(root);
+    const dodRef =
+      "[Jira KT-135 AC] Current official EHR API/service endpoint and provider ownership are re-verified and dated.";
+    const gateway = new ScriptedGateway([
+      response(
+        JSON.stringify({
+          summary: "The fail-closed contract is implemented correctly.",
+          findings: [
+            {
+              severity: "non_blocking",
+              category: "tests",
+              basis: "dod",
+              title: "EHR source policy fail-closed configuration applied correctly",
+              path: "src/value.ts",
+              line: 1,
+              side: "RIGHT",
+              evidence:
+                "The source is disabled and the policy matches the KT-135 requirement for a fail-closed contract.",
+              recommendation:
+                "Keep this guard in place and run the verification check periodically.",
+              dod_ref: dodRef,
+              rule_id: null,
+            },
+          ],
+        }),
+      ),
+    ]);
+
+    const report = await runExternalPullRequestReview({
+      root,
+      config,
+      gateway,
+      lenses: ["general"],
+      material: {
+        reference: "243",
+        headRefOid: "head-243",
+        title: "docs(KT-135): verify and fail-close EHR source contract",
+        body: "",
+        ciState: "passing",
+        changedFiles: ["src/value.ts"],
+        diff:
+          "diff --git a/src/value.ts b/src/value.ts\n" +
+          "--- a/src/value.ts\n" +
+          "+++ b/src/value.ts\n" +
+          "@@ -1 +1 @@\n-export const enabled = true;\n+export const enabled = false;\n",
+        diffTruncated: false,
+        documentedAcceptanceEvidence: [dodRef],
+        acceptanceEvidenceSource: "Jira KT-135",
+      },
+    });
+
+    expect(report.findings).toEqual([]);
+    expect(report.blockingCount).toBe(0);
+    expect(report.nonBlockingCount).toBe(0);
+  });
+
+  it("normalizes a genuine Jira DoD violation to blocking", async () => {
+    const root = await repository();
+    const config = configFor(root);
+    const dodRef = "[Jira KT-135 AC] EHR source must remain disabled until verification.";
+    const gateway = new ScriptedGateway([
+      response(
+        JSON.stringify({
+          summary: "The source is enabled before verification.",
+          findings: [
+            {
+              severity: "non_blocking",
+              category: "security",
+              basis: "dod",
+              title: "EHR source enabled before contract verification",
+              path: "src/value.ts",
+              line: 1,
+              side: "RIGHT",
+              evidence:
+                "The changed line enables the EHR source while the documented acceptance gate requires it to remain disabled.",
+              recommendation: "Keep the source disabled until the verification gate passes.",
+              dod_ref: dodRef,
+              rule_id: null,
+            },
+          ],
+        }),
+      ),
+    ]);
+
+    const report = await runExternalPullRequestReview({
+      root,
+      config,
+      gateway,
+      lenses: ["general"],
+      material: {
+        reference: "244",
+        headRefOid: "head-244",
+        title: "Enable EHR",
+        body: "",
+        ciState: "passing",
+        changedFiles: ["src/value.ts"],
+        diff:
+          "diff --git a/src/value.ts b/src/value.ts\n" +
+          "--- a/src/value.ts\n" +
+          "+++ b/src/value.ts\n" +
+          "@@ -1 +1 @@\n-export const enabled = false;\n+export const enabled = true;\n",
+        diffTruncated: false,
+        documentedAcceptanceEvidence: [dodRef],
+        acceptanceEvidenceSource: "Jira KT-135",
+      },
+    });
+
+    expect(report.findings).toHaveLength(1);
+    expect(report.findings[0]).toMatchObject({ basis: "dod", severity: "blocking" });
+    expect(report.blockingCount).toBe(1);
+  });
 });
