@@ -130,6 +130,27 @@ const RULE_RELEVANCE_STOP_WORDS = new Set([
   "required",
   "existing",
   "current",
+  "src",
+  "docs",
+  "doc",
+  "lib",
+  "app",
+  "apps",
+  "package",
+  "packages",
+  "feature",
+  "features",
+  "test",
+  "tests",
+  "spec",
+  "index",
+  "page",
+  "component",
+  "components",
+  "file",
+  "files",
+  "module",
+  "modules",
 ]);
 
 const DISTINCTIVE_RULE_DOMAIN_GROUPS = [
@@ -338,24 +359,34 @@ function buildRequirements(input: BuildReviewContractInput): ReviewContractRequi
   return [...byIdentity.values()].slice(0, 100);
 }
 
-function inferredScopes(
-  input: BuildReviewContractInput,
-  requirements: ReviewContractRequirement[],
-): string[] {
-  const haystack = [
-    input.title,
-    input.body,
-    ...input.changedFiles,
-    ...requirements.map((item) => item.text),
-    input.linkedTask?.summary ?? "",
-  ].join("\n");
-
+function scopesFromText(haystack: string): string[] {
   const scopes = new Set<string>();
   for (const [pattern, scope] of REVIEW_SCOPE_PATTERNS) {
     if (pattern.test(haystack)) scopes.add(scope);
   }
   if (scopes.size === 0) scopes.add("repository");
   return [...scopes].sort();
+}
+
+function inferredScopes(
+  input: BuildReviewContractInput,
+  requirements: ReviewContractRequirement[],
+): string[] {
+  return scopesFromText(
+    [
+      input.title,
+      input.body,
+      ...input.changedFiles,
+      ...requirements.map((item) => item.text),
+      input.linkedTask?.summary ?? "",
+    ].join("\n"),
+  );
+}
+
+function primaryRuleScopes(input: BuildReviewContractInput): string[] {
+  return scopesFromText(
+    [input.title, ...input.changedFiles, input.linkedTask?.summary ?? ""].join("\n"),
+  );
 }
 
 function selectedRules(
@@ -370,9 +401,13 @@ function selectedRules(
       const scopeOverlap = rule.scopes.filter((scope) => scopeSet.has(scope)).length;
       const repositoryScoped = rule.scopes.includes("repository");
       const globalPolicy = GLOBAL_POLICY_SOURCE.test(rule.source.path);
-      const ruleTerms = relevanceTerms(rule.text + "\n" + rule.source.path);
+      const ruleTextTerms = relevanceTerms(rule.text);
+      const ruleSourceTerms = relevanceTerms(rule.source.path);
+      const ruleTerms = new Set([...ruleTextTerms, ...ruleSourceTerms]);
       const lexicalOverlap = overlapCount(ruleTerms, supportingReviewTerms);
       const primaryOverlap = overlapCount(ruleTerms, primaryReviewTerms);
+      const textPrimaryOverlap = overlapCount(ruleTextTerms, primaryReviewTerms);
+      const sourcePrimaryOverlap = overlapCount(ruleSourceTerms, primaryReviewTerms);
       const domainMismatch = hasDistinctiveDomainMismatch(ruleTerms, primaryReviewTerms);
       const sourcePriority = globalPolicy ? 20 : 0;
       const score =
@@ -388,6 +423,8 @@ function selectedRules(
         globalPolicy,
         lexicalOverlap,
         primaryOverlap,
+        textPrimaryOverlap,
+        sourcePrimaryOverlap,
         domainMismatch,
         score,
       };
@@ -399,13 +436,20 @@ function selectedRules(
         globalPolicy,
         lexicalOverlap,
         primaryOverlap,
+        textPrimaryOverlap,
+        sourcePrimaryOverlap,
         domainMismatch,
       }) => {
         if (domainMismatch) return false;
         if (globalPolicy) return primaryOverlap >= 2;
-        if (scopeOverlap > 0) return primaryOverlap > 0;
-        if (primaryOverlap >= 2 && lexicalOverlap >= 3) return true;
-        return repositoryScoped && primaryOverlap >= 2;
+        if (scopeOverlap > 0) {
+          return (
+            textPrimaryOverlap >= 2 ||
+            (textPrimaryOverlap >= 1 && sourcePrimaryOverlap >= 1)
+          );
+        }
+        if (primaryOverlap >= 3 && lexicalOverlap >= 3) return true;
+        return repositoryScoped && textPrimaryOverlap >= 2;
       },
     )
     .sort(
@@ -475,7 +519,7 @@ export function buildReviewContract(input: BuildReviewContractInput): ReviewCont
   const scopes = inferredScopes(input, requirements);
   const rules = selectedRules(
     input.constitution,
-    scopes,
+    primaryRuleScopes(input),
     primaryReviewRelevanceTerms(input),
     supportingReviewRelevanceTerms(input, requirements),
   );
