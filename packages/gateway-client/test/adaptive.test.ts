@@ -1925,4 +1925,72 @@ describe("AdaptiveFreeGatewayClient", () => {
     });
     expect(requestedModels[0]).toBe(capacityLimitedModel);
   });
+
+  it("cools an entire provider lane after a review 429", async () => {
+    const requestedModels: string[] = [];
+    let providerAFailures = 0;
+
+    const client = new AdaptiveFreeGatewayClient({
+      maxRetries: 0,
+      maxModelAttempts: 2,
+      fetch: async (input, init) => {
+        if (String(input).endsWith("/models")) {
+          return new Response(
+            JSON.stringify({
+              data: [
+                {
+                  id: "provider-a/alpha:free",
+                  owned_by: "provider-a",
+                  context_length: 131072,
+                  supported_parameters: ["response_format"],
+                },
+                {
+                  id: "provider-a/beta:free",
+                  owned_by: "provider-a",
+                  context_length: 131072,
+                  supported_parameters: ["response_format"],
+                },
+                {
+                  id: "provider-b/gamma:free",
+                  owned_by: "provider-b",
+                  context_length: 131072,
+                  supported_parameters: ["response_format"],
+                },
+              ],
+            }),
+            { status: 200, headers: { "Content-Type": "application/json" } },
+          );
+        }
+
+        const body = JSON.parse(String(init?.body ?? "{}")) as { model?: string };
+        const model = String(body.model);
+        requestedModels.push(model);
+        if (model.startsWith("provider-a/") && providerAFailures === 0) {
+          providerAFailures += 1;
+          return new Response(JSON.stringify({ error: { message: "Too Many Requests" } }), {
+            status: 429,
+            headers: { "Content-Type": "application/json" },
+          });
+        }
+        return completion(model);
+      },
+    });
+
+    await client.createChatCompletion({
+      model: "kilo-auto/free",
+      messages: [{ role: "user", content: "review" }],
+      routing: { task: "review_general", inputChars: 8_000 },
+      response_format: { type: "json_object" },
+    });
+
+    requestedModels.length = 0;
+    await client.createChatCompletion({
+      model: "kilo-auto/free",
+      messages: [{ role: "user", content: "review again" }],
+      routing: { task: "review_general", inputChars: 8_000 },
+      response_format: { type: "json_object" },
+    });
+
+    expect(requestedModels[0]?.startsWith("provider-a/")).toBe(false);
+  });
 });

@@ -1063,7 +1063,7 @@ async function runExternalReviewBatchWithRecovery(
       try {
         await options.assertHeadStable?.();
         const result = await runReviewLens(
-          options,
+          { ...options, maxSteps: Math.min(options.maxSteps ?? 3, 2) },
           constitution,
           batch.files,
           lens,
@@ -1098,7 +1098,7 @@ async function runExternalReviewBatchWithRecovery(
         await options.assertHeadStable?.();
         recovered.push(
           await runReviewLens(
-            options,
+            { ...options, maxSteps: Math.min(options.maxSteps ?? 3, 2) },
             constitution,
             recoveryBatch.files,
             lens,
@@ -1571,7 +1571,7 @@ function extractJson(content: string): unknown {
     : new Error("Review model response did not contain valid JSON.");
 }
 
-function positiveDodObservation(value: unknown): boolean {
+function explicitDodViolation(value: unknown): boolean {
   if (!value || typeof value !== "object" || Array.isArray(value)) return false;
   const finding = value as Record<string, unknown>;
   if (finding.basis !== "dod") return false;
@@ -1582,40 +1582,34 @@ function positiveDodObservation(value: unknown): boolean {
   const recommendation =
     typeof finding.recommendation === "string" ? finding.recommendation.trim().toLowerCase() : "";
   const claim = [title, evidence].join(" ");
-  const allText = [title, evidence, recommendation].join(" ");
 
-  const explicitViolation =
-    /\b(?:violat(?:e|es|ed|ion)|unmet|missing|required\s+work\s+is\s+absent|fails?\s+to|does\s+not|doesn't|incorrect|wrong|broken|gap|must\s+be\s+fixed|needs?\s+to\s+be\s+fixed)\b/.test(
+  return (
+    /\b(?:violat(?:e|es|ed|ion)|unmet|missing|required\s+work\s+is\s+absent|fails?\s+to|does\s+not|doesn't|incorrect|wrong|broken|gap|omits?|omitted|leaks?|exposes?|accepts?\s+invalid|allows?\s+invalid|must\s+be\s+fixed|needs?\s+to\s+be\s+fixed)\b/.test(
       claim,
     ) ||
     /\b(?:introduces?|causes?|creates?)\s+(?:a\s+)?regression\b|\bregression\s+(?:introduced|caused|created)\b/.test(
       claim,
-    );
-  if (explicitViolation) return false;
-
-  return (
-    /\b(?:correctly|properly|successfully)\s+(?:implements?|implemented|enforces?|enforced|validates?|validated|applies?|applied|matches?|matched|satisfies|satisfied)\b/.test(
-      allText,
     ) ||
-    /\b(?:matches?|aligns?|complies?)\s+with\s+(?:the\s+)?(?:kt-?\d+\s+)?(?:requirement|requirements|contract|dod|acceptance)\b/.test(
-      allText,
+    /\b(?:still\s+)?(?:accepts?|accepted|allows?|allowed)\b[^.]{0,100}\b(?:unknown|unsupported|forbidden|unverified)\b|\b(?:unknown|unsupported|forbidden|unverified)\b[^.]{0,100}\b(?:is|are|remains?|still)\s+(?:accepted|allowed)\b/.test(
+      claim,
     ) ||
-    /\b(?:as|required by|in line with)\s+(?:the\s+)?(?:kt-?\d+\s+)?(?:requirement|requirements|contract|dod|acceptance)\b/.test(
-      allText,
+    /\b(?:despite|contrary\s+to|instead\s+of|before)\b[^.]{0,160}\b(?:requirement|required|verification|validation|contract|acceptance)\b/.test(
+      claim,
     ) ||
-    /\b(?:is|are)\s+(?:correct|compliant|appropriate|consistent)\b/.test(allText) ||
-    /\bno\s+(?:modification|change|changes|action|fix|work)\s+(?:is\s+)?(?:needed|required|recommended)\b/.test(
+    /\b(?:requirement|required|contract|acceptance)\b[^.]{0,160}\b(?:but|however|yet)\b/.test(
+      claim,
+    ) ||
+    /\b(?:should|must|required\s+to)\b[^.]{0,120}\b(?:but|instead|while)\b/.test(claim) ||
+    /\b(?:restore|remove|reject|disable|prevent|add|fix)\b[^.]{0,120}\b(?:to\s+(?:satisfy|meet|restore|comply)|because\s+(?:the\s+)?requirement)\b/.test(
       recommendation,
-    ) ||
-    /\bno\s+changes?\s+recommended\b/.test(recommendation) ||
-    /\b(?:keep|retain|maintain)\s+(?:this|the)\s+(?:test|guard|policy|check)\b/.test(
-      recommendation,
-    ) ||
-    /\brun\s+(?:the\s+)?(?:script|check|test)\s+periodically\b/.test(recommendation) ||
-    /\bprovides?\s+(?:reproducible|deterministic)\s+(?:verification|coverage|evidence)\b/.test(
-      allText,
     )
   );
+}
+
+function positiveDodObservation(value: unknown): boolean {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+  const finding = value as Record<string, unknown>;
+  return finding.basis === "dod" && !explicitDodViolation(finding);
 }
 
 function pruneImpossibleExternalDodFindings(
@@ -2620,9 +2614,13 @@ async function runReviewLens(
       const failedModel = response.routed_model?.trim() || response.model?.trim();
       if (failedModel) {
         avoidedModels.add(failedModel);
-        if (choice?.finish_reason !== "length") {
-          sessionAvoidedModels?.add(failedModel);
-        }
+        sessionAvoidedModels?.add(failedModel);
+      }
+
+      if (material && choice?.finish_reason === "length") {
+        throw new Error(
+          "generation length limit reached without structured review content for lens " + lens,
+        );
       }
 
       if (material && step < maxSteps) {

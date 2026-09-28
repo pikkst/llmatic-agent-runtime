@@ -2960,4 +2960,130 @@ describe("review engine", () => {
     expect(report.blockingCount).toBe(0);
     expect(report.nonBlockingCount).toBe(0);
   });
+
+  it("drops PR-244-style DoD compliance observations unless they explicitly prove a violation", async () => {
+    const root = await repository();
+    const config = configFor(root);
+    const dodRef =
+      "[Jira KT-136 AC] Request parameters/parcel or object identifiers are validated and bounded before provider access.";
+    const gateway = new ScriptedGateway([
+      response(
+        JSON.stringify({
+          summary: "Validation is present.",
+          findings: [
+            {
+              severity: "blocking",
+              category: "reliability",
+              basis: "dod",
+              title: "REQUEST PARAMETERS VALIDATED BEFORE PROVIDER ACCESS",
+              path: "src/value.ts",
+              line: 1,
+              side: "RIGHT",
+              evidence:
+                "The changed code validates cadastralId before proceeding, ensuring only well-formed requests reach the provider.",
+              recommendation: "Ensure this validation remains consistently applied.",
+              dod_ref: dodRef,
+              rule_id: null,
+            },
+          ],
+        }),
+      ),
+    ]);
+
+    const report = await runExternalPullRequestReview({
+      root,
+      config,
+      gateway,
+      lenses: ["general"],
+      material: {
+        reference: "244",
+        headRefOid: "head-244-positive",
+        title: "feat(KT-136): implement In-AKS parcel-to-building adapter",
+        body: "",
+        ciState: "passing",
+        changedFiles: ["src/value.ts"],
+        diff:
+          "diff --git a/src/value.ts b/src/value.ts\n" +
+          "--- a/src/value.ts\n" +
+          "+++ b/src/value.ts\n" +
+          "@@ -1 +1 @@\n-export const valid = false;\n+export const valid = true;\n",
+        diffTruncated: false,
+        documentedAcceptanceEvidence: [dodRef],
+        acceptanceEvidenceSource: "Jira KT-136",
+      },
+    });
+
+    expect(report.findings).toEqual([]);
+    expect(report.blockingCount).toBe(0);
+  });
+
+  it("fails a length-limited full packet immediately and avoids that model in split recovery", async () => {
+    const root = await repository();
+    const config = configFor(root);
+    const lengthResponse: GatewayChatResponse = {
+      ...response(null, undefined, "provider/too-long:free"),
+      routed_model: "provider/too-long:free",
+      choices: [
+        {
+          index: 0,
+          message: { role: "assistant", content: null },
+          finish_reason: "length",
+        },
+      ],
+    };
+    const gateway = new ScriptedGateway([
+      lengthResponse,
+      response(
+        JSON.stringify({ summary: "First split clean.", findings: [] }),
+        undefined,
+        "provider/short-a:free",
+      ),
+      response(
+        JSON.stringify({ summary: "Second split clean.", findings: [] }),
+        undefined,
+        "provider/short-b:free",
+      ),
+    ]);
+
+    const changedFiles = ["src/feature-a.ts", "src/feature-b.ts"];
+    const diff = changedFiles
+      .map(
+        (path, index) =>
+          "diff --git a/" +
+          path +
+          " b/" +
+          path +
+          "\n--- a/" +
+          path +
+          "\n+++ b/" +
+          path +
+          "\n@@ -1 +1 @@\n-export const value = 1;\n+export const value = " +
+          String(index + 2) +
+          ";\n",
+      )
+      .join("");
+
+    const report = await runExternalPullRequestReview({
+      root,
+      config,
+      gateway,
+      lenses: ["general"],
+      batchConcurrency: 1,
+      material: {
+        reference: "244",
+        headRefOid: "head-244-length",
+        title: "KT-136 split recovery",
+        body: "",
+        ciState: "passing",
+        changedFiles,
+        diff,
+        diffTruncated: false,
+      },
+    });
+
+    expect(report.reviewStatus).toBe("complete");
+    expect(gateway.requests).toHaveLength(3);
+    expect(gateway.requests[1]?.routing?.avoidModels).toContain("provider/too-long:free");
+    expect(gateway.requests[2]?.routing?.avoidModels).toContain("provider/too-long:free");
+  });
 });

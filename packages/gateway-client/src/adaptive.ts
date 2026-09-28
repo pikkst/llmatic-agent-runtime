@@ -289,6 +289,7 @@ export class AdaptiveFreeGatewayClient implements GatewayChatClient {
   private readonly globallyUnhealthyUntil = new Map<string, number>();
   private readonly taskExcludedModels = new Map<string, Set<string>>();
   private readonly blockedProviders = new Set<string>();
+  private readonly providerUnhealthyUntil = new Map<string, number>();
   private readonly autoFreeTaskFailures = new Map<string, number>();
   private readonly autoFreeDisabledTasks = new Set<string>();
   private readonly activeProviders = new Set<string>();
@@ -398,7 +399,10 @@ export class AdaptiveFreeGatewayClient implements GatewayChatClient {
           : "native"
         : undefined;
       const reasoningModel = candidateInfo ? reasoningHeavyModel(candidateInfo) : false;
-      const provider = providerKey(candidateModel);
+      const provider = providerKey(candidateInfo ?? candidateModel);
+      if ((this.providerUnhealthyUntil.get(provider) ?? 0) > Date.now()) {
+        continue;
+      }
       const hasIdleAlternative = candidates
         .slice(index + 1)
         .some((candidate) => !this.activeProviders.has(providerKey(candidate)));
@@ -473,8 +477,16 @@ export class AdaptiveFreeGatewayClient implements GatewayChatClient {
           }
         } else {
           this.excludeForTask(task, candidateModel, reason);
+          const providerKeyValue = provider;
           if (providerCompatibilityFailure(reason)) {
-            this.blockedProviders.add(providerKey(candidateModel));
+            this.blockedProviders.add(providerKeyValue);
+          } else if (/rate.?limit|too many requests|\b429\b/i.test(reason)) {
+            this.providerUnhealthyUntil.set(providerKeyValue, Date.now() + 60_000);
+          } else if (/timed? out|timeout/i.test(reason)) {
+            this.providerUnhealthyUntil.set(
+              providerKeyValue,
+              Date.now() + Math.max(this.modelCooldownMs, REVIEW_FAILURE_COOLDOWN_MS),
+            );
           }
         }
       } finally {
@@ -522,6 +534,7 @@ export class AdaptiveFreeGatewayClient implements GatewayChatClient {
               /content.?safety|moderation|guard/.test(model.id.toLowerCase())
             ) &&
             !this.blockedProviders.has(providerKey(model)) &&
+            (this.providerUnhealthyUntil.get(providerKey(model)) ?? 0) <= now &&
             (taskUnhealthy?.get(model.id) ?? 0) <= now &&
             (this.globallyUnhealthyUntil.get(model.id) ?? 0) <= now,
         )
